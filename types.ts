@@ -12,6 +12,7 @@ export interface User {
   phone?: string;
   countryCode?: string;
   password?: string;
+  active?: boolean;
 }
 
 export interface University {
@@ -24,11 +25,31 @@ export interface University {
   logo?: string; // URL or base64 - optional
 }
 
+export type ProgramCategory =
+  | 'medicine_health_sciences'
+  | 'engineering_technology'
+  | 'natural_sciences'
+  | 'social_economic_admin_sciences'
+  | 'education_teaching'
+  | 'law_communication_humanities'
+  | 'art_design_sports';
+
+export const PROGRAM_CATEGORIES: ProgramCategory[] = [
+  'medicine_health_sciences',
+  'engineering_technology',
+  'natural_sciences',
+  'social_economic_admin_sciences',
+  'education_teaching',
+  'law_communication_humanities',
+  'art_design_sports'
+];
+
 export interface Program {
   id: string;
   universityId: string;
   name: string; // Branch name
   nameInArabic?: string;
+  category?: ProgramCategory;
   degree: 'Bachelor' | 'Master' | 'PhD' | 'Diploma' | 'CombinedPhD';
   language: 'English' | 'Turkish' | 'Arabic';
   years: number;

@@ -8,9 +8,10 @@ import {
   LogOut,
   Menu,
   X,
-  UserCircle
+  UserCircle,
+  UserCog
 } from 'lucide-react';
-import { User } from '../types';
+import { User, UserRole } from '../types';
 import { NotificationDropdown } from './NotificationDropdown';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -49,6 +50,7 @@ export const Layout: React.FC<LayoutProps> = ({
     { id: 'programs', label: t.programs, icon: BookOpen },
     { id: 'students', label: t.students, icon: Users },
     { id: 'applications', label: t.applications, icon: FileText },
+    ...(currentUser?.role === UserRole.ADMIN ? [{ id: 'users' as const, label: t.usersTitle, icon: UserCog }] : []),
     { id: 'account', label: t.account, icon: UserCircle },
   ];
 
@@ -84,33 +86,33 @@ export const Layout: React.FC<LayoutProps> = ({
                   onNavigate(item.id);
                   setSidebarOpen(false);
                 }}
-                className={`w-full flex items-center space-x-3 space-x-reverse px-4 py-3 rounded-lg transition-colors duration-200
+                className={`w-full flex items-center gap-2 px-4 py-3 rounded-lg transition-colors duration-200
                   ${activePage === item.id
                     ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
                     : 'text-slate-300 hover:bg-slate-800 hover:text-white'}
                 `}
               >
-                <item.icon size={20} />
+                <item.icon size={20} className="flex-shrink-0" />
                 <span className="font-medium">{item.label}</span>
               </button>
             ))}
           </nav>
 
           <div className="p-4 border-t border-slate-800">
-            <div className="flex items-center space-x-3 space-x-reverse mb-4 px-2">
-              <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-lg font-bold">
+            <div className="flex items-center gap-3 mb-4 px-2">
+              <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-lg font-bold flex-shrink-0">
                 {currentUser?.name.charAt(0).toUpperCase()}
               </div>
-              <div>
-                <p className="text-sm font-medium text-white">{currentUser?.name}</p>
-                <p className="text-xs text-slate-400">{currentUser?.role}</p>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-white truncate">{currentUser?.name}</p>
+                <p className="text-xs text-slate-400 truncate" title={currentUser?.email}>{currentUser?.email}</p>
               </div>
             </div>
             <button
               onClick={onLogout}
-              className="w-full flex items-center justify-center space-x-2 space-x-reverse px-4 py-2 bg-slate-800 hover:bg-slate-700 text-red-400 rounded-lg transition-colors"
+              className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-red-400 rounded-lg transition-colors"
             >
-              <LogOut size={18} />
+              <LogOut size={18} className="flex-shrink-0" />
               <span>{t.logout}</span>
             </button>
           </div>

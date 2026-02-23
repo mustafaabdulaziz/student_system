@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { Program, University, User, UserRole } from '../types';
-import { Plus, BookOpen, Clock, DollarSign, Calendar, Trash2, Pencil } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Program, University, User, UserRole, PROGRAM_CATEGORIES } from '../types';
+import { Plus, BookOpen, Clock, DollarSign, Calendar, Trash2, Pencil, Search, Filter, X } from 'lucide-react';
 import { useTranslation } from '../hooks/useTranslation';
 
 interface ProgramManagerProps {
@@ -20,16 +20,23 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
   onDeleteProgram,
   currentUser
 }) => {
-  const { t, translateDegree } = useTranslation();
+  const { t, translateDegree, translateCategory } = useTranslation();
   const isAdmin = currentUser?.role === UserRole.ADMIN;
   const [isModalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<'add' | 'edit'>('add');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [searchProgramName, setSearchProgramName] = useState('');
+  const [searchNameInArabic, setSearchNameInArabic] = useState('');
+  const [filterCategory, setFilterCategory] = useState<string>('');
+  const [filterUniversityId, setFilterUniversityId] = useState<string>('');
+  const [filterDegree, setFilterDegree] = useState<string>('');
+  const [filterLanguage, setFilterLanguage] = useState<string>('');
   const [formData, setFormData] = useState<Partial<Program>>({
     name: '',
     nameInArabic: '',
     universityId: '',
+    category: undefined,
     degree: 'Bachelor',
     language: 'English',
     years: 4,
@@ -41,6 +48,29 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
 
   const getUniversityName = (id: string) => universities.find(u => u.id === id)?.name || t.noUniversities;
 
+  const filteredPrograms = useMemo(() => {
+    return programs.filter(prog => {
+      const matchName = !searchProgramName.trim() || prog.name.toLowerCase().includes(searchProgramName.trim().toLowerCase());
+      const matchNameAr = !searchNameInArabic.trim() || (prog.nameInArabic || '').toLowerCase().includes(searchNameInArabic.trim().toLowerCase());
+      const matchCategory = !filterCategory || prog.category === filterCategory;
+      const matchUniversity = !filterUniversityId || prog.universityId === filterUniversityId;
+      const matchDegree = !filterDegree || prog.degree === filterDegree;
+      const matchLanguage = !filterLanguage || prog.language === filterLanguage;
+      return matchName && matchNameAr && matchCategory && matchUniversity && matchDegree && matchLanguage;
+    });
+  }, [programs, searchProgramName, searchNameInArabic, filterCategory, filterUniversityId, filterDegree, filterLanguage]);
+
+  const hasActiveFilters = !!(searchProgramName.trim() || searchNameInArabic.trim() || filterCategory || filterUniversityId || filterDegree || filterLanguage);
+
+  const clearFilters = () => {
+    setSearchProgramName('');
+    setSearchNameInArabic('');
+    setFilterCategory('');
+    setFilterUniversityId('');
+    setFilterDegree('');
+    setFilterLanguage('');
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (formData.universityId && formData.name) {
@@ -49,6 +79,7 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
         universityId: formData.universityId,
         name: formData.name,
         nameInArabic: formData.nameInArabic || undefined,
+        category: formData.category,
         degree: formData.degree as any,
         language: formData.language as any,
         years: formData.years || 4,
@@ -67,7 +98,7 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
       setModalOpen(false);
       setEditingId(null);
       setFormData({
-        name: '', nameInArabic: '', universityId: '', degree: 'Bachelor', language: 'English',
+        name: '', nameInArabic: '', universityId: '', category: undefined, degree: 'Bachelor', language: 'English',
         years: 4, fee: 0, currency: 'USD', deadline: '', description: ''
       });
     }
@@ -77,7 +108,7 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
     setModalMode('add');
     setEditingId(null);
     setFormData({
-      name: '', nameInArabic: '', universityId: '', degree: 'Bachelor', language: 'English',
+      name: '', nameInArabic: '', universityId: '', category: undefined, degree: 'Bachelor', language: 'English',
       years: 4, fee: 0, currency: 'USD', deadline: '', description: ''
     });
     setModalOpen(true);
@@ -118,6 +149,92 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
         )}
       </div>
 
+      {/* Search & Filters */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+        <div className="flex flex-wrap items-center gap-3 mb-3">
+          <div className="flex items-center gap-2 text-gray-600">
+            <Search size={18} className="text-blue-500" />
+            <span className="text-sm font-medium">{t.search}</span>
+          </div>
+          <div className="h-6 w-px bg-gray-200 hidden sm:block" />
+          <div className="flex items-center gap-2 text-gray-600">
+            <Filter size={18} className="text-purple-500" />
+            <span className="text-sm font-medium">{t.filter}</span>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+          <input
+            type="text"
+            placeholder={t.searchProgramNamePlaceholder}
+            value={searchProgramName}
+            onChange={e => setSearchProgramName(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+          />
+          <input
+            type="text"
+            dir="rtl"
+            placeholder={t.searchNameInArabicPlaceholder}
+            value={searchNameInArabic}
+            onChange={e => setSearchNameInArabic(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+          />
+          <select
+            value={filterCategory}
+            onChange={e => setFilterCategory(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
+          >
+            <option value="">{t.filterAll}</option>
+            {PROGRAM_CATEGORIES.map(cat => (
+              <option key={cat} value={cat}>{translateCategory(cat)}</option>
+            ))}
+          </select>
+          <select
+            value={filterUniversityId}
+            onChange={e => setFilterUniversityId(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
+          >
+            <option value="">{t.filterAll}</option>
+            {universities.map(u => (
+              <option key={u.id} value={u.id}>{u.name}</option>
+            ))}
+          </select>
+          <select
+            value={filterDegree}
+            onChange={e => setFilterDegree(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
+          >
+            <option value="">{t.filterAll}</option>
+            <option value="Bachelor">{t.bachelor}</option>
+            <option value="Master">{t.master}</option>
+            <option value="PhD">{t.phd}</option>
+            <option value="CombinedPhD">{t.combinedPhd}</option>
+            <option value="Diploma">Diploma</option>
+          </select>
+          <select
+            value={filterLanguage}
+            onChange={e => setFilterLanguage(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
+          >
+            <option value="">{t.filterAll}</option>
+            <option value="English">English</option>
+            <option value="Turkish">Turkish</option>
+            <option value="Arabic">Arabic</option>
+          </select>
+        </div>
+        {hasActiveFilters && (
+          <div className="mt-3 flex justify-end">
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+            >
+              <X size={14} />
+              {t.clearFilters}
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* Table */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="overflow-x-auto">
@@ -126,6 +243,7 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
               <tr>
                 <th className="px-6 py-4 font-medium">{t.programName}</th>
                 <th className="px-6 py-4 font-medium">{t.programNameInArabic}</th>
+                <th className="px-6 py-4 font-medium">{t.programCategory}</th>
                 <th className="px-6 py-4 font-medium">{t.universities}</th>
                 <th className="px-6 py-4 font-medium">{t.programDegree}</th>
                 <th className="px-6 py-4 font-medium">{t.programLanguage}</th>
@@ -135,10 +253,11 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {programs.map((program) => (
+              {filteredPrograms.map((program) => (
                 <tr key={program.id} className="hover:bg-gray-50 transition-colors group">
                   <td className="px-6 py-4 font-medium text-gray-900">{program.name}</td>
                   <td className="px-6 py-4 text-gray-700" dir="rtl">{program.nameInArabic || '—'}</td>
+                  <td className="px-6 py-4 text-gray-600">{program.category ? translateCategory(program.category) : '—'}</td>
                   <td className="px-6 py-4 text-blue-600">{getUniversityName(program.universityId)}</td>
                   <td className="px-6 py-4">
                     <span className="px-2 py-1 bg-purple-50 text-purple-700 rounded text-xs">
@@ -172,9 +291,11 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
                   )}
                 </tr>
               ))}
-              {programs.length === 0 && (
+              {filteredPrograms.length === 0 && (
                 <tr>
-                  <td colSpan={isAdmin ? 8 : 7} className="px-6 py-8 text-center text-gray-400">{t.noPrograms}</td>
+                  <td colSpan={isAdmin ? 9 : 8} className="px-6 py-8 text-center text-gray-400">
+                    {hasActiveFilters ? t.searchNoResults : t.noPrograms}
+                  </td>
                 </tr>
               )}
             </tbody>
@@ -223,6 +344,20 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
                     placeholder={t.programNameInArabicPlaceholder}
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t.programCategory}</label>
+                <select
+                  className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none"
+                  value={formData.category || ''}
+                  onChange={e => setFormData({ ...formData, category: e.target.value ? (e.target.value as Program['category']) : undefined })}
+                >
+                  <option value="">—</option>
+                  {PROGRAM_CATEGORIES.map(cat => (
+                    <option key={cat} value={cat}>{translateCategory(cat)}</option>
+                  ))}
+                </select>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

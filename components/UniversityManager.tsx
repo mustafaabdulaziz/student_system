@@ -39,7 +39,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
   universities, programs,
   onAddUniversity, onEditUniversity, onDeleteUniversity, currentUser
 }) => {
-  const { t, translateDegree } = useTranslation();
+  const { t, translateDegree, translateCategory } = useTranslation();
   const isAdmin = currentUser?.role === UserRole.ADMIN;
 
   /* -------- Modals & View State -------- */
@@ -448,6 +448,9 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                           <h5 className="font-semibold text-gray-800">{prog.name}</h5>
                           {prog.nameInArabic && (
                             <p className="text-sm text-gray-500 mt-0.5" dir="rtl">{prog.nameInArabic}</p>
+                          )}
+                          {prog.category && (
+                            <p className="text-xs text-gray-400 mt-0.5">{translateCategory(prog.category)}</p>
                           )}
                         </div>
                         <span className={`text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${DEGREE_COLORS[prog.degree] || 'bg-gray-100 text-gray-600'}`}>

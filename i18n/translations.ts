@@ -21,6 +21,7 @@ export interface Translations {
     next: string;
     submit: string;
     close: string;
+    optional: string;
 
     // Navigation
     dashboard: string;
@@ -39,6 +40,7 @@ export interface Translations {
     password: string;
     loginButton: string;
     loginError: string;
+    accountDeactivated: string;
 
     // Dashboard
     dashboardTitle: string;
@@ -88,6 +90,14 @@ export interface Translations {
     programName: string;
     programNameInArabic: string;
     programNameInArabicPlaceholder: string;
+    programCategory: string;
+    category_medicine_health_sciences: string;
+    category_engineering_technology: string;
+    category_natural_sciences: string;
+    category_social_economic_admin_sciences: string;
+    category_education_teaching: string;
+    category_law_communication_humanities: string;
+    category_art_design_sports: string;
     programDegree: string;
     programLanguage: string;
     programYears: string;
@@ -97,6 +107,10 @@ export interface Translations {
     programDescription: string;
     selectUniversity: string;
     noPrograms: string;
+    searchProgramNamePlaceholder: string;
+    searchNameInArabicPlaceholder: string;
+    filterAll: string;
+    clearFilters: string;
     bachelor: string;
     master: string;
     phd: string;
@@ -147,6 +161,7 @@ export interface Translations {
     // Users
     usersTitle: string;
     addUser: string;
+    editUser: string;
     userName: string;
     userEmail: string;
     userRole: string;
@@ -160,6 +175,8 @@ export interface Translations {
     changePassword: string;
     newPassword: string;
     confirmPassword: string;
+    active: string;
+    inactive: string;
 
     // Notifications
     notificationsTitle: string;
@@ -216,6 +233,7 @@ export const translations: Record<Language, Translations> = {
         next: 'التالي',
         submit: 'إرسال',
         close: 'إغلاق',
+        optional: 'اختياري',
 
         // Navigation
         dashboard: 'لوحة التحكم',
@@ -234,6 +252,7 @@ export const translations: Record<Language, Translations> = {
         password: 'كلمة المرور',
         loginButton: 'دخول',
         loginError: 'خطأ في البريد الإلكتروني أو كلمة المرور',
+        accountDeactivated: 'هذا الحساب غير مفعل',
 
         // Dashboard
         dashboardTitle: 'لوحة التحكم',
@@ -283,6 +302,14 @@ export const translations: Record<Language, Translations> = {
         programName: 'اسم البرنامج',
         programNameInArabic: 'الاسم بالعربية',
         programNameInArabicPlaceholder: 'اسم البرنامج بالعربية',
+        programCategory: 'الفئة',
+        category_medicine_health_sciences: 'الطب والعلوم الصحية',
+        category_engineering_technology: 'الهندسة والتكنولوجيا',
+        category_natural_sciences: 'العلوم الطبيعية',
+        category_social_economic_admin_sciences: 'العلوم الاجتماعية والاقتصادية والإدارية',
+        category_education_teaching: 'التعليم والتدريس',
+        category_law_communication_humanities: 'القانون والإعلام والعلوم الإنسانية',
+        category_art_design_sports: 'الفن والتصميم والرياضة',
         programDegree: 'الدرجة',
         programLanguage: 'لغة التدريس',
         programYears: 'عدد السنوات',
@@ -292,6 +319,10 @@ export const translations: Record<Language, Translations> = {
         programDescription: 'الوصف',
         selectUniversity: 'اختر الجامعة',
         noPrograms: 'لا توجد برامج',
+        searchProgramNamePlaceholder: 'بحث باسم البرنامج...',
+        searchNameInArabicPlaceholder: 'بحث بالاسم بالعربية...',
+        filterAll: 'الكل',
+        clearFilters: 'مسح الفلاتر',
         bachelor: 'بكالوريوس',
         master: 'ماجستير',
         phd: 'دكتوراه',
@@ -342,6 +373,7 @@ export const translations: Record<Language, Translations> = {
         // Users
         usersTitle: 'إدارة المستخدمين',
         addUser: 'إضافة مستخدم',
+        editUser: 'تعديل المستخدم',
         userName: 'اسم المستخدم',
         userEmail: 'البريد الإلكتروني',
         userRole: 'الدور',
@@ -355,6 +387,8 @@ export const translations: Record<Language, Translations> = {
         changePassword: 'تغيير كلمة المرور',
         newPassword: 'كلمة المرور الجديدة',
         confirmPassword: 'تأكيد كلمة المرور',
+        active: 'نشط',
+        inactive: 'غير نشط',
 
         // Notifications
         notificationsTitle: 'الإشعارات',
@@ -410,6 +444,7 @@ export const translations: Record<Language, Translations> = {
         next: 'Next',
         submit: 'Submit',
         close: 'Close',
+        optional: 'Optional',
 
         // Navigation
         dashboard: 'Dashboard',
@@ -428,6 +463,7 @@ export const translations: Record<Language, Translations> = {
         password: 'Password',
         loginButton: 'Sign In',
         loginError: 'Invalid email or password',
+        accountDeactivated: 'This account is deactivated',
 
         // Dashboard
         dashboardTitle: 'Dashboard',
@@ -477,6 +513,14 @@ export const translations: Record<Language, Translations> = {
         programName: 'Program Name',
         programNameInArabic: 'Name in Arabic',
         programNameInArabicPlaceholder: 'Program name in Arabic',
+        programCategory: 'Category',
+        category_medicine_health_sciences: 'Medicine and Health Sciences',
+        category_engineering_technology: 'Engineering and Technology',
+        category_natural_sciences: 'Natural Sciences',
+        category_social_economic_admin_sciences: 'Social, Economic and Administrative Sciences',
+        category_education_teaching: 'Education and Teaching',
+        category_law_communication_humanities: 'Law, Communication and Humanities',
+        category_art_design_sports: 'Arts, Design and Sports',
         programDegree: 'Degree',
         programLanguage: 'Language',
         programYears: 'Years',
@@ -486,6 +530,10 @@ export const translations: Record<Language, Translations> = {
         programDescription: 'Description',
         selectUniversity: 'Select University',
         noPrograms: 'No programs found',
+        searchProgramNamePlaceholder: 'Search by program name...',
+        searchNameInArabicPlaceholder: 'Search by name in Arabic...',
+        filterAll: 'All',
+        clearFilters: 'Clear filters',
         bachelor: 'Bachelor',
         master: 'Master',
         phd: 'PhD',
@@ -536,6 +584,7 @@ export const translations: Record<Language, Translations> = {
         // Users
         usersTitle: 'User Management',
         addUser: 'Add User',
+        editUser: 'Edit User',
         userName: 'Name',
         userEmail: 'Email',
         userRole: 'Role',
@@ -549,6 +598,8 @@ export const translations: Record<Language, Translations> = {
         changePassword: 'Change Password',
         newPassword: 'New Password',
         confirmPassword: 'Confirm Password',
+        active: 'Active',
+        inactive: 'Inactive',
 
         // Notifications
         notificationsTitle: 'Notifications',
@@ -604,6 +655,7 @@ export const translations: Record<Language, Translations> = {
         next: 'İleri',
         submit: 'Gönder',
         close: 'Kapat',
+        optional: 'İsteğe bağlı',
 
         // Navigation
         dashboard: 'Kontrol Paneli',
@@ -622,6 +674,7 @@ export const translations: Record<Language, Translations> = {
         password: 'Şifre',
         loginButton: 'Giriş Yap',
         loginError: 'Geçersiz e-posta veya şifre',
+        accountDeactivated: 'Bu hesap devre dışı bırakıldı',
 
         // Dashboard
         dashboardTitle: 'Kontrol Paneli',
@@ -671,6 +724,14 @@ export const translations: Record<Language, Translations> = {
         programName: 'Program Adı',
         programNameInArabic: 'Arapça Ad',
         programNameInArabicPlaceholder: 'Program adı Arapça',
+        programCategory: 'Kategori',
+        category_medicine_health_sciences: 'Tıp ve Sağlık Bilimleri',
+        category_engineering_technology: 'Mühendislik ve Teknoloji',
+        category_natural_sciences: 'Fen Bilimleri',
+        category_social_economic_admin_sciences: 'Sosyal, İktisadi ve İdari Bilimler',
+        category_education_teaching: 'Eğitim ve Öğretmenlik',
+        category_law_communication_humanities: 'Hukuk, İletişim ve Beşeri Bilimler',
+        category_art_design_sports: 'Sanat, Tasarım ve Spor',
         programDegree: 'Derece',
         programLanguage: 'Dil',
         programYears: 'Yıl',
@@ -680,6 +741,10 @@ export const translations: Record<Language, Translations> = {
         programDescription: 'Açıklama',
         selectUniversity: 'Üniversite Seç',
         noPrograms: 'Program bulunamadı',
+        searchProgramNamePlaceholder: 'Program adıyla ara...',
+        searchNameInArabicPlaceholder: 'Arapça adla ara...',
+        filterAll: 'Tümü',
+        clearFilters: 'Filtreleri temizle',
         bachelor: 'Lisans',
         master: 'Yüksek Lisans',
         phd: 'Doktora',
@@ -730,6 +795,7 @@ export const translations: Record<Language, Translations> = {
         // Users
         usersTitle: 'Kullanıcı Yönetimi',
         addUser: 'Kullanıcı Ekle',
+        editUser: 'Kullanıcıyı Düzenle',
         userName: 'Ad',
         userEmail: 'E-posta',
         userRole: 'Rol',
@@ -743,6 +809,8 @@ export const translations: Record<Language, Translations> = {
         changePassword: 'Şifre Değiştir',
         newPassword: 'Yeni Şifre',
         confirmPassword: 'Şifreyi Onayla',
+        active: 'Aktif',
+        inactive: 'Pasif',
 
         // Notifications
         notificationsTitle: 'Bildirimler',

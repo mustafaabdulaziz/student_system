@@ -22,7 +22,8 @@ def add_user():
         password=data['password'],
         role=data.get('role', 'USER'),
         phone=data.get('phone'),
-        country_code=data.get('countryCode')
+        country_code=data.get('countryCode'),
+        is_active=True
     )
     db.session.add(user)
     db.session.commit()
@@ -37,16 +38,33 @@ def update_profile():
     if not user:
         return jsonify({'message': 'المستخدم غير موجود'}), 404
     
+    if 'name' in data and data['name']:
+        user.name = data['name'].strip()
+    if 'email' in data and data['email']:
+        existing = User.query.filter(User.email == data['email'].strip(), User.id != user_id).first()
+        if existing:
+            return jsonify({'message': 'الإيميل مستخدم من قبل مستخدم آخر'}), 409
+        user.email = data['email'].strip()
     if data.get('password'):
         user.password = data['password']
-    
     if 'phone' in data:
         user.phone = data['phone']
     if 'countryCode' in data:
         user.country_code = data.get('countryCode')
         
     db.session.commit()
-    return jsonify({'message': 'تم تحديث البيانات بنجاح'}), 200
+    return jsonify({
+        'message': 'تم تحديث البيانات بنجاح',
+        'user': {
+            'id': user.id,
+            'name': user.name,
+            'email': user.email,
+            'role': user.role,
+            'phone': user.phone,
+            'countryCode': getattr(user, 'country_code', None),
+            'active': getattr(user, 'is_active', True)
+        }
+    }), 200
 
 # الحصول على جميع المستخدمين
 @api_bp.route('/users', methods=['GET'])
@@ -58,7 +76,8 @@ def get_users():
         'email': u.email,
         'role': u.role,
         'phone': u.phone,
-        'countryCode': getattr(u, 'country_code', None)
+        'countryCode': getattr(u, 'country_code', None),
+        'active': getattr(u, 'is_active', True)
     } for u in users])
 
 # حذف مستخدم
@@ -71,6 +90,32 @@ def delete_user(user_id):
     db.session.commit()
     return jsonify({'message': 'تم حذف المستخدم'}), 200
 
+# تحديث مستخدم (تعديل + تفعيل/إلغاء تفعيل)
+@api_bp.route('/users/<user_id>', methods=['PUT'])
+def update_user(user_id):
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({'message': 'المستخدم غير موجود'}), 404
+    data = request.json or {}
+    if 'name' in data:
+        user.name = data['name']
+    if 'email' in data:
+        if User.query.filter(User.email == data['email'], User.id != user_id).first():
+            return jsonify({'message': 'الإيميل مستخدم من قبل مستخدم آخر'}), 409
+        user.email = data['email']
+    if 'role' in data:
+        user.role = data['role']
+    if 'phone' in data:
+        user.phone = data['phone']
+    if 'countryCode' in data:
+        user.country_code = data['countryCode']
+    if 'password' in data and data['password']:
+        user.password = data['password']
+    if 'active' in data:
+        user.is_active = bool(data['active'])
+    db.session.commit()
+    return jsonify({'message': 'تم تحديث المستخدم', 'id': user.id}), 200
+
 # Login endpoint
 @api_bp.route('/login', methods=['POST'])
 def login():
@@ -79,6 +124,8 @@ def login():
     password = data.get('password')
     user = User.query.filter_by(email=email).first()
     if user and user.password == password:
+        if not getattr(user, 'is_active', True):
+            return jsonify({'success': False, 'message': 'هذا الحساب غير مفعل', 'code': 'ACCOUNT_DEACTIVATED'}), 401
         return jsonify({
             'success': True,
             'user': {
@@ -87,7 +134,8 @@ def login():
                 'email': user.email,
                 'role': user.role,
                 'phone': user.phone,
-                'countryCode': getattr(user, 'country_code', None)
+                'countryCode': getattr(user, 'country_code', None),
+                'active': getattr(user, 'is_active', True)
             }
         })
     return jsonify({'success': False, 'message': 'اسم المستخدم أو كلمة المرور غير صحيحة'}), 401
@@ -195,6 +243,8 @@ def get_programs():
         'id': p.id,
         'universityId': p.university_id,
         'name': p.name,
+        'nameInArabic': getattr(p, 'name_in_arabic', None),
+        'category': getattr(p, 'category', None),
         'degree': p.degree,
         'language': p.language,
         'years': p.years,
@@ -214,6 +264,8 @@ def add_program():
         id=str(uuid.uuid4()),
         university_id=data['universityId'],
         name=data['name'],
+        name_in_arabic=data.get('nameInArabic') or None,
+        category=data.get('category') or None,
         degree=data['degree'],
         language=data['language'],
         years=data['years'],
@@ -245,6 +297,10 @@ def update_program(prog_id):
     data = request.json
     program.university_id = data.get('universityId', program.university_id)
     program.name = data.get('name', program.name)
+    if 'nameInArabic' in data:
+        program.name_in_arabic = data['nameInArabic'] or None
+    if 'category' in data:
+        program.category = data['category'] or None
     program.degree = data.get('degree', program.degree)
     program.language = data.get('language', program.language)
     if 'years' in data:

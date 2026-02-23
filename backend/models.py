@@ -10,6 +10,7 @@ class User(db.Model):
     role = db.Column(db.String, nullable=False, default='ADMIN')
     phone = db.Column(db.String, nullable=True)
     country_code = db.Column(db.String, nullable=True)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
 
 class Student(db.Model):
     __tablename__ = 'students'
@@ -43,6 +44,8 @@ class Program(db.Model):
     id = db.Column(db.String, primary_key=True)
     university_id = db.Column(db.String, db.ForeignKey('universities.id'), nullable=False)
     name = db.Column(db.String, nullable=False)
+    name_in_arabic = db.Column(db.String, nullable=True)
+    category = db.Column(db.String, nullable=True)
     degree = db.Column(db.String, nullable=False)
     language = db.Column(db.String, nullable=False)
     years = db.Column(db.Integer, nullable=False)

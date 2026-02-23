@@ -37,6 +37,11 @@ if __name__ == '__main__':
                 conn.execute(text('ALTER TABLE users ADD COLUMN phone VARCHAR'))
             if 'country_code' not in cols:
                 conn.execute(text('ALTER TABLE users ADD COLUMN country_code VARCHAR'))
+            if 'is_active' not in cols:
+                try:
+                    conn.execute(text('ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT TRUE'))
+                except Exception:
+                    pass
             # Add logo column to universities if not exists
             try:
                 uni_cols = [c['name'] for c in inspector.get_columns('universities')]
@@ -53,6 +58,23 @@ if __name__ == '__main__':
                 except Exception:
                     pass
             conn.commit()
+            # Add name_in_arabic to programs if not exists
+            try:
+                prog_cols = [c['name'] for c in inspector.get_columns('programs')]
+            except Exception:
+                prog_cols = []
+            if 'name_in_arabic' not in prog_cols:
+                try:
+                    conn.execute(text('ALTER TABLE programs ADD COLUMN name_in_arabic VARCHAR'))
+                    conn.commit()
+                except Exception:
+                    pass
+            if 'category' not in prog_cols:
+                try:
+                    conn.execute(text('ALTER TABLE programs ADD COLUMN category VARCHAR'))
+                    conn.commit()
+                except Exception:
+                    pass
         # إضافة أدمن افتراضي إذا لم يوجد
         try:
             exists = User.query.options(load_only(User.email)).filter_by(email='admin@admin.com').first()

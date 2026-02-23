@@ -37,6 +37,19 @@ export const useTranslation = () => {
         return degreeMap[degree] || degree;
     };
 
+    const translateCategory = (category: string) => {
+        const categoryMap: Record<string, string> = {
+            'medicine_health_sciences': t.category_medicine_health_sciences,
+            'engineering_technology': t.category_engineering_technology,
+            'natural_sciences': t.category_natural_sciences,
+            'social_economic_admin_sciences': t.category_social_economic_admin_sciences,
+            'education_teaching': t.category_education_teaching,
+            'law_communication_humanities': t.category_law_communication_humanities,
+            'art_design_sports': t.category_art_design_sports,
+        };
+        return categoryMap[category] || category;
+    };
+
     // Helper function to translate gender
     const translateGender = (gender: string) => {
         const genderMap: Record<string, any> = {
@@ -104,6 +117,7 @@ export const useTranslation = () => {
         language,
         translateStatus,
         translateDegree,
+        translateCategory,
         translateGender,
         translateRole,
         translateNotification,

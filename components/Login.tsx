@@ -29,7 +29,7 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
       if (data.success) {
         onLogin(data.user);
       } else {
-        setError(data.message || t.loginError);
+        setError(data.code === 'ACCOUNT_DEACTIVATED' ? t.accountDeactivated : (data.message || t.loginError));
       }
     } catch (err) {
       setError(t.errorConnection);

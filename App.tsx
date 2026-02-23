@@ -6,7 +6,8 @@ import { UniversityManager } from './components/UniversityManager';
 import { ProgramManager } from './components/ProgramManager';
 import { StudentManager } from './components/StudentManager';
 import { ApplicationManager } from './components/ApplicationManager';
-import { UserManager } from './components/UserManager';
+import { AccountProfile } from './components/AccountProfile';
+import { UserManagementPage } from './components/UserManagementPage';
 import { Login } from './components/Login';
 import {
   User,
@@ -28,6 +29,36 @@ const INITIAL_STATE: AppState = {
   currentUser: null
 };
 
+const PATH_TO_PAGE: Record<string, string> = {
+  '/': 'dashboard',
+  '/dashboard': 'dashboard',
+  '/universities': 'universities',
+  '/programs': 'programs',
+  '/students': 'students',
+  '/applications': 'applications',
+  '/users': 'users',
+  '/account': 'account'
+};
+
+const PAGE_TO_PATH: Record<string, string> = {
+  dashboard: '/dashboard',
+  universities: '/universities',
+  programs: '/programs',
+  students: '/students',
+  applications: '/applications',
+  users: '/users',
+  account: '/account'
+};
+
+function getPageFromPath(pathname: string): string {
+  const normalized = pathname.replace(/\/$/, '') || '/';
+  return PATH_TO_PAGE[normalized] ?? 'dashboard';
+}
+
+function getPathFromPage(page: string): string {
+  return PAGE_TO_PATH[page] ?? '/dashboard';
+}
+
 export default function App() {
   const { t } = useTranslation();
   const [state, setState] = useState<AppState>(INITIAL_STATE);
@@ -35,6 +66,35 @@ export default function App() {
   const [prefillStudentIdForApp, setPrefillStudentIdForApp] = useState<string | null>(null);
   const [targetApplicationId, setTargetApplicationId] = useState<string | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
+
+  const navigateTo = (page: string) => {
+    setActivePage(page);
+    if (typeof window !== 'undefined') {
+      const path = getPathFromPage(page);
+      if (window.location.pathname !== path) {
+        window.history.pushState({ page }, '', path);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const pathname = window.location.pathname || '/';
+    const page = getPageFromPath(pathname);
+    setActivePage(page);
+    if (pathname === '/' || pathname === '') {
+      window.history.replaceState({ page: 'dashboard' }, '', '/dashboard');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handlePopState = () => {
+      setActivePage(getPageFromPath(window.location.pathname || '/'));
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   useEffect(() => {
     const savedSession = localStorage.getItem('userSession');
@@ -56,7 +116,14 @@ export default function App() {
     setIsLoaded(true);
   }, []);
 
-
+  useEffect(() => {
+    if (state.currentUser && state.currentUser.role !== UserRole.ADMIN && activePage === 'users') {
+      setActivePage('dashboard');
+      if (typeof window !== 'undefined') {
+        window.history.replaceState({ page: 'dashboard' }, '', '/dashboard');
+      }
+    }
+  }, [state.currentUser, activePage]);
 
   const handleLogin = (user: User) => {
     const session = {
@@ -77,12 +144,12 @@ export default function App() {
 
   const openCreateApplicationForStudent = (studentId: string) => {
     setPrefillStudentIdForApp(studentId);
-    setActivePage('applications');
+    navigateTo('applications');
   };
 
   const openApplicationDetails = (appId: string) => {
     setTargetApplicationId(appId);
-    setActivePage('applications');
+    navigateTo('applications');
   };
 
   // State Updates
@@ -281,7 +348,7 @@ export default function App() {
       });
       const data = await res.json();
       if (res.ok) {
-        setState(prev => ({ ...prev, users: [...prev.users, { ...user, id: data.id }] }));
+        setState(prev => ({ ...prev, users: [...prev.users, { ...user, id: data.id, active: true }] }));
       } else {
         alert(data.message || t.errorAddUser);
       }
@@ -303,6 +370,64 @@ export default function App() {
       }
     } catch (err) {
       alert('خطأ في الاتصال بالخادم');
+    }
+  };
+
+  const editUser = async (user: User & { password?: string }) => {
+    try {
+      const res = await fetch(`/api/users/${user.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          phone: user.phone,
+          countryCode: user.countryCode,
+          ...(user.password ? { password: user.password } : {})
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        const updated = { ...user, password: undefined };
+        setState(prev => {
+          const nextUsers = prev.users.map(u => u.id === user.id ? { ...u, ...updated } : u);
+          const isCurrentUser = prev.currentUser?.id === user.id;
+          const nextCurrentUser = isCurrentUser ? { ...prev.currentUser, ...updated } : prev.currentUser;
+          if (isCurrentUser) {
+            const session = localStorage.getItem('userSession');
+            if (session) {
+              try {
+                const parsed = JSON.parse(session);
+                localStorage.setItem('userSession', JSON.stringify({ ...parsed, user: nextCurrentUser, timestamp: parsed.timestamp }));
+              } catch (_) {}
+            }
+          }
+          return { ...prev, users: nextUsers, currentUser: nextCurrentUser };
+        });
+      } else {
+        alert(data.message || t.errorUpdate);
+      }
+    } catch (err) {
+      alert(t.errorConnection);
+    }
+  };
+
+  const setUserActive = async (id: string, active: boolean) => {
+    try {
+      const res = await fetch(`/api/users/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active })
+      });
+      if (res.ok) {
+        setState(prev => ({ ...prev, users: prev.users.map(u => u.id === id ? { ...u, active } : u) }));
+      } else {
+        const data = await res.json();
+        alert(data.message || t.errorUpdate);
+      }
+    } catch (err) {
+      alert(t.errorConnection);
     }
   };
 
@@ -333,7 +458,7 @@ export default function App() {
           programs: responses[1],
           students: responses[2],
           applications: responses[3],
-          users: state.currentUser?.role === UserRole.ADMIN ? responses[4] : []
+          users: state.currentUser?.role === UserRole.ADMIN ? (responses[4] || []).map((u: any) => ({ ...u, active: u.active !== false })) : []
         }));
       } catch (err) {
         console.error('Error fetching data:', err);
@@ -370,7 +495,46 @@ export default function App() {
       case 'applications':
         return <ApplicationManager applications={state.applications} students={state.students} programs={state.programs} universities={state.universities} onAddApplication={addApplication} onUpdateStatus={updateAppStatus} initialStudentId={prefillStudentIdForApp} clearInitialStudent={() => setPrefillStudentIdForApp(null)} targetApplicationId={targetApplicationId} clearTargetApplication={() => setTargetApplicationId(null)} currentUser={state.currentUser} />;
       case 'account':
-        return <UserManager users={state.users} currentUser={state.currentUser} onAddUser={addUser} onDeleteUser={deleteUser} />;
+        return (
+          <AccountProfile
+            currentUser={state.currentUser}
+            onProfileUpdated={(user) => {
+              setState(prev => ({
+                ...prev,
+                currentUser: user,
+                users: prev.users.map(u => (u.id === user.id ? { ...u, ...user } : u))
+              }));
+              const session = localStorage.getItem('userSession');
+              if (session) {
+                try {
+                  const parsed = JSON.parse(session);
+                  localStorage.setItem('userSession', JSON.stringify({ ...parsed, user, timestamp: parsed.timestamp }));
+                } catch (_) {}
+              }
+            }}
+          />
+        );
+      case 'users':
+        if (state.currentUser?.role !== UserRole.ADMIN) {
+          return (
+            <Dashboard
+              students={state.students}
+              applications={state.applications}
+              programs={state.programs}
+              universitiesCount={state.universities.length}
+            />
+          );
+        }
+        return (
+          <UserManagementPage
+            users={state.users}
+            currentUser={state.currentUser}
+            onAddUser={addUser}
+            onEditUser={editUser}
+            onDeleteUser={deleteUser}
+            onSetUserActive={setUserActive}
+          />
+        );
       default:
         return (
           <Dashboard
@@ -386,7 +550,7 @@ export default function App() {
   return (
     <Layout
       activePage={activePage}
-      onNavigate={setActivePage}
+      onNavigate={navigateTo}
       onNavigateToApp={openApplicationDetails}
       currentUser={state.currentUser}
       onLogout={handleLogout}
