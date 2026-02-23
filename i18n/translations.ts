@@ -1,0 +1,779 @@
+export type Language = 'ar' | 'en' | 'tr';
+
+export interface Translations {
+    // Common
+    appName: string;
+    welcome: string;
+    loading: string;
+    save: string;
+    cancel: string;
+    delete: string;
+    edit: string;
+    add: string;
+    search: string;
+    filter: string;
+    export: string;
+    import: string;
+    yes: string;
+    no: string;
+    confirm: string;
+    back: string;
+    next: string;
+    submit: string;
+    close: string;
+
+    // Navigation
+    dashboard: string;
+    universities: string;
+    programs: string;
+    students: string;
+    applications: string;
+    users: string;
+    account: string;
+    logout: string;
+    notifications: string;
+
+    // Login
+    login: string;
+    email: string;
+    password: string;
+    loginButton: string;
+    loginError: string;
+
+    // Dashboard
+    dashboardTitle: string;
+    totalStudents: string;
+    totalApplications: string;
+    totalPrograms: string;
+    totalUniversities: string;
+    pendingApplications: string;
+    approvedApplications: string;
+    rejectedApplications: string;
+    recentApplications: string;
+    viewDetails: string;
+
+    // Universities
+    universitiesTitle: string;
+    addUniversity: string;
+    universityName: string;
+    universityWebsite: string;
+    universityCountry: string;
+    universityDescription: string;
+    noUniversities: string;
+    searchUniversities: string;
+    searchNoResults: string;
+    treeView: string;
+    kanbanView: string;
+    visitOfficialWebsite: string;
+    overview: string;
+    programsAndFees: string;
+    availableSpecialization: string;
+    city: string;
+    universityLogoOptional: string;
+    clickToUploadLogo: string;
+    changeLogo: string;
+    editData: string;
+    deleteRecord: string;
+    deleteUniversityConfirmMessage: string;
+    editUniversity: string;
+    selectedLogo: string;
+    logoFormatHint: string;
+    countryTurkey: string;
+    countryCyprus: string;
+
+    // Programs
+    programsTitle: string;
+    addProgram: string;
+    editProgram: string;
+    programName: string;
+    programNameInArabic: string;
+    programNameInArabicPlaceholder: string;
+    programDegree: string;
+    programLanguage: string;
+    programYears: string;
+    programDeadline: string;
+    programFee: string;
+    programCurrency: string;
+    programDescription: string;
+    selectUniversity: string;
+    noPrograms: string;
+    bachelor: string;
+    master: string;
+    phd: string;
+    combinedPhd: string;
+
+    // Students
+    studentsTitle: string;
+    addStudent: string;
+    firstName: string;
+    lastName: string;
+    passportNumber: string;
+    fatherName: string;
+    motherName: string;
+    gender: string;
+    male: string;
+    female: string;
+    phone: string;
+    nationality: string;
+    degreeTarget: string;
+    dateOfBirth: string;
+    residenceCountry: string;
+    noStudents: string;
+    studentDetails: string;
+    createApplication: string;
+    viewApplications: string;
+
+    // Applications
+    applicationsTitle: string;
+    addApplication: string;
+    applicationStatus: string;
+    semester: string;
+    selectStudent: string;
+    selectProgram: string;
+    uploadFiles: string;
+    noApplications: string;
+    pending: string;
+    approved: string;
+    rejected: string;
+    missingDocs: string;
+    underReview: string;
+    applicationDetails: string;
+    updateStatus: string;
+    sendMessage: string;
+    messages: string;
+    noMessages: string;
+    typeMessage: string;
+
+    // Users
+    usersTitle: string;
+    addUser: string;
+    userName: string;
+    userEmail: string;
+    userRole: string;
+    userPhone: string;
+    countryCode: string;
+    noUsers: string;
+    admin: string;
+    agent: string;
+    hostAgent: string;
+    user: string;
+    changePassword: string;
+    newPassword: string;
+    confirmPassword: string;
+
+    // Notifications
+    notificationsTitle: string;
+    noNotifications: string;
+    markAsRead: string;
+    newMessage: string;
+    statusUpdate: string;
+    statusUpdateMessage: string;
+    messageFromAdmin: string;
+    messageFromApp: string;
+
+    // Messages
+    successAdd: string;
+    successUpdate: string;
+    successDelete: string;
+    errorAdd: string;
+    errorUpdate: string;
+    errorDelete: string;
+    errorConnection: string;
+    confirmDelete: string;
+
+    // Validation
+    requiredField: string;
+    invalidImageFile: string;
+    invalidEmail: string;
+    passwordMismatch: string;
+
+    // Language
+    language: string;
+    arabic: string;
+    english: string;
+    turkish: string;
+}
+
+export const translations: Record<Language, Translations> = {
+    ar: {
+        // Common
+        appName: 'NOKTA CRM',
+        welcome: 'مرحباً',
+        loading: 'جاري التحميل...',
+        save: 'حفظ',
+        cancel: 'إلغاء',
+        delete: 'حذف',
+        edit: 'تعديل',
+        add: 'إضافة',
+        search: 'بحث',
+        filter: 'تصفية',
+        export: 'تصدير',
+        import: 'استيراد',
+        yes: 'نعم',
+        no: 'لا',
+        confirm: 'تأكيد',
+        back: 'رجوع',
+        next: 'التالي',
+        submit: 'إرسال',
+        close: 'إغلاق',
+
+        // Navigation
+        dashboard: 'لوحة التحكم',
+        universities: 'الجامعات',
+        programs: 'البرامج',
+        students: 'الطلاب',
+        applications: 'الطلبات',
+        users: 'المستخدمون',
+        account: 'الحساب',
+        logout: 'تسجيل الخروج',
+        notifications: 'الإشعارات',
+
+        // Login
+        login: 'تسجيل الدخول',
+        email: 'البريد الإلكتروني',
+        password: 'كلمة المرور',
+        loginButton: 'دخول',
+        loginError: 'خطأ في البريد الإلكتروني أو كلمة المرور',
+
+        // Dashboard
+        dashboardTitle: 'لوحة التحكم',
+        totalStudents: 'إجمالي الطلاب',
+        totalApplications: 'إجمالي الطلبات',
+        totalPrograms: 'إجمالي البرامج',
+        totalUniversities: 'إجمالي الجامعات',
+        pendingApplications: 'طلبات قيد الانتظار',
+        approvedApplications: 'طلبات مقبولة',
+        rejectedApplications: 'طلبات مرفوضة',
+        recentApplications: 'الطلبات الأخيرة',
+        viewDetails: 'عرض التفاصيل',
+
+        // Universities
+        universitiesTitle: 'إدارة الجامعات',
+        addUniversity: 'إضافة جامعة',
+        universityName: 'اسم الجامعة',
+        universityWebsite: 'الموقع الإلكتروني',
+        universityCountry: 'الدولة',
+        universityDescription: 'الوصف',
+        noUniversities: 'لا توجد جامعات',
+        searchUniversities: 'بحث بالاسم...',
+        searchNoResults: 'لا توجد نتائج',
+        treeView: 'عرض شجري',
+        kanbanView: 'عرض كانبان',
+        visitOfficialWebsite: 'زيارة الموقع الرسمي',
+        overview: 'نظرة عامة',
+        programsAndFees: 'البرامج والرسوم',
+        availableSpecialization: 'تخصص متاح',
+        city: 'المدينة',
+        universityLogoOptional: 'شعار الجامعة (اختياري)',
+        clickToUploadLogo: 'انقر لرفع شعار الجامعة',
+        changeLogo: 'تغيير',
+        editData: 'تعديل البيانات',
+        deleteRecord: 'حذف السجل',
+        deleteUniversityConfirmMessage: 'سيتم حذف الجامعة وجميع البرامج المرتبطة بها نهائياً.',
+        editUniversity: 'تعديل الجامعة',
+        selectedLogo: 'تم اختيار الشعار ✓',
+        logoFormatHint: 'PNG, JPG, SVG (حد أقصى 2MB)',
+        countryTurkey: 'تركيا',
+        countryCyprus: 'قبرص',
+
+        // Programs
+        programsTitle: 'إدارة البرامج',
+        addProgram: 'إضافة برنامج',
+        editProgram: 'تعديل البرنامج',
+        programName: 'اسم البرنامج',
+        programNameInArabic: 'الاسم بالعربية',
+        programNameInArabicPlaceholder: 'اسم البرنامج بالعربية',
+        programDegree: 'الدرجة',
+        programLanguage: 'لغة التدريس',
+        programYears: 'عدد السنوات',
+        programDeadline: 'الموعد النهائي',
+        programFee: 'الرسوم',
+        programCurrency: 'العملة',
+        programDescription: 'الوصف',
+        selectUniversity: 'اختر الجامعة',
+        noPrograms: 'لا توجد برامج',
+        bachelor: 'بكالوريوس',
+        master: 'ماجستير',
+        phd: 'دكتوراه',
+        combinedPhd: 'دكتوراه مشتركة',
+
+        // Students
+        studentsTitle: 'إدارة الطلاب',
+        addStudent: 'إضافة طالب',
+        firstName: 'الاسم الأول',
+        lastName: 'اسم العائلة',
+        passportNumber: 'رقم جواز السفر',
+        fatherName: 'اسم الأب',
+        motherName: 'اسم الأم',
+        gender: 'الجنس',
+        male: 'ذكر',
+        female: 'أنثى',
+        phone: 'رقم الهاتف',
+        nationality: 'الجنسية',
+        degreeTarget: 'الدرجة المستهدفة',
+        dateOfBirth: 'تاريخ الميلاد',
+        residenceCountry: 'بلد الإقامة',
+        noStudents: 'لا يوجد طلاب',
+        studentDetails: 'تفاصيل الطالب',
+        createApplication: 'إنشاء طلب',
+        viewApplications: 'عرض الطلبات',
+
+        // Applications
+        applicationsTitle: 'إدارة الطلبات',
+        addApplication: 'إضافة طلب',
+        applicationStatus: 'حالة الطلب',
+        semester: 'الفصل الدراسي',
+        selectStudent: 'اختر الطالب',
+        selectProgram: 'اختر البرنامج',
+        uploadFiles: 'رفع الملفات',
+        noApplications: 'لا توجد طلبات',
+        pending: 'قيد الانتظار',
+        approved: 'مقبول',
+        rejected: 'مرفوض',
+        missingDocs: 'طلب ملفات ناقصة',
+        underReview: 'قيد التقييم',
+        applicationDetails: 'تفاصيل الطلب',
+        updateStatus: 'تحديث الحالة',
+        sendMessage: 'إرسال رسالة',
+        messages: 'الرسائل',
+        noMessages: 'لا توجد رسائل',
+        typeMessage: 'اكتب رسالة...',
+
+        // Users
+        usersTitle: 'إدارة المستخدمين',
+        addUser: 'إضافة مستخدم',
+        userName: 'اسم المستخدم',
+        userEmail: 'البريد الإلكتروني',
+        userRole: 'الدور',
+        userPhone: 'رقم الهاتف',
+        countryCode: 'كود الدولة',
+        noUsers: 'لا يوجد مستخدمون',
+        admin: 'مدير',
+        agent: 'وكيل',
+        hostAgent: 'الوكيل المضيف',
+        user: 'مستخدم',
+        changePassword: 'تغيير كلمة المرور',
+        newPassword: 'كلمة المرور الجديدة',
+        confirmPassword: 'تأكيد كلمة المرور',
+
+        // Notifications
+        notificationsTitle: 'الإشعارات',
+        noNotifications: 'لا توجد إشعارات',
+        markAsRead: 'تعليم كمقروء',
+        newMessage: 'رسالة جديدة',
+        statusUpdate: 'تحديث الحالة',
+        statusUpdateMessage: 'تم تغيير حالة طلبك #{id} إلى {status}',
+        messageFromAdmin: 'الأدمن: {message}',
+        messageFromApp: 'طلب #{id}: {message}',
+
+        // Messages
+        successAdd: 'تمت الإضافة بنجاح',
+        successUpdate: 'تم التحديث بنجاح',
+        successDelete: 'تم الحذف بنجاح',
+        errorAdd: 'فشلت الإضافة',
+        errorUpdate: 'فشل التحديث',
+        errorDelete: 'فشل الحذف',
+        errorConnection: 'خطأ في الاتصال بالخادم',
+        confirmDelete: 'هل أنت متأكد من الحذف؟',
+
+        // Validation
+        requiredField: 'هذا الحقل مطلوب',
+        invalidImageFile: 'يرجى اختيار ملف صورة صالح',
+        invalidEmail: 'البريد الإلكتروني غير صالح',
+        passwordMismatch: 'كلمات المرور غير متطابقة',
+
+        // Language
+        language: 'اللغة',
+        arabic: 'العربية',
+        english: 'English',
+        turkish: 'Türkçe',
+    },
+
+    en: {
+        // Common
+        appName: 'Nokta CRM',
+        welcome: 'Welcome',
+        loading: 'Loading...',
+        save: 'Save',
+        cancel: 'Cancel',
+        delete: 'Delete',
+        edit: 'Edit',
+        add: 'Add',
+        search: 'Search',
+        filter: 'Filter',
+        export: 'Export',
+        import: 'Import',
+        yes: 'Yes',
+        no: 'No',
+        confirm: 'Confirm',
+        back: 'Back',
+        next: 'Next',
+        submit: 'Submit',
+        close: 'Close',
+
+        // Navigation
+        dashboard: 'Dashboard',
+        universities: 'Universities',
+        programs: 'Programs',
+        students: 'Students',
+        applications: 'Applications',
+        users: 'Users',
+        account: 'Account',
+        logout: 'Logout',
+        notifications: 'Notifications',
+
+        // Login
+        login: 'Login',
+        email: 'Email',
+        password: 'Password',
+        loginButton: 'Sign In',
+        loginError: 'Invalid email or password',
+
+        // Dashboard
+        dashboardTitle: 'Dashboard',
+        totalStudents: 'Total Students',
+        totalApplications: 'Total Applications',
+        totalPrograms: 'Total Programs',
+        totalUniversities: 'Total Universities',
+        pendingApplications: 'Pending Applications',
+        approvedApplications: 'Approved Applications',
+        rejectedApplications: 'Rejected Applications',
+        recentApplications: 'Recent Applications',
+        viewDetails: 'View Details',
+
+        // Universities
+        universitiesTitle: 'University Management',
+        addUniversity: 'Add University',
+        universityName: 'University Name',
+        universityWebsite: 'Website',
+        universityCountry: 'Country',
+        universityDescription: 'Description',
+        noUniversities: 'No universities found',
+        searchUniversities: 'Search by name...',
+        searchNoResults: 'No results found',
+        treeView: 'Tree view',
+        kanbanView: 'Kanban view',
+        visitOfficialWebsite: 'Visit Official Website',
+        overview: 'Overview',
+        programsAndFees: 'Programs and Fees',
+        availableSpecialization: 'Available specialization',
+        city: 'City',
+        universityLogoOptional: 'University logo (optional)',
+        clickToUploadLogo: 'Click to upload university logo',
+        changeLogo: 'Change',
+        editData: 'Edit Data',
+        deleteRecord: 'Delete Record',
+        deleteUniversityConfirmMessage: 'The university and all associated programs will be permanently deleted.',
+        editUniversity: 'Edit University',
+        selectedLogo: 'Logo selected ✓',
+        logoFormatHint: 'PNG, JPG, SVG (max 2MB)',
+        countryTurkey: 'Turkey',
+        countryCyprus: 'Cyprus',
+
+        // Programs
+        programsTitle: 'Program Management',
+        addProgram: 'Add Program',
+        editProgram: 'Edit Program',
+        programName: 'Program Name',
+        programNameInArabic: 'Name in Arabic',
+        programNameInArabicPlaceholder: 'Program name in Arabic',
+        programDegree: 'Degree',
+        programLanguage: 'Language',
+        programYears: 'Years',
+        programDeadline: 'Deadline',
+        programFee: 'Fee',
+        programCurrency: 'Currency',
+        programDescription: 'Description',
+        selectUniversity: 'Select University',
+        noPrograms: 'No programs found',
+        bachelor: 'Bachelor',
+        master: 'Master',
+        phd: 'PhD',
+        combinedPhd: 'Combined PhD',
+
+        // Students
+        studentsTitle: 'Student Management',
+        addStudent: 'Add Student',
+        firstName: 'First Name',
+        lastName: 'Last Name',
+        passportNumber: 'Passport Number',
+        fatherName: "Father's Name",
+        motherName: "Mother's Name",
+        gender: 'Gender',
+        male: 'Male',
+        female: 'Female',
+        phone: 'Phone',
+        nationality: 'Nationality',
+        degreeTarget: 'Target Degree',
+        dateOfBirth: 'Date of Birth',
+        residenceCountry: 'Residence Country',
+        noStudents: 'No students found',
+        studentDetails: 'Student Details',
+        createApplication: 'Create Application',
+        viewApplications: 'View Applications',
+
+        // Applications
+        applicationsTitle: 'Application Management',
+        addApplication: 'Add Application',
+        applicationStatus: 'Status',
+        semester: 'Semester',
+        selectStudent: 'Select Student',
+        selectProgram: 'Select Program',
+        uploadFiles: 'Upload Files',
+        noApplications: 'No applications found',
+        pending: 'Pending',
+        approved: 'Approved',
+        rejected: 'Rejected',
+        missingDocs: 'Missing Documents',
+        underReview: 'Under Review',
+        applicationDetails: 'Application Details',
+        updateStatus: 'Update Status',
+        sendMessage: 'Send Message',
+        messages: 'Messages',
+        noMessages: 'No messages',
+        typeMessage: 'Type a message...',
+
+        // Users
+        usersTitle: 'User Management',
+        addUser: 'Add User',
+        userName: 'Name',
+        userEmail: 'Email',
+        userRole: 'Role',
+        userPhone: 'Phone',
+        countryCode: 'Country Code',
+        noUsers: 'No users found',
+        admin: 'Admin',
+        agent: 'Agent',
+        hostAgent: 'Host Agent',
+        user: 'User',
+        changePassword: 'Change Password',
+        newPassword: 'New Password',
+        confirmPassword: 'Confirm Password',
+
+        // Notifications
+        notificationsTitle: 'Notifications',
+        noNotifications: 'No notifications',
+        markAsRead: 'Mark as Read',
+        newMessage: 'New Message',
+        statusUpdate: 'Status Update',
+        statusUpdateMessage: 'Your application #{id} status changed to {status}',
+        messageFromAdmin: 'Admin: {message}',
+        messageFromApp: 'App #{id}: {message}',
+
+        // Messages
+        successAdd: 'Added successfully',
+        successUpdate: 'Updated successfully',
+        successDelete: 'Deleted successfully',
+        errorAdd: 'Failed to add',
+        errorUpdate: 'Failed to update',
+        errorDelete: 'Failed to delete',
+        errorConnection: 'Server connection error',
+        confirmDelete: 'Are you sure you want to delete?',
+
+        // Validation
+        requiredField: 'This field is required',
+        invalidImageFile: 'Please select a valid image file',
+        invalidEmail: 'Invalid email address',
+        passwordMismatch: 'Passwords do not match',
+
+        // Language
+        language: 'Language',
+        arabic: 'العربية',
+        english: 'English',
+        turkish: 'Türkçe',
+    },
+
+    tr: {
+        // Common
+        appName: 'Nokta CRM',
+        welcome: 'Hoş Geldiniz',
+        loading: 'Yükleniyor...',
+        save: 'Kaydet',
+        cancel: 'İptal',
+        delete: 'Sil',
+        edit: 'Düzenle',
+        add: 'Ekle',
+        search: 'Ara',
+        filter: 'Filtrele',
+        export: 'Dışa Aktar',
+        import: 'İçe Aktar',
+        yes: 'Evet',
+        no: 'Hayır',
+        confirm: 'Onayla',
+        back: 'Geri',
+        next: 'İleri',
+        submit: 'Gönder',
+        close: 'Kapat',
+
+        // Navigation
+        dashboard: 'Kontrol Paneli',
+        universities: 'Üniversiteler',
+        programs: 'Programlar',
+        students: 'Öğrenciler',
+        applications: 'Başvurular',
+        users: 'Kullanıcılar',
+        account: 'Hesap',
+        logout: 'Çıkış',
+        notifications: 'Bildirimler',
+
+        // Login
+        login: 'Giriş',
+        email: 'E-posta',
+        password: 'Şifre',
+        loginButton: 'Giriş Yap',
+        loginError: 'Geçersiz e-posta veya şifre',
+
+        // Dashboard
+        dashboardTitle: 'Kontrol Paneli',
+        totalStudents: 'Toplam Öğrenci',
+        totalApplications: 'Toplam Başvuru',
+        totalPrograms: 'Toplam Program',
+        totalUniversities: 'Toplam Üniversite',
+        pendingApplications: 'Bekleyen Başvurular',
+        approvedApplications: 'Onaylanan Başvurular',
+        rejectedApplications: 'Reddedilen Başvurular',
+        recentApplications: 'Son Başvurular',
+        viewDetails: 'Detayları Görüntüle',
+
+        // Universities
+        universitiesTitle: 'Üniversite Yönetimi',
+        addUniversity: 'Üniversite Ekle',
+        universityName: 'Üniversite Adı',
+        universityWebsite: 'Web Sitesi',
+        universityCountry: 'Ülke',
+        universityDescription: 'Açıklama',
+        noUniversities: 'Üniversite bulunamadı',
+        searchUniversities: 'İsimle ara...',
+        searchNoResults: 'Sonuç bulunamadı',
+        treeView: 'Ağaç görünümü',
+        kanbanView: 'Kanban görünümü',
+        visitOfficialWebsite: 'Resmi Siteyi Ziyaret Et',
+        overview: 'Genel Bakış',
+        programsAndFees: 'Programlar ve Ücretler',
+        availableSpecialization: 'Uygun uzmanlık',
+        city: 'Şehir',
+        universityLogoOptional: 'Üniversite logosu (isteğe bağlı)',
+        clickToUploadLogo: 'Logo yüklemek için tıklayın',
+        changeLogo: 'Değiştir',
+        editData: 'Verileri Düzenle',
+        deleteRecord: 'Kaydı Sil',
+        deleteUniversityConfirmMessage: 'Üniversite ve ilişkili tüm programlar kalıcı olarak silinecektir.',
+        editUniversity: 'Üniversiteyi Düzenle',
+        selectedLogo: 'Logo seçildi ✓',
+        logoFormatHint: 'PNG, JPG, SVG (maks 2MB)',
+        countryTurkey: 'Türkiye',
+        countryCyprus: 'Kıbrıs',
+
+        // Programs
+        programsTitle: 'Program Yönetimi',
+        addProgram: 'Program Ekle',
+        editProgram: 'Programı Düzenle',
+        programName: 'Program Adı',
+        programNameInArabic: 'Arapça Ad',
+        programNameInArabicPlaceholder: 'Program adı Arapça',
+        programDegree: 'Derece',
+        programLanguage: 'Dil',
+        programYears: 'Yıl',
+        programDeadline: 'Son Tarih',
+        programFee: 'Ücret',
+        programCurrency: 'Para Birimi',
+        programDescription: 'Açıklama',
+        selectUniversity: 'Üniversite Seç',
+        noPrograms: 'Program bulunamadı',
+        bachelor: 'Lisans',
+        master: 'Yüksek Lisans',
+        phd: 'Doktora',
+        combinedPhd: 'Birleşik Doktora',
+
+        // Students
+        studentsTitle: 'Öğrenci Yönetimi',
+        addStudent: 'Öğrenci Ekle',
+        firstName: 'Ad',
+        lastName: 'Soyad',
+        passportNumber: 'Pasaport Numarası',
+        fatherName: 'Baba Adı',
+        motherName: 'Anne Adı',
+        gender: 'Cinsiyet',
+        male: 'Erkek',
+        female: 'Kadın',
+        phone: 'Telefon',
+        nationality: 'Uyruk',
+        degreeTarget: 'Hedef Derece',
+        dateOfBirth: 'Doğum Tarihi',
+        residenceCountry: 'İkamet Ülkesi',
+        noStudents: 'Öğrenci bulunamadı',
+        studentDetails: 'Öğrenci Detayları',
+        createApplication: 'Başvuru Oluştur',
+        viewApplications: 'Başvuruları Görüntüle',
+
+        // Applications
+        applicationsTitle: 'Başvuru Yönetimi',
+        addApplication: 'Başvuru Ekle',
+        applicationStatus: 'Durum',
+        semester: 'Dönem',
+        selectStudent: 'Öğrenci Seç',
+        selectProgram: 'Program Seç',
+        uploadFiles: 'Dosya Yükle',
+        noApplications: 'Başvuru bulunamadı',
+        pending: 'Beklemede',
+        approved: 'Onaylandı',
+        rejected: 'Reddedildi',
+        missingDocs: 'Eksik Belgeler İste',
+        underReview: 'Değerlendirme Aşamasında',
+        applicationDetails: 'Başvuru Detayları',
+        updateStatus: 'Durumu Güncelle',
+        sendMessage: 'Mesaj Gönder',
+        messages: 'Mesajlar',
+        noMessages: 'Mesaj yok',
+        typeMessage: 'Mesaj yazın...',
+
+        // Users
+        usersTitle: 'Kullanıcı Yönetimi',
+        addUser: 'Kullanıcı Ekle',
+        userName: 'Ad',
+        userEmail: 'E-posta',
+        userRole: 'Rol',
+        userPhone: 'Telefon',
+        countryCode: 'Ülke Kodu',
+        noUsers: 'Kullanıcı bulunamadı',
+        admin: 'Yönetici',
+        agent: 'Temsilci',
+        hostAgent: 'Sorumlu Temsilci',
+        user: 'Kullanıcı',
+        changePassword: 'Şifre Değiştir',
+        newPassword: 'Yeni Şifre',
+        confirmPassword: 'Şifreyi Onayla',
+
+        // Notifications
+        notificationsTitle: 'Bildirimler',
+        noNotifications: 'Bildirim yok',
+        markAsRead: 'Okundu Olarak İşaretle',
+        newMessage: 'Yeni Mesaj',
+        statusUpdate: 'Durum Güncellemesi',
+        statusUpdateMessage: '#{id} numaralı başvurunuzun durumu {status} olarak güncellendi',
+        messageFromAdmin: 'Yönetici: {message}',
+        messageFromApp: 'Başvuru #{id}: {message}',
+
+        // Messages
+        successAdd: 'Başarıyla eklendi',
+        successUpdate: 'Başarıyla güncellendi',
+        successDelete: 'Başarıyla silindi',
+        errorAdd: 'Ekleme başarısız',
+        errorUpdate: 'Güncelleme başarısız',
+        errorDelete: 'Silme başarısız',
+        errorConnection: 'Sunucu bağlantı hatası',
+        confirmDelete: 'Silmek istediğinizden emin misiniz?',
+
+        // Validation
+        requiredField: 'Bu alan gereklidir',
+        invalidImageFile: 'Lütfen geçerli bir resim dosyası seçin',
+        invalidEmail: 'Geçersiz e-posta adresi',
+        passwordMismatch: 'Şifreler eşleşmiyor',
+
+        // Language
+        language: 'Dil',
+        arabic: 'العربية',
+        english: 'English',
+        turkish: 'Türkçe',
+    },
+};
