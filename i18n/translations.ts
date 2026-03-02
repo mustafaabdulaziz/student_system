@@ -103,6 +103,12 @@ export interface Translations {
     programYears: string;
     programDeadline: string;
     programFee: string;
+    programPeriod: string;
+    selectPeriod: string;
+    feeBeforeDiscount: string;
+    deposit: string;
+    cashPrice: string;
+    programCountry: string;
     programCurrency: string;
     programDescription: string;
     selectUniversity: string;
@@ -177,6 +183,16 @@ export interface Translations {
     confirmPassword: string;
     active: string;
     inactive: string;
+
+    // Periods
+    period: string;
+    periodsTitle: string;
+    addPeriod: string;
+    editPeriod: string;
+    periodName: string;
+    startDate: string;
+    endDate: string;
+    noPeriods: string;
 
     // Notifications
     notificationsTitle: string;
@@ -315,6 +331,12 @@ export const translations: Record<Language, Translations> = {
         programYears: 'عدد السنوات',
         programDeadline: 'الموعد النهائي',
         programFee: 'الرسوم',
+        programPeriod: 'الدورة',
+        selectPeriod: 'اختر الدورة',
+        feeBeforeDiscount: 'الرسوم قبل الخصم',
+        deposit: 'العربون',
+        cashPrice: 'السعر النقدي',
+        programCountry: 'الدولة',
         programCurrency: 'العملة',
         programDescription: 'الوصف',
         selectUniversity: 'اختر الجامعة',
@@ -389,6 +411,16 @@ export const translations: Record<Language, Translations> = {
         confirmPassword: 'تأكيد كلمة المرور',
         active: 'نشط',
         inactive: 'غير نشط',
+
+        // Periods
+        period: 'الدورة',
+        periodsTitle: 'إدارة الدورات',
+        addPeriod: 'إضافة دورة',
+        editPeriod: 'تعديل الدورة',
+        periodName: 'اسم الدورة',
+        startDate: 'تاريخ البداية',
+        endDate: 'تاريخ النهاية',
+        noPeriods: 'لا توجد دورات',
 
         // Notifications
         notificationsTitle: 'الإشعارات',
@@ -526,6 +558,12 @@ export const translations: Record<Language, Translations> = {
         programYears: 'Years',
         programDeadline: 'Deadline',
         programFee: 'Fee',
+        programPeriod: 'Period',
+        selectPeriod: 'Select Period',
+        feeBeforeDiscount: 'Fee before discount',
+        deposit: 'Deposit',
+        cashPrice: 'Cash price',
+        programCountry: 'Country',
         programCurrency: 'Currency',
         programDescription: 'Description',
         selectUniversity: 'Select University',
@@ -600,6 +638,16 @@ export const translations: Record<Language, Translations> = {
         confirmPassword: 'Confirm Password',
         active: 'Active',
         inactive: 'Inactive',
+
+        // Periods
+        period: 'Period',
+        periodsTitle: 'Period Management',
+        addPeriod: 'Add Period',
+        editPeriod: 'Edit Period',
+        periodName: 'Period Name',
+        startDate: 'Start Date',
+        endDate: 'End Date',
+        noPeriods: 'No periods',
 
         // Notifications
         notificationsTitle: 'Notifications',
@@ -737,6 +785,12 @@ export const translations: Record<Language, Translations> = {
         programYears: 'Yıl',
         programDeadline: 'Son Tarih',
         programFee: 'Ücret',
+        programPeriod: 'Dönem',
+        selectPeriod: 'Dönem Seç',
+        feeBeforeDiscount: 'İndirim öncesi ücret',
+        deposit: 'Depozito',
+        cashPrice: 'Nakit fiyat',
+        programCountry: 'Ülke',
         programCurrency: 'Para Birimi',
         programDescription: 'Açıklama',
         selectUniversity: 'Üniversite Seç',
@@ -811,6 +865,16 @@ export const translations: Record<Language, Translations> = {
         confirmPassword: 'Şifreyi Onayla',
         active: 'Aktif',
         inactive: 'Pasif',
+
+        // Periods
+        period: 'Dönem',
+        periodsTitle: 'Dönem Yönetimi',
+        addPeriod: 'Dönem Ekle',
+        editPeriod: 'Dönemi Düzenle',
+        periodName: 'Dönem Adı',
+        startDate: 'Başlangıç Tarihi',
+        endDate: 'Bitiş Tarihi',
+        noPeriods: 'Dönem yok',
 
         // Notifications
         notificationsTitle: 'Bildirimler',

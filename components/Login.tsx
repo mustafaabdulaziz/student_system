@@ -44,7 +44,7 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
       </div>
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-8">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-800 mb-2">{t.login}</h1>
+          <img src="/images/logo.png" alt={t.appName} className="h-14 mx-auto mb-2 object-contain" />
           <p className="text-gray-500">{t.appName}</p>
         </div>
 

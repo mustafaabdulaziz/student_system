@@ -42,11 +42,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {stats.map((stat, idx) => (
-          <div key={idx} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center space-x-4 space-x-reverse">
-            <div className={`p-4 rounded-lg text-white ${stat.color}`}>
+          <div key={idx} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center gap-5">
+            <div className={`p-4 rounded-lg text-white shrink-0 ${stat.color}`}>
               <stat.icon size={24} />
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-gray-500 text-sm">{stat.label}</p>
               <h3 className="text-2xl font-bold text-gray-800">{stat.value}</h3>
             </div>

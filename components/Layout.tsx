@@ -9,7 +9,8 @@ import {
   Menu,
   X,
   UserCircle,
-  UserCog
+  UserCog,
+  CalendarRange
 } from 'lucide-react';
 import { User, UserRole } from '../types';
 import { NotificationDropdown } from './NotificationDropdown';
@@ -50,8 +51,13 @@ export const Layout: React.FC<LayoutProps> = ({
     { id: 'programs', label: t.programs, icon: BookOpen },
     { id: 'students', label: t.students, icon: Users },
     { id: 'applications', label: t.applications, icon: FileText },
-    ...(currentUser?.role === UserRole.ADMIN ? [{ id: 'users' as const, label: t.usersTitle, icon: UserCog }] : []),
-    { id: 'account', label: t.account, icon: UserCircle },
+    ...(currentUser?.role === UserRole.ADMIN
+      ? [
+          { id: 'periods' as const, label: t.period, icon: CalendarRange },
+          { id: 'users' as const, label: t.usersTitle, icon: UserCog }
+        ]
+      : []),
+    { id: 'account', label: t.account, icon: UserCircle }
   ];
 
   return (
@@ -71,11 +77,14 @@ export const Layout: React.FC<LayoutProps> = ({
         lg:relative lg:translate-x-0
       `}>
         <div className="h-full flex flex-col">
-          <div className="p-6 border-b border-slate-800 flex items-center justify-between">
-            <h1 className="text-2xl font-bold text-blue-400">{t.appName}</h1>
-            <button onClick={() => setSidebarOpen(false)} className="lg:hidden text-gray-400 hover:text-white">
-              <X size={24} />
-            </button>
+          <div className="p-6 border-b border-slate-800">
+            <div className="flex items-center justify-between">
+              <h1 className="text-2xl font-bold text-blue-400">{t.appName}</h1>
+              <button onClick={() => setSidebarOpen(false)} className="lg:hidden text-gray-400 hover:text-white">
+                <X size={24} />
+              </button>
+            </div>
+            <img src="/images/logo.png" alt="" className="mt-3 h-10 w-auto object-contain object-left rtl:object-right" />
           </div>
 
           <nav className="flex-1 px-4 py-6 space-y-2">

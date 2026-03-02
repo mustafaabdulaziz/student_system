@@ -3,7 +3,7 @@ import { University, Program, User, UserRole } from '../types';
 import {
   Plus, Globe, Sparkles, X, Image, Pencil, Trash2,
   BookOpen, Clock, DollarSign, Calendar, ChevronLeft,
-  MapPin, ExternalLink, GraduationCap, Search, LayoutGrid, List
+  MapPin, ExternalLink, GraduationCap, Search, LayoutGrid, List, ArrowLeft
 } from 'lucide-react';
 import { generateUniversityDescription } from '../services/geminiService';
 import { useTranslation } from '../hooks/useTranslation';
@@ -78,11 +78,13 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
 
   /* -------- Open / Close modal -------- */
   const openAdd = () => {
+    setDetailUni(null);
     setFormData(EMPTY_FORM); setLogoPreview(null); setLogoBase64(null);
     setEditingId(null); setModalMode('add');
   };
   const openEdit = (uni: University, e: React.MouseEvent) => {
     e.stopPropagation();
+    setDetailUni(null);
     setFormData({ ...uni }); setLogoPreview(uni.logo || null); setLogoBase64(uni.logo || null);
     setEditingId(uni.id); setModalMode('edit');
   };
@@ -158,15 +160,12 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
   };
 
   /* -------- Helpers -------- */
-  /* -------- Body Scroll Lock (only for modals) -------- */
+  /* -------- Body Scroll Lock (only for delete confirm overlay) -------- */
   useEffect(() => {
-    if (modalMode || confirmDeleteId) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = 'auto';
-    }
+    if (confirmDeleteId) document.body.style.overflow = 'hidden';
+    else document.body.style.overflow = 'auto';
     return () => { document.body.style.overflow = 'auto'; };
-  }, [modalMode, confirmDeleteId]);
+  }, [confirmDeleteId]);
 
   const uniPrograms = (uniId: string) => programs.filter(p => p.universityId === uniId);
 
@@ -198,6 +197,194 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
   return (
     <div className="space-y-6">
 
+      {/* Full-screen view details */}
+      {detailUni && (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 min-h-[calc(100vh-8rem)] overflow-hidden flex flex-col">
+          <div className="flex items-center justify-between gap-4 p-6 bg-gradient-to-r from-slate-50 to-white border-b border-gray-200 shrink-0">
+            <div className="flex items-center gap-4 min-w-0">
+              <button
+                type="button"
+                onClick={() => setDetailUni(null)}
+                className="flex items-center gap-2 text-gray-600 hover:text-gray-900 hover:bg-white rounded-xl px-3 py-2.5 border border-gray-200 hover:border-gray-300 transition-colors shadow-sm"
+              >
+                <ArrowLeft size={20} />
+                <span className="font-medium">{t.back}</span>
+              </button>
+              <div className="flex items-center gap-3 min-w-0">
+                <LogoBox uni={detailUni} size="sm" />
+                <div>
+                  <h2 className="text-xl font-bold text-gray-800 truncate">{detailUni.name}</h2>
+                  <div className="flex items-center gap-2 text-xs font-medium text-gray-500">
+                    <MapPin size={12} className="text-blue-500" />
+                    <span>{detailUni.city ? `${detailUni.city}, ` : ''}{detailUni.country}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {isAdmin && (
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={e => openEdit(detailUni, e)}
+                  className="flex items-center gap-2 bg-blue-600 text-white py-2.5 px-4 rounded-xl font-semibold text-sm hover:bg-blue-700 transition-colors"
+                >
+                  <Pencil size={18} />
+                  <span>{t.edit}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmDeleteId(detailUni.id)}
+                  className="flex items-center gap-2 bg-red-50 text-red-600 py-2.5 px-4 rounded-xl font-semibold text-sm hover:bg-red-600 hover:text-white transition-colors"
+                >
+                  <Trash2 size={18} />
+                  <span>{t.delete}</span>
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="flex-1 overflow-y-auto p-6 md:p-8">
+            <div className="max-w-4xl mx-auto space-y-8">
+              <div className="h-36 bg-gradient-to-br from-blue-600 via-indigo-700 to-purple-800 rounded-2xl flex items-end p-6">
+                <a href={detailUni.website} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 bg-white/20 backdrop-blur text-white border border-white/30 px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-white hover:text-blue-600 transition-all">
+                  <Globe size={16} />
+                  {t.visitOfficialWebsite}
+                </a>
+              </div>
+              <section className="bg-gray-50/80 rounded-2xl p-6 border border-gray-100">
+                <h3 className="font-bold text-gray-900 text-lg mb-3 flex items-center gap-2">
+                  <Sparkles size={20} className="text-blue-500" />
+                  {t.overview}
+                </h3>
+                <p className="text-gray-600 leading-relaxed whitespace-pre-wrap">{detailUni.description}</p>
+              </section>
+              <section className="bg-gray-50/80 rounded-2xl p-6 border border-gray-100">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-bold text-gray-900 text-lg flex items-center gap-2">
+                    <GraduationCap size={22} className="text-purple-500" />
+                    {t.programsAndFees}
+                  </h3>
+                  <span className="bg-gray-100 text-gray-500 px-3 py-1.5 rounded-xl text-xs font-semibold">
+                    {uniPrograms(detailUni.id).length} {t.availableSpecialization}
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {uniPrograms(detailUni.id).map(prog => (
+                    <div key={prog.id} className="bg-white border border-gray-100 rounded-xl p-4 hover:shadow-md transition-all">
+                      <div className="flex justify-between items-start mb-2">
+                        <div>
+                          <h5 className="font-semibold text-gray-800">{prog.name}</h5>
+                          {prog.nameInArabic && <p className="text-sm text-gray-500 mt-0.5" dir="rtl">{prog.nameInArabic}</p>}
+                          {prog.category && <p className="text-xs text-gray-400 mt-0.5">{translateCategory(prog.category)}</p>}
+                        </div>
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${DEGREE_COLORS[prog.degree] || 'bg-gray-100 text-gray-600'}`}>
+                          {translateDegree(prog.degree)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs text-gray-500">
+                        <span className="flex items-center gap-1"><Clock size={12} /> {prog.years}y</span>
+                        <span className="flex items-center gap-1"><Globe size={12} /> {prog.language}</span>
+                        <span className="text-blue-600 font-semibold">{prog.fee.toLocaleString()} {prog.currency || 'USD'}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Full-screen form (Add / Edit) */}
+      {modalMode && (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 min-h-[calc(100vh-8rem)] overflow-hidden flex flex-col">
+          <div className="flex items-center justify-between gap-4 p-6 bg-gradient-to-r from-slate-50 to-white border-b border-gray-200 shrink-0">
+            <div className="flex items-center gap-4 min-w-0">
+              <button
+                type="button"
+                onClick={closeModal}
+                className="flex items-center gap-2 text-gray-600 hover:text-gray-900 hover:bg-white rounded-xl px-3 py-2.5 border border-gray-200 hover:border-gray-300 transition-colors shadow-sm"
+              >
+                <ArrowLeft size={20} />
+                <span className="font-medium">{t.back}</span>
+              </button>
+              <h2 className="text-xl font-bold text-gray-800 truncate">
+                {modalMode === 'edit' ? `${t.editUniversity} – ${formData.name}` : t.addUniversity}
+              </h2>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button type="button" onClick={closeModal} className="px-4 py-2.5 text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 font-medium transition-colors shadow-sm">
+                {t.cancel}
+              </button>
+              <button type="submit" form="university-form" className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-medium transition-colors shadow-md shadow-blue-600/20">
+                {t.save}
+              </button>
+            </div>
+          </div>
+          <form id="university-form" onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 md:p-8">
+            <div className="max-w-2xl mx-auto space-y-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t.universityName}</label>
+                <input type="text" required className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none"
+                  value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t.universityCountry}</label>
+                  <select className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none"
+                    value={formData.country} onChange={e => setFormData({ ...formData, country: e.target.value as any })}>
+                    <option value="Turkey">{t.countryTurkey}</option>
+                    <option value="Cyprus">{t.countryCyprus}</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t.city}</label>
+                  <input type="text" className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none"
+                    value={formData.city} onChange={e => setFormData({ ...formData, city: e.target.value })} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t.universityWebsite}</label>
+                  <input type="url" required className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none"
+                    value={formData.website} onChange={e => setFormData({ ...formData, website: e.target.value })} />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t.universityLogoOptional}</label>
+                <input ref={logoInputRef} type="file" accept="image/*" onChange={handleLogoChange} style={{ display: 'none' }} />
+                {!logoPreview ? (
+                  <button type="button" onClick={() => logoInputRef.current?.click()} className="w-full border-2 border-dashed border-gray-300 rounded-xl p-4 flex flex-col items-center text-gray-400 hover:border-blue-400 hover:text-blue-500 transition-colors">
+                    <Image size={28} className="mb-1" />
+                    <span className="text-sm">{t.clickToUploadLogo}</span>
+                    <span className="text-xs text-gray-300 mt-1">{t.logoFormatHint}</span>
+                  </button>
+                ) : (
+                  <div className="border border-gray-200 rounded-xl p-3 flex items-center gap-3 bg-gray-50">
+                    <img src={logoPreview} alt="" className="h-16 w-16 object-contain rounded-lg border border-gray-200 bg-white p-1" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-700">{t.selectedLogo}</p>
+                      <button type="button" onClick={() => logoInputRef.current?.click()} className="text-xs text-blue-600 hover:underline">{t.changeLogo}</button>
+                    </div>
+                    <button type="button" onClick={handleRemoveLogo} className="p-1 text-gray-400 hover:text-red-500 transition-colors"><X size={18} /></button>
+                  </div>
+                )}
+              </div>
+              <div>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="block text-sm font-medium text-gray-700">{t.universityDescription}</label>
+                  <button type="button" onClick={handleAiDescription} disabled={loadingAi || !formData.name} className="text-xs flex items-center text-purple-600 hover:text-purple-800 disabled:opacity-50">
+                    <Sparkles size={12} className="ml-1" /> {loadingAi ? t.loading : 'AI Generate'}
+                  </button>
+                </div>
+                <textarea required rows={5} className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none"
+                  value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} />
+              </div>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Main: list only when not viewing and not in form */}
+      {!detailUni && !modalMode && (
+        <>
       {/* ── Header ── */}
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
         <div>
@@ -252,11 +439,8 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
         </div>
       </div>
 
-      {/* ── List + Detail (inline form, no popup) ── */}
-      <div className="flex gap-6 flex-col lg:flex-row">
-
-        {/* Left: Tree or Kanban list */}
-        <div className={`${detailUni ? 'lg:w-1/2 xl:w-2/5' : 'w-full'} transition-all duration-200`}>
+      {/* ── List (Tree or Kanban) ── */}
+        <div className="w-full">
           {viewMode === 'kanban' && (
             <div className="grid gap-5 grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
               {filteredUniversities.map(uni => {
@@ -400,175 +584,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
             </div>
           )}
         </div>
-
-        {/* Right: Inline detail form (no popup) */}
-        {detailUni && (
-          <div className="lg:w-1/2 xl:w-3/5 bg-white rounded-xl border border-gray-100 shadow-sm flex flex-col overflow-hidden animate-in fade-in duration-200">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-white">
-              <div className="flex items-center gap-3">
-                <LogoBox uni={detailUni} size="sm" />
-                <div>
-                  <h3 className="font-bold text-gray-900 leading-tight">{detailUni.name}</h3>
-                  <div className="flex items-center gap-2 text-xs font-medium text-gray-400 uppercase tracking-wider">
-                    <MapPin size={12} className="text-blue-500" />
-                    <span>{detailUni.city ? `${detailUni.city}, ` : ''}{detailUni.country === 'Turkey' ? 'TURKEY' : 'CYPRUS'}</span>
-                  </div>
-                </div>
-              </div>
-              <button onClick={() => setDetailUni(null)} className="w-10 h-10 flex items-center justify-center rounded-full bg-gray-50 text-gray-400 hover:bg-gray-900 hover:text-white transition-all">
-                <X size={20} />
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-6 space-y-8">
-              <div className="h-32 bg-gradient-to-br from-blue-600 via-indigo-700 to-purple-800 rounded-xl flex items-end p-4">
-                <a href={detailUni.website} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 bg-white/20 backdrop-blur text-white border border-white/30 px-4 py-2 rounded-xl text-sm font-semibold hover:bg-white hover:text-blue-600 transition-all">
-                  <Globe size={16} /> {t.visitOfficialWebsite}
-                </a>
-              </div>
-              <div>
-                <h4 className="font-bold text-gray-900 text-lg mb-2 flex items-center gap-2">
-                  <Sparkles size={20} className="text-blue-500" /> {t.overview}
-                </h4>
-                <p className="text-gray-600 leading-relaxed whitespace-pre-wrap">{detailUni.description}</p>
-              </div>
-              <div>
-                <div className="flex items-center justify-between mb-4">
-                  <h4 className="font-bold text-gray-900 text-lg flex items-center gap-2">
-                    <GraduationCap size={22} className="text-purple-500" /> {t.programsAndFees}
-                  </h4>
-                  <span className="bg-gray-100 text-gray-500 px-3 py-1.5 rounded-xl text-xs font-semibold">
-                    {uniPrograms(detailUni.id).length} {t.availableSpecialization}
-                  </span>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {uniPrograms(detailUni.id).map(prog => (
-                    <div key={prog.id} className="bg-gray-50 border border-gray-100 rounded-xl p-4 hover:shadow-md transition-all">
-                      <div className="flex justify-between items-start mb-2">
-                        <div>
-                          <h5 className="font-semibold text-gray-800">{prog.name}</h5>
-                          {prog.nameInArabic && (
-                            <p className="text-sm text-gray-500 mt-0.5" dir="rtl">{prog.nameInArabic}</p>
-                          )}
-                          {prog.category && (
-                            <p className="text-xs text-gray-400 mt-0.5">{translateCategory(prog.category)}</p>
-                          )}
-                        </div>
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${DEGREE_COLORS[prog.degree] || 'bg-gray-100 text-gray-600'}`}>
-                          {translateDegree(prog.degree)}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between text-xs text-gray-500">
-                        <span className="flex items-center gap-1"><Clock size={12} /> {prog.years}y</span>
-                        <span className="flex items-center gap-1"><Globe size={12} /> {prog.language}</span>
-                        <span className="text-blue-600 font-semibold">{prog.fee.toLocaleString()} {prog.currency || 'USD'}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              {isAdmin && (
-                <div className="flex flex-wrap gap-3 pt-4 border-t border-gray-100">
-                  <button onClick={e => openEdit(detailUni, e)} className="flex items-center gap-2 bg-gray-900 text-white py-3 px-5 rounded-xl font-semibold text-sm hover:bg-blue-600 transition-colors">
-                    <Pencil size={18} /> {t.editData}
-                  </button>
-                  <button onClick={() => setConfirmDeleteId(detailUni.id)} className="flex items-center gap-2 bg-red-50 text-red-600 py-3 px-5 rounded-xl font-semibold text-sm hover:bg-red-600 hover:text-white transition-colors">
-                    <Trash2 size={18} /> {t.deleteRecord}
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ══════════ Add / Edit Modal ══════════ */}
-      {modalMode && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
-            <h3 className="text-xl font-bold mb-4">
-              {modalMode === 'edit' ? t.editUniversity : t.addUniversity}
-            </h3>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">{t.universityName}</label>
-                <input type="text" required
-                  className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none"
-                  value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} />
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">{t.universityCountry}</label>
-                  <select className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none"
-                    value={formData.country} onChange={e => setFormData({ ...formData, country: e.target.value as any })}>
-                    <option value="Turkey">{t.countryTurkey}</option>
-                    <option value="Cyprus">{t.countryCyprus}</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">{t.city}</label>
-                  <input type="text"
-                    className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none"
-                    value={formData.city} onChange={e => setFormData({ ...formData, city: e.target.value })} />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">{t.universityWebsite}</label>
-                  <input type="url" required
-                    className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none"
-                    value={formData.website} onChange={e => setFormData({ ...formData, website: e.target.value })} />
-                </div>
-              </div>
-
-              {/* Logo */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">{t.universityLogoOptional}</label>
-                <input ref={logoInputRef} type="file" accept="image/*" onChange={handleLogoChange} style={{ display: 'none' }} />
-                {!logoPreview ? (
-                  <button type="button" onClick={() => logoInputRef.current?.click()}
-                    className="w-full border-2 border-dashed border-gray-300 rounded-lg p-4 flex flex-col items-center text-gray-400 hover:border-blue-400 hover:text-blue-500 transition-colors">
-                    <Image size={28} className="mb-1" />
-                    <span className="text-sm">{t.clickToUploadLogo}</span>
-                    <span className="text-xs text-gray-300 mt-1">{t.logoFormatHint}</span>
-                  </button>
-                ) : (
-                  <div className="border border-gray-200 rounded-lg p-3 flex items-center gap-3 bg-gray-50">
-                    <img src={logoPreview} alt="" className="h-16 w-16 object-contain rounded-lg border border-gray-200 bg-white p-1" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-700">{t.selectedLogo}</p>
-                      <button type="button" onClick={() => logoInputRef.current?.click()} className="text-xs text-blue-600 hover:underline">{t.changeLogo}</button>
-                    </div>
-                    <button type="button" onClick={handleRemoveLogo} className="p-1 text-gray-400 hover:text-red-500 transition-colors">
-                      <X size={18} />
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Description */}
-              <div>
-                <div className="flex justify-between items-center mb-1">
-                  <label className="block text-sm font-medium text-gray-700">{t.universityDescription}</label>
-                  <button type="button" onClick={handleAiDescription} disabled={loadingAi || !formData.name}
-                    className="text-xs flex items-center text-purple-600 hover:text-purple-800 disabled:opacity-50">
-                    <Sparkles size={12} className="ml-1" />
-                    {loadingAi ? t.loading : 'AI Generate'}
-                  </button>
-                </div>
-                <textarea required rows={4}
-                  className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none"
-                  value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} />
-              </div>
-
-              <div className="flex justify-end gap-3 mt-6">
-                <button type="button" onClick={closeModal} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">{t.cancel}</button>
-                <button type="submit"
-                  className={`px-4 py-2 text-white rounded-lg ${modalMode === 'edit' ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
-                  {t.save}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        </>
       )}
 
       {/* ══════════ Delete Confirm ══════════ */}

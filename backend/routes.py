@@ -1,6 +1,6 @@
 
 from flask import Blueprint, request, jsonify, session, current_app, send_from_directory, url_for
-from models import db, Student, University, Program, Application, User, Notification
+from models import db, Student, University, Program, Application, User, Notification, Period
 import uuid
 from datetime import datetime
 from werkzeug.utils import secure_filename
@@ -202,6 +202,29 @@ def add_student():
     print(f"Created student {student.id} user_id={user_id}")
     return jsonify({'message': 'Student added', 'id': student.id}), 201
 
+
+@api_bp.route('/students/<student_id>', methods=['PUT'])
+def update_student(student_id):
+    student = Student.query.get(student_id)
+    if not student:
+        return jsonify({'message': 'Student not found'}), 404
+    data = request.json
+    student.first_name = data.get('firstName', student.first_name)
+    student.last_name = data.get('lastName', student.last_name)
+    student.passport_number = data.get('passportNumber', student.passport_number)
+    student.father_name = data.get('fatherName', student.father_name)
+    student.mother_name = data.get('motherName', student.mother_name)
+    student.gender = data.get('gender', student.gender)
+    student.phone = data.get('phone', student.phone)
+    student.email = data.get('email', student.email)
+    student.nationality = data.get('nationality', student.nationality)
+    student.degree_target = data.get('degreeTarget', student.degree_target)
+    student.dob = data.get('dob', student.dob)
+    student.residence_country = data.get('residenceCountry', student.residence_country)
+    db.session.commit()
+    return jsonify({'message': 'Student updated'})
+
+
 # Universities
 @api_bp.route('/universities', methods=['GET'])
 def get_universities():
@@ -248,9 +271,14 @@ def get_programs():
         'degree': p.degree,
         'language': p.language,
         'years': p.years,
-        'deadline': p.deadline,
+        'deadline': getattr(p, 'deadline', None),
+        'periodId': getattr(p, 'period_id', None),
         'fee': p.fee,
+        'feeBeforeDiscount': getattr(p, 'fee_before_discount', None),
+        'deposit': getattr(p, 'deposit', None),
+        'cashPrice': getattr(p, 'cash_price', None),
         'currency': getattr(p, 'currency', 'USD'),
+        'country': getattr(p, 'country', None),
         'description': p.description
     } for p in programs])
 
@@ -269,9 +297,14 @@ def add_program():
         degree=data['degree'],
         language=data['language'],
         years=data['years'],
-        deadline=data['deadline'],
-        fee=data['fee'],
+        deadline=data.get('deadline'),
+        period_id=data.get('periodId') or None,
+        fee=data.get('fee', 0),
+        fee_before_discount=data.get('feeBeforeDiscount'),
+        deposit=data.get('deposit'),
+        cash_price=data.get('cashPrice'),
         currency=data.get('currency', 'USD'),
+        country=data.get('country') or None,
         description=data.get('description', '')
     )
     db.session.add(program)
@@ -307,10 +340,20 @@ def update_program(prog_id):
         program.years = data['years']
     if 'deadline' in data:
         program.deadline = data['deadline']
+    if 'periodId' in data:
+        program.period_id = data['periodId'] or None
     if 'fee' in data:
         program.fee = data['fee']
+    if 'feeBeforeDiscount' in data:
+        program.fee_before_discount = data['feeBeforeDiscount']
+    if 'deposit' in data:
+        program.deposit = data['deposit']
+    if 'cashPrice' in data:
+        program.cash_price = data['cashPrice']
     if 'currency' in data:
         program.currency = data['currency']
+    if 'country' in data:
+        program.country = data['country'] or None
     if 'description' in data:
         program.description = data['description']
     
@@ -344,6 +387,60 @@ def delete_university(uni_id):
     db.session.delete(university)
     db.session.commit()
     return jsonify({'message': 'تم حذف الجامعة'}), 200
+
+
+# Periods (admin only - no auth check here; frontend restricts to ADMIN)
+@api_bp.route('/periods', methods=['GET'])
+def get_periods():
+    periods = Period.query.order_by(Period.start_date.desc()).all()
+    return jsonify([{
+        'id': p.id,
+        'name': p.name,
+        'startDate': p.start_date,
+        'endDate': p.end_date
+    } for p in periods])
+
+
+@api_bp.route('/periods', methods=['POST'])
+def add_period():
+    data = request.json
+    if not data.get('name') or not data.get('startDate') or not data.get('endDate'):
+        return jsonify({'message': 'Name, start date and end date required'}), 400
+    period = Period(
+        id=str(uuid.uuid4()),
+        name=data['name'].strip(),
+        start_date=data['startDate'],
+        end_date=data['endDate']
+    )
+    db.session.add(period)
+    db.session.commit()
+    return jsonify({'message': 'Period added', 'id': period.id}), 201
+
+
+@api_bp.route('/periods/<period_id>', methods=['PUT'])
+def update_period(period_id):
+    period = Period.query.get(period_id)
+    if not period:
+        return jsonify({'message': 'Period not found'}), 404
+    data = request.json
+    if data.get('name'):
+        period.name = data['name'].strip()
+    if data.get('startDate'):
+        period.start_date = data['startDate']
+    if data.get('endDate'):
+        period.end_date = data['endDate']
+    db.session.commit()
+    return jsonify({'message': 'Period updated'})
+
+
+@api_bp.route('/periods/<period_id>', methods=['DELETE'])
+def delete_period(period_id):
+    period = Period.query.get(period_id)
+    if not period:
+        return jsonify({'message': 'Period not found'}), 404
+    db.session.delete(period)
+    db.session.commit()
+    return jsonify({'message': 'Period deleted'})
 
 
 @api_bp.route('/applications', methods=['GET'])

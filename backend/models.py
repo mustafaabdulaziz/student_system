@@ -49,9 +49,14 @@ class Program(db.Model):
     degree = db.Column(db.String, nullable=False)
     language = db.Column(db.String, nullable=False)
     years = db.Column(db.Integer, nullable=False)
-    deadline = db.Column(db.String, nullable=False)
+    deadline = db.Column(db.String, nullable=True)  # deprecated: use period_id
+    period_id = db.Column(db.String, db.ForeignKey('periods.id'), nullable=True)
     fee = db.Column(db.Float, nullable=False)
+    fee_before_discount = db.Column(db.Float, nullable=True)
+    deposit = db.Column(db.Float, nullable=True)
+    cash_price = db.Column(db.Float, nullable=True)
     currency = db.Column(db.String, nullable=False, default='USD')
+    country = db.Column(db.String, nullable=True)
     description = db.Column(db.Text)
 
 class Application(db.Model):
@@ -75,6 +80,14 @@ class ApplicationMessage(db.Model):
     sender = db.Column(db.String, nullable=False)  # 'ADMIN' or 'USER'
     message = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.String, nullable=False)
+
+class Period(db.Model):
+    __tablename__ = 'periods'
+    id = db.Column(db.String, primary_key=True)
+    name = db.Column(db.String, nullable=False)
+    start_date = db.Column(db.String, nullable=False)
+    end_date = db.Column(db.String, nullable=False)
+
 
 class Notification(db.Model):
     __tablename__ = 'notifications'

@@ -53,9 +53,14 @@ export interface Program {
   degree: 'Bachelor' | 'Master' | 'PhD' | 'Diploma' | 'CombinedPhD';
   language: 'English' | 'Turkish' | 'Arabic';
   years: number;
-  deadline: string;
+  deadline?: string; // deprecated: use periodId
+  periodId?: string;
   fee: number;
+  feeBeforeDiscount?: number;
+  deposit?: number;
+  cashPrice?: number;
   currency?: string;
+  country?: string;
   description?: string;
 }
 
@@ -96,6 +101,13 @@ export interface Application {
   agentCountryCode?: string;
 }
 
+export interface Period {
+  id: string;
+  name: string;
+  startDate: string;
+  endDate: string;
+}
+
 // Helper types for state management
 export interface AppState {
   users: User[];
@@ -103,5 +115,6 @@ export interface AppState {
   programs: Program[];
   students: Student[];
   applications: Application[];
+  periods: Period[];
   currentUser: User | null;
 }

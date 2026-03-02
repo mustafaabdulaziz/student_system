@@ -75,6 +75,28 @@ if __name__ == '__main__':
                     conn.commit()
                 except Exception:
                     pass
+            for col, typ in [('period_id', 'VARCHAR'), ('fee_before_discount', 'FLOAT'), ('deposit', 'FLOAT'), ('cash_price', 'FLOAT'), ('country', 'VARCHAR')]:
+                if col not in prog_cols:
+                    try:
+                        conn.execute(text(f'ALTER TABLE programs ADD COLUMN {col} {typ}'))
+                        conn.commit()
+                    except Exception:
+                        pass
+            # Create periods table if not exists
+            try:
+                inspector.get_table_names()
+                if 'periods' not in inspector.get_table_names():
+                    conn.execute(text('''
+                        CREATE TABLE periods (
+                            id VARCHAR PRIMARY KEY,
+                            name VARCHAR NOT NULL,
+                            start_date VARCHAR NOT NULL,
+                            end_date VARCHAR NOT NULL
+                        )
+                    '''))
+                    conn.commit()
+            except Exception as e:
+                print('Periods table check:', e)
         # إضافة أدمن افتراضي إذا لم يوجد
         try:
             exists = User.query.options(load_only(User.email)).filter_by(email='admin@admin.com').first()

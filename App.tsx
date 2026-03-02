@@ -15,10 +15,12 @@ import {
   Program,
   Student,
   Application,
+  Period,
   AppState,
   UserRole,
   ApplicationStatus
 } from './types';
+import { PeriodManager } from './components/PeriodManager';
 
 const INITIAL_STATE: AppState = {
   users: [],
@@ -26,6 +28,7 @@ const INITIAL_STATE: AppState = {
   programs: [],
   students: [],
   applications: [],
+  periods: [],
   currentUser: null
 };
 
@@ -36,6 +39,7 @@ const PATH_TO_PAGE: Record<string, string> = {
   '/programs': 'programs',
   '/students': 'students',
   '/applications': 'applications',
+  '/periods': 'periods',
   '/users': 'users',
   '/account': 'account'
 };
@@ -46,6 +50,7 @@ const PAGE_TO_PATH: Record<string, string> = {
   programs: '/programs',
   students: '/students',
   applications: '/applications',
+  periods: '/periods',
   users: '/users',
   account: '/account'
 };
@@ -117,7 +122,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (state.currentUser && state.currentUser.role !== UserRole.ADMIN && activePage === 'users') {
+    if (state.currentUser && state.currentUser.role !== UserRole.ADMIN && (activePage === 'users' || activePage === 'periods')) {
       setActivePage('dashboard');
       if (typeof window !== 'undefined') {
         window.history.replaceState({ page: 'dashboard' }, '', '/dashboard');
@@ -287,6 +292,27 @@ export default function App() {
     return null;
   };
 
+  const updateStudent = async (student: Student) => {
+    try {
+      const res = await fetch(`/api/students/${student.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(student)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setState(prev => ({
+          ...prev,
+          students: prev.students.map(s => s.id === student.id ? student : s)
+        }));
+      } else {
+        alert(data.message || 'Failed to update student');
+      }
+    } catch (err) {
+      alert('Connection error');
+    }
+  };
+
   const addApplication = async (app: Application, files?: FileList | null) => {
     const formData = new FormData();
     formData.append('studentId', app.studentId);
@@ -336,6 +362,57 @@ export default function App() {
       }
     } catch (err) {
       alert('خطأ في الاتصال بالخادم');
+    }
+  };
+
+  const addPeriod = async (period: Omit<Period, 'id'>) => {
+    try {
+      const res = await fetch('/api/periods', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(period)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setState(prev => ({ ...prev, periods: [...prev.periods, { ...period, id: data.id }] }));
+        return data.id;
+      }
+      alert(data.message || 'Failed to add period');
+    } catch (err) {
+      alert('Connection error');
+    }
+    return null;
+  };
+
+  const editPeriod = async (period: Period) => {
+    try {
+      const res = await fetch(`/api/periods/${period.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(period)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setState(prev => ({ ...prev, periods: prev.periods.map(p => p.id === period.id ? period : p) }));
+      } else {
+        alert(data.message || 'Failed to update period');
+      }
+    } catch (err) {
+      alert('Connection error');
+    }
+  };
+
+  const deletePeriod = async (id: string) => {
+    try {
+      const res = await fetch(`/api/periods/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setState(prev => ({ ...prev, periods: prev.periods.filter(p => p.id !== id) }));
+      } else {
+        const data = await res.json();
+        alert(data.message || 'Failed to delete period');
+      }
+    } catch (err) {
+      alert('Connection error');
     }
   };
 
@@ -449,6 +526,7 @@ export default function App() {
           applicationsUrl
         ];
         if (state.currentUser.role === UserRole.ADMIN) {
+          endpoints.push('/api/periods');
           endpoints.push('/api/users');
         }
         const responses = await Promise.all(endpoints.map(e => fetch(e).then(r => r.json())));
@@ -458,7 +536,8 @@ export default function App() {
           programs: responses[1],
           students: responses[2],
           applications: responses[3],
-          users: state.currentUser?.role === UserRole.ADMIN ? (responses[4] || []).map((u: any) => ({ ...u, active: u.active !== false })) : []
+          periods: state.currentUser?.role === UserRole.ADMIN ? (responses[4] || []) : [],
+          users: state.currentUser?.role === UserRole.ADMIN ? (responses[5] || []).map((u: any) => ({ ...u, active: u.active !== false })) : []
         }));
       } catch (err) {
         console.error('Error fetching data:', err);
@@ -489,11 +568,30 @@ export default function App() {
       case 'universities':
         return <UniversityManager universities={state.universities} programs={state.programs} onAddUniversity={addUniversity} onEditUniversity={editUniversity} onDeleteUniversity={deleteUniversity} currentUser={state.currentUser} />;
       case 'programs':
-        return <ProgramManager programs={state.programs} universities={state.universities} onAddProgram={addProgram} onEditProgram={editProgram} onDeleteProgram={deleteProgram} currentUser={state.currentUser} />;
+        return <ProgramManager programs={state.programs} universities={state.universities} periods={state.periods} onAddProgram={addProgram} onEditProgram={editProgram} onDeleteProgram={deleteProgram} currentUser={state.currentUser} />;
       case 'students':
-        return <StudentManager students={state.students} applications={state.applications} programs={state.programs} universities={state.universities} onAddStudent={addStudent} onCreateApplicationForStudent={openCreateApplicationForStudent} onViewApplication={openApplicationDetails} currentUser={state.currentUser} />;
+        return <StudentManager students={state.students} applications={state.applications} programs={state.programs} universities={state.universities} onAddStudent={addStudent} onEditStudent={updateStudent} onCreateApplicationForStudent={openCreateApplicationForStudent} onViewApplication={openApplicationDetails} currentUser={state.currentUser} />;
       case 'applications':
         return <ApplicationManager applications={state.applications} students={state.students} programs={state.programs} universities={state.universities} onAddApplication={addApplication} onUpdateStatus={updateAppStatus} initialStudentId={prefillStudentIdForApp} clearInitialStudent={() => setPrefillStudentIdForApp(null)} targetApplicationId={targetApplicationId} clearTargetApplication={() => setTargetApplicationId(null)} currentUser={state.currentUser} />;
+      case 'periods':
+        if (state.currentUser?.role !== UserRole.ADMIN) {
+          return (
+            <Dashboard
+              students={state.students}
+              applications={state.applications}
+              programs={state.programs}
+              universitiesCount={state.universities.length}
+            />
+          );
+        }
+        return (
+          <PeriodManager
+            periods={state.periods}
+            onAddPeriod={addPeriod}
+            onEditPeriod={editPeriod}
+            onDeletePeriod={deletePeriod}
+          />
+        );
       case 'account':
         return (
           <AccountProfile
