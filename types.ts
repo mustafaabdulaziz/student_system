@@ -81,6 +81,7 @@ export interface Student {
 }
 
 export enum ApplicationStatus {
+  DRAFT = 'Draft',
   UNDER_REVIEW = 'Under Review',
   ACCEPTED = 'Accepted',
   REJECTED = 'Rejected',
@@ -106,6 +107,7 @@ export interface Period {
   name: string;
   startDate: string;
   endDate: string;
+  active?: boolean;
 }
 
 // Helper types for state management

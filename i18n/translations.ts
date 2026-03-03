@@ -117,6 +117,7 @@ export interface Translations {
     searchNameInArabicPlaceholder: string;
     filterAll: string;
     clearFilters: string;
+    number: string;
     bachelor: string;
     master: string;
     phd: string;
@@ -140,13 +141,26 @@ export interface Translations {
     residenceCountry: string;
     noStudents: string;
     studentDetails: string;
+    studentInfo: string;
+    studentName: string;
     createApplication: string;
     viewApplications: string;
 
     // Applications
     applicationsTitle: string;
+    applicationsSubtitle: string;
     addApplication: string;
     applicationStatus: string;
+    applicationNumber: string;
+    updateDate: string;
+    createdAt: string;
+    noApplicationsInSystem: string;
+    noAttachments: string;
+    attachAdditionalFiles: string;
+    uploadNow: string;
+    uploadToWhatsApp: string;
+    filesSelected: string;
+    uploadFailed: string;
     semester: string;
     selectStudent: string;
     selectProgram: string;
@@ -155,10 +169,13 @@ export interface Translations {
     pending: string;
     approved: string;
     rejected: string;
+    draft: string;
     missingDocs: string;
     underReview: string;
     applicationDetails: string;
+    currentApplicationStatus: string;
     updateStatus: string;
+    sendToReview: string;
     sendMessage: string;
     messages: string;
     noMessages: string;
@@ -183,6 +200,7 @@ export interface Translations {
     confirmPassword: string;
     active: string;
     inactive: string;
+    status: string;
 
     // Periods
     period: string;
@@ -345,6 +363,7 @@ export const translations: Record<Language, Translations> = {
         searchNameInArabicPlaceholder: 'بحث بالاسم بالعربية...',
         filterAll: 'الكل',
         clearFilters: 'مسح الفلاتر',
+        number: 'الرقم',
         bachelor: 'بكالوريوس',
         master: 'ماجستير',
         phd: 'دكتوراه',
@@ -368,12 +387,25 @@ export const translations: Record<Language, Translations> = {
         residenceCountry: 'بلد الإقامة',
         noStudents: 'لا يوجد طلاب',
         studentDetails: 'تفاصيل الطالب',
+        studentInfo: 'بيانات الطالب',
+        studentName: 'اسم الطالب',
         createApplication: 'إنشاء طلب',
         viewApplications: 'عرض الطلبات',
 
         // Applications
         applicationsTitle: 'إدارة الطلبات',
+        applicationsSubtitle: 'مراقبة وإدارة ملفات القبول الجامعي',
         addApplication: 'إضافة طلب',
+        applicationNumber: 'رقم الطلب',
+        updateDate: 'التحديث',
+        createdAt: 'تاريخ الإنشاء',
+        noApplicationsInSystem: 'لم يتم العثور على أي طلبات في النظام',
+        noAttachments: 'لا يوجد مرفقات',
+        attachAdditionalFiles: 'إرفاق ملفات إضافية',
+        uploadNow: 'رفع الآن',
+        uploadToWhatsApp: 'رفع للواتساب',
+        filesSelected: 'ملفات تم اختيارها',
+        uploadFailed: 'فشل الرفع',
         applicationStatus: 'حالة الطلب',
         semester: 'الفصل الدراسي',
         selectStudent: 'اختر الطالب',
@@ -383,10 +415,13 @@ export const translations: Record<Language, Translations> = {
         pending: 'قيد الانتظار',
         approved: 'مقبول',
         rejected: 'مرفوض',
+        draft: 'مسودة',
         missingDocs: 'طلب ملفات ناقصة',
         underReview: 'قيد التقييم',
         applicationDetails: 'تفاصيل الطلب',
+        currentApplicationStatus: 'حالة الطلب الحالية',
         updateStatus: 'تحديث الحالة',
+        sendToReview: 'إرسال للمراجعة',
         sendMessage: 'إرسال رسالة',
         messages: 'الرسائل',
         noMessages: 'لا توجد رسائل',
@@ -411,6 +446,7 @@ export const translations: Record<Language, Translations> = {
         confirmPassword: 'تأكيد كلمة المرور',
         active: 'نشط',
         inactive: 'غير نشط',
+        status: 'الحالة',
 
         // Periods
         period: 'الدورة',
@@ -572,6 +608,7 @@ export const translations: Record<Language, Translations> = {
         searchNameInArabicPlaceholder: 'Search by name in Arabic...',
         filterAll: 'All',
         clearFilters: 'Clear filters',
+        number: 'Number',
         bachelor: 'Bachelor',
         master: 'Master',
         phd: 'PhD',
@@ -595,12 +632,25 @@ export const translations: Record<Language, Translations> = {
         residenceCountry: 'Residence Country',
         noStudents: 'No students found',
         studentDetails: 'Student Details',
+        studentInfo: 'Student Name',
+        studentName: 'Student Name',
         createApplication: 'Create Application',
         viewApplications: 'View Applications',
 
         // Applications
         applicationsTitle: 'Application Management',
+        applicationsSubtitle: 'Monitor and manage university admission files',
         addApplication: 'Add Application',
+        applicationNumber: 'Application Number',
+        updateDate: 'Update',
+        createdAt: 'Created at',
+        noApplicationsInSystem: 'No applications found in the system',
+        noAttachments: 'No attachments',
+        attachAdditionalFiles: 'Attach additional files',
+        uploadNow: 'Upload now',
+        uploadToWhatsApp: 'Upload to WhatsApp',
+        filesSelected: 'Files selected',
+        uploadFailed: 'Upload failed',
         applicationStatus: 'Status',
         semester: 'Semester',
         selectStudent: 'Select Student',
@@ -610,10 +660,13 @@ export const translations: Record<Language, Translations> = {
         pending: 'Pending',
         approved: 'Approved',
         rejected: 'Rejected',
+        draft: 'Draft',
         missingDocs: 'Missing Documents',
         underReview: 'Under Review',
         applicationDetails: 'Application Details',
+        currentApplicationStatus: 'Current status',
         updateStatus: 'Update Status',
+        sendToReview: 'Send to review',
         sendMessage: 'Send Message',
         messages: 'Messages',
         noMessages: 'No messages',
@@ -638,6 +691,7 @@ export const translations: Record<Language, Translations> = {
         confirmPassword: 'Confirm Password',
         active: 'Active',
         inactive: 'Inactive',
+        status: 'Status',
 
         // Periods
         period: 'Period',
@@ -799,6 +853,7 @@ export const translations: Record<Language, Translations> = {
         searchNameInArabicPlaceholder: 'Arapça adla ara...',
         filterAll: 'Tümü',
         clearFilters: 'Filtreleri temizle',
+        number: 'Numara',
         bachelor: 'Lisans',
         master: 'Yüksek Lisans',
         phd: 'Doktora',
@@ -822,12 +877,25 @@ export const translations: Record<Language, Translations> = {
         residenceCountry: 'İkamet Ülkesi',
         noStudents: 'Öğrenci bulunamadı',
         studentDetails: 'Öğrenci Detayları',
+        studentInfo: 'Öğrenci Adı',
+        studentName: 'Öğrenci Adı',
         createApplication: 'Başvuru Oluştur',
         viewApplications: 'Başvuruları Görüntüle',
 
         // Applications
         applicationsTitle: 'Başvuru Yönetimi',
+        applicationsSubtitle: 'Üniversite kabul dosyalarını izleme ve yönetme',
         addApplication: 'Başvuru Ekle',
+        applicationNumber: 'Başvuru No',
+        updateDate: 'Güncelleme',
+        createdAt: 'Oluşturulma tarihi',
+        noApplicationsInSystem: 'Sistemde başvuru bulunamadı',
+        noAttachments: 'Ek yok',
+        attachAdditionalFiles: 'Ek dosya ekle',
+        uploadNow: 'Şimdi yükle',
+        uploadToWhatsApp: "WhatsApp'a yükle",
+        filesSelected: 'Dosyalar seçildi',
+        uploadFailed: 'Yükleme başarısız',
         applicationStatus: 'Durum',
         semester: 'Dönem',
         selectStudent: 'Öğrenci Seç',
@@ -837,10 +905,13 @@ export const translations: Record<Language, Translations> = {
         pending: 'Beklemede',
         approved: 'Onaylandı',
         rejected: 'Reddedildi',
+        draft: 'Taslak',
         missingDocs: 'Eksik Belgeler İste',
         underReview: 'Değerlendirme Aşamasında',
         applicationDetails: 'Başvuru Detayları',
+        currentApplicationStatus: 'Mevcut durum',
         updateStatus: 'Durumu Güncelle',
+        sendToReview: 'İncelemeye gönder',
         sendMessage: 'Mesaj Gönder',
         messages: 'Mesajlar',
         noMessages: 'Mesaj yok',
@@ -865,6 +936,7 @@ export const translations: Record<Language, Translations> = {
         confirmPassword: 'Şifreyi Onayla',
         active: 'Aktif',
         inactive: 'Pasif',
+        status: 'Durum',
 
         // Periods
         period: 'Dönem',

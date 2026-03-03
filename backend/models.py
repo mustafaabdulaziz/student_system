@@ -87,6 +87,7 @@ class Period(db.Model):
     name = db.Column(db.String, nullable=False)
     start_date = db.Column(db.String, nullable=False)
     end_date = db.Column(db.String, nullable=False)
+    active = db.Column(db.Boolean, default=True, nullable=False)
 
 
 class Notification(db.Model):

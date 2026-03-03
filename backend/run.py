@@ -82,21 +82,15 @@ if __name__ == '__main__':
                         conn.commit()
                     except Exception:
                         pass
-            # Create periods table if not exists
+            # Ensure periods table has active column (add only if missing; never drop data)
             try:
-                inspector.get_table_names()
-                if 'periods' not in inspector.get_table_names():
-                    conn.execute(text('''
-                        CREATE TABLE periods (
-                            id VARCHAR PRIMARY KEY,
-                            name VARCHAR NOT NULL,
-                            start_date VARCHAR NOT NULL,
-                            end_date VARCHAR NOT NULL
-                        )
-                    '''))
-                    conn.commit()
+                if 'periods' in inspector.get_table_names():
+                    period_cols = [c['name'] for c in inspector.get_columns('periods')]
+                    if 'active' not in period_cols:
+                        conn.execute(text('ALTER TABLE periods ADD COLUMN active BOOLEAN NOT NULL DEFAULT TRUE'))
+                        conn.commit()
             except Exception as e:
-                print('Periods table check:', e)
+                print('Periods active column check:', e)
         # إضافة أدمن افتراضي إذا لم يوجد
         try:
             exists = User.query.options(load_only(User.email)).filter_by(email='admin@admin.com').first()

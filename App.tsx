@@ -313,7 +313,7 @@ export default function App() {
     }
   };
 
-  const addApplication = async (app: Application, files?: FileList | null) => {
+  const addApplication = async (app: Application, files?: FileList | null): Promise<string | null> => {
     const formData = new FormData();
     formData.append('studentId', app.studentId);
     formData.append('programId', app.programId);
@@ -322,7 +322,6 @@ export default function App() {
     if (files) {
       Array.from(files).forEach(f => formData.append('files', f));
     }
-    // Append current user info for tracking
     if (state.currentUser) {
       formData.append('user_id', state.currentUser.id);
       formData.append('role', state.currentUser.role);
@@ -335,12 +334,22 @@ export default function App() {
       const data = await res.json();
       if (res.ok) {
         const savedFiles = data.files || [];
-        setState(prev => ({ ...prev, applications: [...prev.applications, { ...app, id: data.id, files: savedFiles }] }));
-      } else {
-        alert(data.message || 'فشل رفع الطلب');
+        setState(prev => ({
+          ...prev,
+          applications: [...prev.applications, {
+            ...app,
+            id: data.id,
+            files: savedFiles,
+            createdAt: data.createdAt != null ? data.createdAt : app.createdAt
+          }]
+        }));
+        return data.id;
       }
+      alert(data.message || 'فشل رفع الطلب');
+      return null;
     } catch (err) {
       alert('خطأ في الاتصال بالخادم');
+      return null;
     }
   };
 
@@ -572,7 +581,7 @@ export default function App() {
       case 'students':
         return <StudentManager students={state.students} applications={state.applications} programs={state.programs} universities={state.universities} onAddStudent={addStudent} onEditStudent={updateStudent} onCreateApplicationForStudent={openCreateApplicationForStudent} onViewApplication={openApplicationDetails} currentUser={state.currentUser} />;
       case 'applications':
-        return <ApplicationManager applications={state.applications} students={state.students} programs={state.programs} universities={state.universities} onAddApplication={addApplication} onUpdateStatus={updateAppStatus} initialStudentId={prefillStudentIdForApp} clearInitialStudent={() => setPrefillStudentIdForApp(null)} targetApplicationId={targetApplicationId} clearTargetApplication={() => setTargetApplicationId(null)} currentUser={state.currentUser} />;
+        return <ApplicationManager applications={state.applications} students={state.students} programs={state.programs} universities={state.universities} users={state.users} onAddApplication={addApplication} onUpdateStatus={updateAppStatus} initialStudentId={prefillStudentIdForApp} clearInitialStudent={() => setPrefillStudentIdForApp(null)} targetApplicationId={targetApplicationId} clearTargetApplication={() => setTargetApplicationId(null)} currentUser={state.currentUser} />;
       case 'periods':
         if (state.currentUser?.role !== UserRole.ADMIN) {
           return (

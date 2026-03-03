@@ -287,6 +287,14 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
                     <p className="text-xs font-medium text-gray-500 mb-0.5">{t.programLanguage}</p>
                     <p className="text-gray-900">{selectedProgramForView.language}</p>
                   </div>
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 mb-0.5">{t.programYears}</p>
+                    <p className="text-gray-900">{selectedProgramForView.years}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 mb-0.5">{t.programCountry}</p>
+                    <p className="text-gray-900">{selectedProgramForView.country || '—'}</p>
+                  </div>
                 </div>
               </section>
               <section className="bg-gray-50/80 rounded-2xl p-6 border border-gray-100">
@@ -316,14 +324,6 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
                   <div>
                     <p className="text-xs font-medium text-gray-500 mb-0.5">{t.cashPrice}</p>
                     <p className="text-gray-900">{selectedProgramForView.cashPrice != null ? `${selectedProgramForView.currency || 'USD'} ${selectedProgramForView.cashPrice.toLocaleString()}` : '—'}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium text-gray-500 mb-0.5">{t.programYears}</p>
-                    <p className="text-gray-900">{selectedProgramForView.years}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium text-gray-500 mb-0.5">{t.programCountry}</p>
-                    <p className="text-gray-900">{selectedProgramForView.country || '—'}</p>
                   </div>
                 </div>
               </section>

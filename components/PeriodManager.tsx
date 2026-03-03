@@ -22,12 +22,14 @@ export const PeriodManager: React.FC<PeriodManagerProps> = ({
   const [formName, setFormName] = useState('');
   const [formStartDate, setFormStartDate] = useState('');
   const [formEndDate, setFormEndDate] = useState('');
+  const [formActive, setFormActive] = useState(true);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const resetForm = () => {
     setFormName('');
     setFormStartDate('');
     setFormEndDate('');
+    setFormActive(true);
     setEditingId(null);
     setIsAdding(false);
   };
@@ -41,6 +43,7 @@ export const PeriodManager: React.FC<PeriodManagerProps> = ({
     setFormName(p.name);
     setFormStartDate(p.startDate);
     setFormEndDate(p.endDate);
+    setFormActive(p.active !== false);
     setEditingId(p.id);
     setIsAdding(false);
   };
@@ -48,14 +51,14 @@ export const PeriodManager: React.FC<PeriodManagerProps> = ({
   const handleSaveAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formName.trim() || !formStartDate || !formEndDate) return;
-    const id = await onAddPeriod({ name: formName.trim(), startDate: formStartDate, endDate: formEndDate });
+    const id = await onAddPeriod({ name: formName.trim(), startDate: formStartDate, endDate: formEndDate, active: formActive });
     if (id) resetForm();
   };
 
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingId || !formName.trim() || !formStartDate || !formEndDate) return;
-    await onEditPeriod({ id: editingId, name: formName.trim(), startDate: formStartDate, endDate: formEndDate });
+    await onEditPeriod({ id: editingId, name: formName.trim(), startDate: formStartDate, endDate: formEndDate, active: formActive });
     resetForm();
   };
 
@@ -89,7 +92,7 @@ export const PeriodManager: React.FC<PeriodManagerProps> = ({
       {isAdding && (
         <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
           <h3 className="font-semibold text-gray-800 mb-4">{t.addPeriod}</h3>
-          <form onSubmit={handleSaveAdd} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+          <form onSubmit={handleSaveAdd} className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">{t.periodName}</label>
               <input
@@ -120,6 +123,17 @@ export const PeriodManager: React.FC<PeriodManagerProps> = ({
                 required
               />
             </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t.status}</label>
+              <select
+                value={formActive ? 'active' : 'inactive'}
+                onChange={e => setFormActive(e.target.value === 'active')}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+              >
+                <option value="active">{t.active}</option>
+                <option value="inactive">{t.inactive}</option>
+              </select>
+            </div>
             <div className="flex gap-2 items-center justify-end">
               <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
                 {t.save}
@@ -141,14 +155,15 @@ export const PeriodManager: React.FC<PeriodManagerProps> = ({
                 <th className="px-4 py-3">{t.periodName}</th>
                 <th className="px-4 py-3">{t.startDate}</th>
                 <th className="px-4 py-3">{t.endDate}</th>
+                <th className="px-4 py-3">{t.status}</th>
                 <th className="px-4 py-3 w-24 text-right">{t.edit}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {editingId && (
                 <tr className="bg-blue-50/50">
-                  <td colSpan={4} className="p-4">
-                    <form onSubmit={handleSaveEdit} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                  <td colSpan={5} className="p-4">
+                    <form onSubmit={handleSaveEdit} className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
                       <div>
                         <label className="block text-xs font-medium text-gray-600 mb-1">{t.periodName}</label>
                         <input
@@ -179,6 +194,17 @@ export const PeriodManager: React.FC<PeriodManagerProps> = ({
                           required
                         />
                       </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">{t.status}</label>
+                        <select
+                          value={formActive ? 'active' : 'inactive'}
+                          onChange={e => setFormActive(e.target.value === 'active')}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+                        >
+                          <option value="active">{t.active}</option>
+                          <option value="inactive">{t.inactive}</option>
+                        </select>
+                      </div>
                       <div className="flex gap-2 items-center justify-end">
                         <button type="submit" className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">
                           {t.save}
@@ -198,6 +224,11 @@ export const PeriodManager: React.FC<PeriodManagerProps> = ({
                       <td className="px-4 py-3 font-medium text-gray-800">{p.name}</td>
                       <td className="px-4 py-3 text-gray-600">{p.startDate}</td>
                       <td className="px-4 py-3 text-gray-600">{p.endDate}</td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${p.active !== false ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>
+                          {p.active !== false ? t.active : t.inactive}
+                        </span>
+                      </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1">
                           <button

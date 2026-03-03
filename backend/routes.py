@@ -284,32 +284,45 @@ def get_programs():
 
 @api_bp.route('/programs', methods=['POST'])
 def add_program():
-    data = request.json
+    data = request.json or {}
     user_role = data.get('role')
     if user_role == 'agent':
         return jsonify({'message': 'Agents are not allowed to add programs'}), 403
+    # deadline: frontend may not send it (replaced by period); use empty string if DB column is NOT NULL
+    deadline_val = data.get('deadline') if data.get('deadline') else ''
+    fee_val = data.get('fee')
+    if fee_val is None:
+        fee_val = 0
+    try:
+        fee_val = float(fee_val)
+    except (TypeError, ValueError):
+        fee_val = 0
     program = Program(
         id=str(uuid.uuid4()),
-        university_id=data['universityId'],
-        name=data['name'],
+        university_id=data.get('universityId') or '',
+        name=data.get('name') or '',
         name_in_arabic=data.get('nameInArabic') or None,
         category=data.get('category') or None,
-        degree=data['degree'],
-        language=data['language'],
-        years=data['years'],
-        deadline=data.get('deadline'),
+        degree=data.get('degree') or 'Bachelor',
+        language=data.get('language') or 'English',
+        years=int(data.get('years', 4)) if data.get('years') is not None else 4,
+        deadline=deadline_val,
         period_id=data.get('periodId') or None,
-        fee=data.get('fee', 0),
+        fee=fee_val,
         fee_before_discount=data.get('feeBeforeDiscount'),
         deposit=data.get('deposit'),
         cash_price=data.get('cashPrice'),
-        currency=data.get('currency', 'USD'),
+        currency=data.get('currency') or 'USD',
         country=data.get('country') or None,
-        description=data.get('description', '')
+        description=data.get('description') or ''
     )
-    db.session.add(program)
-    db.session.commit()
-    return jsonify({'message': 'Program added', 'id': program.id}), 201
+    try:
+        db.session.add(program)
+        db.session.commit()
+        return jsonify({'message': 'Program added', 'id': program.id}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'message': 'Program add failed: ' + str(e)}), 500
 
 # Delete Program
 @api_bp.route('/programs/<prog_id>', methods=['DELETE'])
@@ -397,7 +410,8 @@ def get_periods():
         'id': p.id,
         'name': p.name,
         'startDate': p.start_date,
-        'endDate': p.end_date
+        'endDate': p.end_date,
+        'active': getattr(p, 'active', True)
     } for p in periods])
 
 
@@ -410,7 +424,8 @@ def add_period():
         id=str(uuid.uuid4()),
         name=data['name'].strip(),
         start_date=data['startDate'],
-        end_date=data['endDate']
+        end_date=data['endDate'],
+        active=data.get('active', True) if isinstance(data.get('active'), bool) else True
     )
     db.session.add(period)
     db.session.commit()
@@ -429,6 +444,8 @@ def update_period(period_id):
         period.start_date = data['startDate']
     if data.get('endDate'):
         period.end_date = data['endDate']
+    if 'active' in data and isinstance(data['active'], bool):
+        period.active = data['active']
     db.session.commit()
     return jsonify({'message': 'Period updated'})
 
@@ -456,13 +473,22 @@ def get_applications():
             return []
         return [url_for('api.upload_file', filename=f, _external=False) for f in file_list]
 
+    def _normalize_created_at(created_at):
+        if not created_at:
+            return datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+        if created_at.endswith('Z'):
+            return created_at
+        if 'T' in created_at:
+            return created_at + 'Z'
+        return created_at + 'T00:00:00.000Z'
+
     return jsonify([{
         'id': a.id,
         'studentId': a.student_id,
         'programId': a.program_id,
         'status': a.status,
         'semester': a.semester,
-        'createdAt': a.created_at,
+        'createdAt': _normalize_created_at(a.created_at),
         'files': _file_urls(a.files),
         'userId': a.user_id,
         'agentPhone': a.user.phone if a.user else None,
@@ -488,7 +514,7 @@ def add_application():
     semester = request.form.get('semester')
     user_role = request.form.get('role')
     user_id = request.form.get('user_id')
-    created_at = datetime.utcnow().isoformat()
+    created_at = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
     saved_files = []
     upload_folder = os.path.join(current_app.root_path, 'uploads')
     os.makedirs(upload_folder, exist_ok=True)
@@ -509,7 +535,12 @@ def add_application():
     db.session.add(application)
     db.session.commit()
     file_urls = [url_for('api.upload_file', filename=f, _external=False) for f in saved_files]
-    return jsonify({'message': 'Application added', 'id': application.id, 'files': file_urls}), 201
+    return jsonify({
+        'message': 'Application added',
+        'id': application.id,
+        'files': file_urls,
+        'createdAt': application.created_at
+    }), 201
 
 
 def _generate_app_id():
@@ -535,7 +566,7 @@ def add_application_v2():
     program_id = request.form.get('programId')
     status = request.form.get('status')
     semester = request.form.get('semester')
-    created_at = datetime.utcnow().isoformat()
+    created_at = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
     saved_files = []
     upload_folder = os.path.join(current_app.root_path, 'uploads')
     os.makedirs(upload_folder, exist_ok=True)
@@ -557,7 +588,12 @@ def add_application_v2():
     db.session.add(application)
     db.session.commit()
     file_urls = [url_for('api.upload_file', filename=f, _external=False) for f in saved_files]
-    return jsonify({'message': 'Application added', 'id': application.id, 'files': file_urls}), 201
+    return jsonify({
+        'message': 'Application added',
+        'id': application.id,
+        'files': file_urls,
+        'createdAt': application.created_at
+    }), 201
 
 
 # Messages for applications

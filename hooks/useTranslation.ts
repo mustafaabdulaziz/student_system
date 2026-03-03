@@ -15,6 +15,8 @@ export const useTranslation = () => {
             'Accepted': t.approved,
             'REJECTED': t.rejected,
             'Rejected': t.rejected,
+            'DRAFT': t.draft,
+            'Draft': t.draft,
             'MISSING_DOCS': t.missingDocs,
             'Missing Documents': t.missingDocs,
             'UNDER_REVIEW': t.underReview,
