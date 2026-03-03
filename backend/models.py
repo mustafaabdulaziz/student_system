@@ -64,6 +64,7 @@ class Application(db.Model):
     id = db.Column(db.String, primary_key=True)
     student_id = db.Column(db.String, db.ForeignKey('students.id'), nullable=False)
     program_id = db.Column(db.String, db.ForeignKey('programs.id'), nullable=False)
+    period_id = db.Column(db.String, db.ForeignKey('periods.id'), nullable=True)
     status = db.Column(db.String, nullable=False)
     semester = db.Column(db.String, nullable=False)
     created_at = db.Column(db.String, nullable=False)

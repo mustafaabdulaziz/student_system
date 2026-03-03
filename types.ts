@@ -92,6 +92,7 @@ export interface Application {
   id: string;
   studentId: string;
   programId: string;
+  periodId?: string;
   status: ApplicationStatus;
   semester: string;
   createdAt: string;

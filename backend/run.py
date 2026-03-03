@@ -91,6 +91,15 @@ if __name__ == '__main__':
                         conn.commit()
             except Exception as e:
                 print('Periods active column check:', e)
+            # Ensure applications table has period_id column
+            try:
+                if 'applications' in inspector.get_table_names():
+                    app_cols = [c['name'] for c in inspector.get_columns('applications')]
+                    if 'period_id' not in app_cols:
+                        conn.execute(text('ALTER TABLE applications ADD COLUMN period_id VARCHAR REFERENCES periods(id)'))
+                        conn.commit()
+            except Exception as e:
+                print('Applications period_id column check:', e)
         # إضافة أدمن افتراضي إذا لم يوجد
         try:
             exists = User.query.options(load_only(User.email)).filter_by(email='admin@admin.com').first()

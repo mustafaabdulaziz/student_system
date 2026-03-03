@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Application, Student, Program, University, ApplicationStatus, User } from '../types';
+import { Application, Student, Program, University, ApplicationStatus, User, Period } from '../types';
 import {
   Plus, Filter, FileText, CheckCircle, XCircle, AlertCircle,
   MessageSquare, ArrowRight, User as UserIcon, GraduationCap,
@@ -132,6 +132,7 @@ interface ApplicationManagerProps {
   students: Student[];
   programs: Program[];
   universities: University[];
+  periods?: Period[];
   users?: User[];
   onAddApplication: (app: Application, files?: FileList | null) => Promise<string | null> | void;
   onUpdateStatus: (id: string, status: ApplicationStatus) => void;
@@ -143,7 +144,7 @@ interface ApplicationManagerProps {
 }
 
 export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
-  applications, students, programs, universities, users = [], onAddApplication, onUpdateStatus,
+  applications, students, programs, universities, periods = [], users = [], onAddApplication, onUpdateStatus,
   initialStudentId, clearInitialStudent, targetApplicationId, clearTargetApplication, currentUser
 }) => {
   const { t, translateStatus, translateDegree } = useTranslation();
@@ -182,18 +183,24 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const [selectedStudent, setSelectedStudent] = useState('');
 
 
+  const [filterPeriod, setFilterPeriod] = useState('');
   const [filterDegree, setFilterDegree] = useState('');
   const [filterName, setFilterName] = useState('');
   const [filterLang, setFilterLang] = useState('');
   const [filterUni, setFilterUni] = useState('');
   const [files, setFiles] = useState<FileList | null>(null);
 
-  // Derived filters
-  const uniqueDegrees = useMemo(() => Array.from(new Set(programs.map(p => p.degree))), [programs]);
+  const activePeriods = useMemo(() => periods.filter(p => p.active !== false), [periods]);
+  const getPeriod = (id: string | undefined) => (id ? periods.find(p => p.id === id) : null);
 
+  // Derived filters: first by period (active only), then by degree
   const availablePrograms = useMemo(() => {
-    return programs.filter(p => !filterDegree || p.degree === filterDegree);
-  }, [programs, filterDegree]);
+    return programs.filter(p =>
+      (!filterPeriod || p.periodId === filterPeriod) &&
+      (!filterDegree || p.degree === filterDegree)
+    );
+  }, [programs, filterPeriod, filterDegree]);
+  const uniqueDegrees = useMemo(() => Array.from(new Set(availablePrograms.map(p => p.degree))), [availablePrograms]);
 
   const uniqueNames = useMemo(() => Array.from(new Set(availablePrograms.map(p => p.name))), [availablePrograms]);
 
@@ -220,21 +227,24 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const finalProgramId = useMemo(() => {
     if (!filterUni || !filterName || !filterLang || !filterDegree) return null;
     return programs.find(p =>
+      (!filterPeriod || p.periodId === filterPeriod) &&
       p.degree === filterDegree &&
       p.name === filterName &&
       p.language === filterLang &&
       p.universityId === filterUni
     )?.id;
-  }, [filterDegree, filterName, filterLang, filterUni, programs]);
+  }, [filterPeriod, filterDegree, filterName, filterLang, filterUni, programs]);
 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (selectedStudent && finalProgramId) {
+      const program = getProgram(finalProgramId);
       const newId = await onAddApplication({
         id: Date.now().toString(),
         studentId: selectedStudent,
         programId: finalProgramId,
+        periodId: filterPeriod || program?.periodId,
         status: ApplicationStatus.DRAFT,
         semester: 'Fall 2024',
         createdAt: new Date().toISOString().split('T')[0],
@@ -243,7 +253,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
       if (newId) {
         setSelectedAppId(newId);
         setView('detail');
-        setSelectedStudent(''); setFilterDegree(''); setFilterName(''); setFilterLang(''); setFilterUni(''); setFiles(null);
+        setSelectedStudent(''); setFilterPeriod(''); setFilterDegree(''); setFilterName(''); setFilterLang(''); setFilterUni(''); setFiles(null);
       }
     }
   };
@@ -405,12 +415,27 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
         <div className="bg-blue-50/50 p-6 rounded-2xl space-y-4 border border-blue-100">
           <label className="block font-semibold text-blue-900">2. {t.selectProgram}</label>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-1 md:col-span-2">
+              <label className="text-xs font-bold text-blue-400 uppercase tracking-wider px-1">{t.period}</label>
+              <select
+                className="w-full p-2.5 border border-blue-100 rounded-lg bg-white focus:ring-2 focus:ring-blue-400 outline-none"
+                value={filterPeriod}
+                onChange={e => { setFilterPeriod(e.target.value); setFilterDegree(''); setFilterName(''); setFilterLang(''); setFilterUni(''); }}
+                required
+              >
+                <option value="">{t.selectPeriod}</option>
+                {activePeriods.map(per => (
+                  <option key={per.id} value={per.id}>{per.name}</option>
+                ))}
+              </select>
+            </div>
             <div className="space-y-1">
               <label className="text-xs font-bold text-blue-400 uppercase tracking-wider px-1">{t.programDegree}</label>
               <select
-                className="w-full p-2.5 border border-blue-100 rounded-lg bg-white focus:ring-2 focus:ring-blue-400 outline-none"
+                className="w-full p-2.5 border border-blue-100 rounded-lg bg-white focus:ring-2 focus:ring-blue-400 outline-none disabled:opacity-50"
                 value={filterDegree}
                 onChange={e => { setFilterDegree(e.target.value); setFilterName(''); setFilterLang(''); setFilterUni(''); }}
+                disabled={!filterPeriod}
                 required
               >
                 <option value="">{t.selectDegree}</option>
@@ -628,6 +653,12 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
               </div>
             </div>
             <div className="space-y-2 text-sm">
+              {(getPeriod(app.periodId || program?.periodId)?.name) && (
+                <div className="flex items-center gap-2 text-gray-600">
+                  <span className="text-gray-500">{t.period}:</span>
+                  <span className="font-medium text-gray-800">{getPeriod(app.periodId || program?.periodId)?.name}</span>
+                </div>
+              )}
               <div className="flex items-center gap-2 text-gray-600">
                 <GraduationCap size={16} className="text-purple-400 shrink-0" />
                 <span className="text-blue-600 font-semibold">{university?.name || '—'}</span>
@@ -1003,7 +1034,12 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                         <td className="px-6 py-4 text-gray-700">{getAgentName(app)}</td>
                         <td className="px-6 py-4 font-bold text-gray-800">{s?.firstName} {s?.lastName}</td>
                         <td className="px-6 py-4">
-                          <span className="font-bold text-gray-700">{p?.name}</span>
+                          <div>
+                            <span className="font-bold text-gray-700">{p?.name}</span>
+                            {(getPeriod(app.periodId || p?.periodId)?.name) && (
+                              <span className="text-gray-500 text-xs block mt-0.5">{getPeriod(app.periodId || p?.periodId)?.name}</span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-6 py-4 text-gray-500 font-medium">
                           {app.createdAt ? new Date(app.createdAt).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
@@ -1059,6 +1095,9 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                     >
                       <p className="font-bold text-gray-800 text-sm truncate">{s?.firstName} {s?.lastName}</p>
                       <p className="text-xs text-gray-500 truncate mt-0.5">{p?.name}</p>
+                      {getPeriod(app.periodId || p?.periodId)?.name && (
+                        <p className="text-[10px] text-gray-400">{getPeriod(app.periodId || p?.periodId)?.name}</p>
+                      )}
                       <p className="text-[10px] text-gray-400 mt-2">{new Date(app.createdAt).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' })}</p>
                       <span className={`inline-block mt-2 px-2 py-0.5 rounded-full text-[10px] font-medium
                         ${app.status === ApplicationStatus.ACCEPTED ? 'bg-green-50 text-green-700' :

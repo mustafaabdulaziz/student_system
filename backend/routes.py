@@ -486,6 +486,7 @@ def get_applications():
         'id': a.id,
         'studentId': a.student_id,
         'programId': a.program_id,
+        'periodId': (lambda pid, prog: pid or (prog.period_id if prog else None))(getattr(a, 'period_id', None), Program.query.get(a.program_id) if a.program_id else None),
         'status': a.status,
         'semester': a.semester,
         'createdAt': _normalize_created_at(a.created_at),
@@ -510,6 +511,7 @@ def add_application():
     # باقي البيانات
     student_id = request.form.get('studentId')
     program_id = request.form.get('programId')
+    period_id = request.form.get('periodId') or None
     status = request.form.get('status')
     semester = request.form.get('semester')
     user_role = request.form.get('role')
@@ -526,6 +528,7 @@ def add_application():
         id=_generate_app_id(),
         student_id=student_id,
         program_id=program_id,
+        period_id=period_id,
         status=status,
         semester=semester,
         created_at=created_at,
@@ -564,6 +567,7 @@ def add_application_v2():
         files = []
     student_id = request.form.get('studentId')
     program_id = request.form.get('programId')
+    period_id = request.form.get('periodId') or None
     status = request.form.get('status')
     semester = request.form.get('semester')
     created_at = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
@@ -580,6 +584,7 @@ def add_application_v2():
         id=app_id,
         student_id=student_id,
         program_id=program_id,
+        period_id=period_id,
         status=status,
         semester=semester,
         created_at=created_at,
