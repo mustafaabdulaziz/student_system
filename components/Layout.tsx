@@ -72,12 +72,12 @@ export const Layout: React.FC<LayoutProps> = ({
 
       {/* Sidebar */}
       <aside className={`
-        fixed inset-y-0 ${dir === 'rtl' ? 'right-0' : 'left-0'} z-30 w-64 bg-slate-900 text-white transform transition-transform duration-300 ease-in-out
+        fixed inset-y-0 ${dir === 'rtl' ? 'right-0' : 'left-0'} z-30 w-64 bg-slate-900 text-white transform transition-transform duration-300 ease-in-out flex flex-col
         ${isSidebarOpen ? 'translate-x-0' : dir === 'rtl' ? 'translate-x-full' : '-translate-x-full'}
         lg:relative lg:translate-x-0
       `}>
-        <div className="h-full flex flex-col">
-          <div className="p-6 border-b border-slate-800">
+        <div className="h-full flex flex-col min-h-0">
+          <div className="p-6 border-b border-slate-800 flex-shrink-0">
             <div className="flex items-center justify-between">
               <h1 className="text-2xl font-bold text-blue-400">{t.appName}</h1>
               <button onClick={() => setSidebarOpen(false)} className="lg:hidden text-gray-400 hover:text-white">
@@ -87,7 +87,7 @@ export const Layout: React.FC<LayoutProps> = ({
             <img src="/images/logo.png" alt="" className="mt-3 h-10 w-auto object-contain object-left rtl:object-right" />
           </div>
 
-          <nav className="flex-1 px-4 py-6 space-y-2">
+          <nav className="flex-1 min-h-0 overflow-y-auto px-4 py-6 space-y-2">
             {navItems.map((item) => (
               <button
                 key={item.id}
@@ -107,7 +107,7 @@ export const Layout: React.FC<LayoutProps> = ({
             ))}
           </nav>
 
-          <div className="p-4 border-t border-slate-800">
+          <div className="p-4 border-t border-slate-800 flex-shrink-0">
             <div className="flex items-center gap-3 mb-4 px-2">
               <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-lg font-bold flex-shrink-0">
                 {currentUser?.name.charAt(0).toUpperCase()}
