@@ -62,6 +62,10 @@ export const Layout: React.FC<LayoutProps> = ({
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden" dir={dir}>
+      <style>{`
+        .layout-sidebar-nav::-webkit-scrollbar { display: none; }
+        .layout-sidebar-nav { scrollbar-width: none; -ms-overflow-style: none; }
+      `}</style>
       {/* Mobile Sidebar Overlay */}
       {isSidebarOpen && (
         <div
@@ -87,7 +91,7 @@ export const Layout: React.FC<LayoutProps> = ({
             <img src="/images/logo.png" alt="" className="mt-3 h-10 w-auto object-contain object-left rtl:object-right" />
           </div>
 
-          <nav className="flex-1 min-h-0 overflow-y-auto px-4 py-6 space-y-2">
+          <nav className="layout-sidebar-nav flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 py-6 space-y-2">
             {navItems.map((item) => (
               <button
                 key={item.id}
