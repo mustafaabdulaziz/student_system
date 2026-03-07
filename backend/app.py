@@ -12,6 +12,9 @@ def create_app():
     app = Flask(__name__)
     app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'postgresql://postgres:postgres@localhost:5432/studentdb')
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+    secret = os.getenv('SECRET_KEY')
+    if secret:
+        app.config['SECRET_KEY'] = secret
     db.init_app(app)
     CORS(app)
 

@@ -1,11 +1,15 @@
 
 from flask import Blueprint, request, jsonify, session, current_app, send_from_directory, url_for
 from models import db, Student, University, Program, Application, User, Notification, Period
+import os
 import uuid
 from datetime import datetime
 from werkzeug.utils import secure_filename
 
 api_bp = Blueprint('api', __name__)
+
+# Uploads at project root: student_system/uploads (when backend is in student_system/backend)
+UPLOADS_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'uploads'))
 
 # إضافة مستخدم جديد (خاص بالمسؤول)
 @api_bp.route('/users', methods=['POST'])
@@ -518,7 +522,7 @@ def add_application():
     user_id = request.form.get('user_id')
     created_at = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
     saved_files = []
-    upload_folder = os.path.join(current_app.root_path, 'uploads')
+    upload_folder = UPLOADS_DIR
     os.makedirs(upload_folder, exist_ok=True)
     for file in files:
         filename = f"{uuid.uuid4()}_{file.filename}"
@@ -572,7 +576,7 @@ def add_application_v2():
     semester = request.form.get('semester')
     created_at = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
     saved_files = []
-    upload_folder = os.path.join(current_app.root_path, 'uploads')
+    upload_folder = UPLOADS_DIR
     os.makedirs(upload_folder, exist_ok=True)
     for file in files:
         filename = f"{uuid.uuid4()}_{file.filename}"
@@ -674,7 +678,7 @@ def import_universities():
     file = request.files['file']
     if file.filename == '':
         return jsonify({'message': 'No file selected'}), 400
-    upload_folder = os.path.join(current_app.root_path, 'uploads')
+    upload_folder = UPLOADS_DIR
     os.makedirs(upload_folder, exist_ok=True)
     filename = f"{uuid.uuid4()}_{secure_filename(file.filename)}"
     filepath = os.path.join(upload_folder, filename)
@@ -726,7 +730,7 @@ def import_universities():
 # Serve uploaded files
 @api_bp.route('/uploads/<path:filename>', methods=['GET'])
 def upload_file(filename):
-    upload_folder = os.path.join(current_app.root_path, 'uploads')
+    upload_folder = UPLOADS_DIR
     return send_from_directory(upload_folder, filename, as_attachment=False)
 
 
@@ -737,7 +741,7 @@ def application_files(app_id):
     if not application:
         return jsonify({'message': 'Application not found'}), 404
 
-    upload_folder = os.path.join(current_app.root_path, 'uploads')
+    upload_folder = UPLOADS_DIR
     os.makedirs(upload_folder, exist_ok=True)
 
     if request.method == 'GET':
@@ -788,7 +792,7 @@ def delete_application_file(app_id, filename):
     application.files = list(current_files)
     db.session.commit()
 
-    upload_folder = os.path.join(current_app.root_path, 'uploads')
+    upload_folder = UPLOADS_DIR
     file_path = os.path.join(upload_folder, filename)
     if os.path.exists(file_path):
         try:

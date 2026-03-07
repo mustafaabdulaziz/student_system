@@ -31,6 +31,8 @@ pip install flask-cors
 
 ### 4. إعداد Frontend
 ```bash
+# إذا قمت بتشغيل reorganize.ps1 فانتقل إلى مجلد frontend
+cd frontend
 npm install
 ```
 
@@ -40,9 +42,12 @@ npm install
 cd backend
 python run.py
 
-# Terminal 2 - Frontend
+# Terminal 2 - Frontend (من مجلد frontend إذا كان المشروع منظمًا)
+cd frontend
 npm run dev
 ```
+
+**ملاحظة:** لتنظيم المشروع بالهيكل `backend/`, `frontend/`, `uploads/` شغّل من الجذر: `.\reorganize.ps1` ثم راجع [RUN.md](./RUN.md).
 
 ### 6. تسجيل الدخول - Login
 - URL: http://localhost:5173
