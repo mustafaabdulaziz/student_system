@@ -83,12 +83,23 @@ export const Layout: React.FC<LayoutProps> = ({
         <div className="h-full flex flex-col min-h-0">
           <div className="p-6 border-b border-slate-800 flex-shrink-0">
             <div className="flex items-center justify-between">
-              <h1 className="text-2xl font-bold text-blue-400">{t.appName}</h1>
+              <h1 className="text-2xl font-bold">
+                {(() => {
+                  const parts = (t.appName || '').split(/\s+/);
+                  const first = parts[0] || '';
+                  const rest = parts.slice(1).join(' ') || '';
+                  return (
+                    <>
+                      <span className="text-red-500">{first}</span>
+                      {rest && <span className="text-blue-400"> {rest}</span>}
+                    </>
+                  );
+                })()}
+              </h1>
               <button onClick={() => setSidebarOpen(false)} className="lg:hidden text-gray-400 hover:text-white">
                 <X size={24} />
               </button>
             </div>
-            <img src="/images/logo.png" alt="" className="mt-3 h-10 w-auto object-contain object-left rtl:object-right" />
           </div>
 
           <nav className="layout-sidebar-nav flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 py-6 space-y-2">

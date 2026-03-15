@@ -1,10 +1,10 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Application, Student, Program, University, ApplicationStatus, User, Period } from '../types';
+import { Application, Student, Program, University, ApplicationStatus, User, Period, APPLICATION_CURRENCIES } from '../types';
 import {
   Plus, Filter, FileText, CheckCircle, XCircle, AlertCircle,
   MessageSquare, ArrowRight, User as UserIcon, GraduationCap,
   Clock, Send, Upload, Paperclip, ChevronLeft, MapPin, Trash2, Mail, Phone, FileEdit,
-  List, LayoutGrid, Search, X, ChevronDown
+  List, LayoutGrid, Search, X, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { useTranslation } from '../hooks/useTranslation';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -136,6 +136,7 @@ interface ApplicationManagerProps {
   users?: User[];
   onAddApplication: (app: Application, files?: FileList | null) => Promise<string | null> | void;
   onUpdateStatus: (id: string, status: ApplicationStatus) => void;
+  onUpdateApplication?: (id: string, payload: { status?: ApplicationStatus; responsibleId?: string | null; cost?: number | null; commission?: number | null; saleAmount?: number | null }) => void | Promise<void>;
   initialStudentId?: string | null;
   clearInitialStudent?: () => void;
   targetApplicationId?: string | null;
@@ -144,7 +145,7 @@ interface ApplicationManagerProps {
 }
 
 export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
-  applications, students, programs, universities, periods = [], users = [], onAddApplication, onUpdateStatus,
+  applications, students, programs, universities, periods = [], users = [], onAddApplication, onUpdateStatus, onUpdateApplication,
   initialStudentId, clearInitialStudent, targetApplicationId, clearTargetApplication, currentUser
 }) => {
   const { t, translateStatus, translateDegree } = useTranslation();
@@ -160,6 +161,8 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const [filterUniversities, setFilterUniversities] = useState<string[]>([]);
   const [filterStatuses, setFilterStatuses] = useState<string[]>([]);
   const [filterDegrees, setFilterDegrees] = useState<string[]>([]);
+  const [sortBy, setSortBy] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const hasSetDefaultStatusRef = useRef(false);
 
   // Default status filter on first load: Admin/User = Missing Documents + Under Review; Agent = + Draft
@@ -181,7 +184,23 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
 
   // Create Form State
   const [selectedStudent, setSelectedStudent] = useState('');
+  const [selectedAgentId, setSelectedAgentId] = useState('');
+  const [selectedResponsibleId, setSelectedResponsibleId] = useState('');
 
+  // Inline edit in detail: financial fields (admin only), synced when app changes
+  const [detailCost, setDetailCost] = useState<string>('');
+  const [detailCommission, setDetailCommission] = useState<string>('');
+  const [detailSaleAmount, setDetailSaleAmount] = useState<string>('');
+  const [detailEditMode, setDetailEditMode] = useState(false);
+  const [editFormAgentId, setEditFormAgentId] = useState('');
+  const [editFormResponsibleId, setEditFormResponsibleId] = useState('');
+  const [detailCurrency, setDetailCurrency] = useState<string>('USD');
+
+  const agentUsers = useMemo(() => users.filter(u => (u.role || '').toString().toLowerCase() === 'agent'), [users]);
+  const responsibleUsers = useMemo(() => users.filter(u => { const r = (u.role || '').toString().toUpperCase(); return r === 'ADMIN' || r === 'USER'; }), [users]);
+  const isAdminOrUser = currentUser && ((currentUser.role || '').toString().toUpperCase() === 'ADMIN' || (currentUser.role || '').toString().toUpperCase() === 'USER');
+  const isAdmin = currentUser && (currentUser.role || '').toString().toUpperCase() === 'ADMIN';
+  const isAgent = currentUser && (currentUser.role || '').toString().toLowerCase() === 'agent';
 
   const [filterPeriod, setFilterPeriod] = useState('');
   const [filterDegree, setFilterDegree] = useState('');
@@ -240,6 +259,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     e.preventDefault();
     if (selectedStudent && finalProgramId) {
       const program = getProgram(finalProgramId);
+      const agentId = selectedAgentId || (currentUser?.id ?? '');
       const newId = await onAddApplication({
         id: Date.now().toString(),
         studentId: selectedStudent,
@@ -248,12 +268,14 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
         status: ApplicationStatus.DRAFT,
         semester: 'Fall 2024',
         createdAt: new Date().toISOString().split('T')[0],
-        files: []
+        files: [],
+        userId: agentId || undefined,
+        ...(selectedResponsibleId && { responsibleId: selectedResponsibleId })
       }, files);
       if (newId) {
         setSelectedAppId(newId);
         setView('detail');
-        setSelectedStudent(''); setFilterPeriod(''); setFilterDegree(''); setFilterName(''); setFilterLang(''); setFilterUni(''); setFiles(null);
+        setSelectedStudent(''); setFilterPeriod(''); setFilterDegree(''); setFilterName(''); setFilterLang(''); setFilterUni(''); setFiles(null); setSelectedAgentId(''); setSelectedResponsibleId('');
       }
     }
   };
@@ -273,6 +295,21 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
       if (typeof clearTargetApplication === 'function') clearTargetApplication();
     }
   }, [targetApplicationId, clearTargetApplication]);
+
+  // Sync inline financial fields when detail app changes; exit edit mode when app changes
+  useEffect(() => {
+    if (!selectedAppId) return;
+    const app = applications.find(a => a.id === selectedAppId);
+    if (app) {
+      setDetailCost(app.cost != null ? String(app.cost) : '');
+      setDetailCommission(app.commission != null ? String(app.commission) : '');
+      setDetailSaleAmount(app.saleAmount != null ? String(app.saleAmount) : '');
+      setEditFormAgentId(app.userId || '');
+      setEditFormResponsibleId(app.responsibleId || '');
+      setDetailCurrency(app.currency && APPLICATION_CURRENCIES.includes(app.currency as any) ? app.currency : 'USD');
+    }
+    setDetailEditMode(false);
+  }, [selectedAppId, applications]);
 
   // Load messages when opening a detail view
   React.useEffect(() => {
@@ -335,12 +372,49 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
       const matchDegree = filterDegrees.length === 0 || (p?.degree && filterDegrees.includes(p.degree));
       return matchNumber && matchName && matchAgent && matchUniversity && matchStatus && matchDegree;
     });
-    return list.slice().sort((a, b) => {
-      const tA = new Date(a.createdAt || 0).getTime();
-      const tB = new Date(b.createdAt || 0).getTime();
-      return tB - tA;
-    });
+    return list;
   }, [applications, students, programs, universities, users, searchApplicationNumber, searchStudentName, filterAgents, filterUniversities, filterStatuses, filterDegrees]);
+
+  const sortedApplications = useMemo(() => {
+    const list = [...filteredApplications];
+    if (!sortBy) {
+      list.sort((a, b) => {
+        const tA = new Date(a.createdAt || 0).getTime();
+        const tB = new Date(b.createdAt || 0).getTime();
+        return tB - tA;
+      });
+      return list;
+    }
+    const dir = sortDir === 'asc' ? 1 : -1;
+    list.sort((a, b) => {
+      const sA = getStudent(a.studentId), sB = getStudent(b.studentId);
+      const pA = getProgram(a.programId), pB = getProgram(b.programId);
+      let va: string | number, vb: string | number;
+      switch (sortBy) {
+        case 'number': va = (a.id || '').toLowerCase(); vb = (b.id || '').toLowerCase(); return dir * (va as string).localeCompare(vb as string);
+        case 'agent': va = getAgentName(a).toLowerCase(); vb = getAgentName(b).toLowerCase(); return dir * (va as string).localeCompare(vb as string);
+        case 'student': va = `${sA?.firstName || ''} ${sA?.lastName || ''}`.trim().toLowerCase(); vb = `${sB?.firstName || ''} ${sB?.lastName || ''}`.trim().toLowerCase(); return dir * (va as string).localeCompare(vb as string);
+        case 'program': va = (pA?.name || '').toLowerCase(); vb = (pB?.name || '').toLowerCase(); return dir * (va as string).localeCompare(vb as string);
+        case 'createdAt': va = new Date(a.createdAt || 0).getTime(); vb = new Date(b.createdAt || 0).getTime(); return dir * ((va as number) - (vb as number));
+        case 'status': va = (a.status || '').toLowerCase(); vb = (b.status || '').toLowerCase(); return dir * (va as string).localeCompare(vb as string);
+        default: return 0;
+      }
+    });
+    return list;
+  }, [filteredApplications, sortBy, sortDir]);
+
+  const toggleSort = (key: string) => {
+    setSortBy(prev => (prev === key ? prev : key));
+    setSortDir(prev => (sortBy === key ? (prev === 'asc' ? 'desc' : 'asc') : 'asc'));
+  };
+  const SortTh = ({ colKey, label, className = '' }: { colKey: string; label: string; className?: string }) => (
+    <th style={{ fontWeight: 700 }} className={`px-6 py-5 text-gray-900 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100/80 transition-colors ${className}`} onClick={() => toggleSort(colKey)}>
+      <span style={{ fontWeight: 700 }} className="inline-flex items-center gap-1 text-gray-900">
+        {label}
+        {sortBy === colKey ? (sortDir === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />) : <span className="opacity-30"><ChevronDown size={14} /></span>}
+      </span>
+    </th>
+  );
 
   const renderCreate = () => (
     <div className="w-full max-w-5xl mx-auto bg-white rounded-xl shadow-sm border border-gray-100 p-6 animate-in fade-in duration-500">
@@ -348,6 +422,39 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
         <Plus className="text-blue-600" /> {t.addApplication}
       </h2>
       <form onSubmit={handleSubmit} className="space-y-6">
+        {isAdminOrUser && agentUsers.length > 0 && (
+          <div>
+            <label className="block font-semibold mb-2 text-gray-700">{t.agent}</label>
+            <select
+              required
+              className="w-full p-3 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 bg-white border-gray-200 transition-all"
+              value={selectedAgentId}
+              onChange={e => setSelectedAgentId(e.target.value)}
+            >
+              <option value="">{t.selectAgent}</option>
+              {agentUsers.map(u => (
+                <option key={u.id} value={u.id}>{u.name} {u.email ? `(${u.email})` : ''}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {isAdminOrUser && responsibleUsers.length > 0 && (
+          <div>
+            <label className="block font-semibold mb-2 text-gray-700">{t.responsible}</label>
+            <select
+              className="w-full p-3 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 bg-white border-gray-200 transition-all"
+              value={selectedResponsibleId}
+              onChange={e => setSelectedResponsibleId(e.target.value)}
+            >
+              <option value="">{t.selectResponsible}</option>
+              {responsibleUsers.map(u => (
+                <option key={u.id} value={u.id}>{u.name} {u.email ? `(${u.email})` : ''}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
         <div>
           <label className="block font-semibold mb-2 text-gray-700">1. {t.selectStudent}</label>
           <select
@@ -486,7 +593,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
 
         <div className="flex justify-end gap-3 pt-6 border-t border-gray-100">
           <button type="button" onClick={() => setView('list')} className="px-6 py-2.5 rounded-xl font-bold text-gray-500 hover:bg-gray-100 transition-colors">{t.cancel}</button>
-          <button type="submit" disabled={!selectedStudent || !finalProgramId} className="px-8 py-2.5 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 disabled:opacity-50 shadow-lg shadow-blue-200 transition-all active:scale-95">{t.save}</button>
+          <button type="submit" disabled={!selectedStudent || !finalProgramId || (isAdminOrUser && agentUsers.length > 0 && !selectedAgentId)} className="px-8 py-2.5 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 disabled:opacity-50 shadow-lg shadow-blue-200 transition-all active:scale-95">{t.save}</button>
         </div>
       </form>
     </div>
@@ -542,7 +649,55 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
           <div className="flex justify-center">
             <span className="font-mono font-bold text-gray-800 text-lg">#{app.id}</span>
           </div>
-          <div className="flex justify-end">
+          <div className="flex justify-end items-center gap-3">
+            {(isAdminOrUser || isAdmin) && onUpdateApplication && (
+              detailEditMode ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDetailCost(app.cost != null ? String(app.cost) : '');
+                      setDetailCommission(app.commission != null ? String(app.commission) : '');
+                      setDetailSaleAmount(app.saleAmount != null ? String(app.saleAmount) : '');
+                      setEditFormAgentId(app.userId || '');
+                      setEditFormResponsibleId(app.responsibleId || '');
+                      setDetailCurrency(app.currency && APPLICATION_CURRENCIES.includes(app.currency as any) ? app.currency : 'USD');
+                      setDetailEditMode(false);
+                    }}
+                    className="px-4 py-2 rounded-xl font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors text-sm"
+                  >
+                    {t.cancel}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const num = (v: string) => { const n = parseFloat(v); return (v === '' || Number.isNaN(n)) ? null : n; };
+                      onUpdateApplication(app.id, {
+                        userId: editFormAgentId || null,
+                        responsibleId: editFormResponsibleId || null,
+                        cost: num(detailCost),
+                        commission: num(detailCommission),
+                        saleAmount: num(detailSaleAmount),
+                        currency: APPLICATION_CURRENCIES.includes(detailCurrency as any) ? detailCurrency : 'USD'
+                      });
+                      setDetailEditMode(false);
+                    }}
+                    className="px-4 py-2 rounded-xl font-bold text-white bg-blue-600 hover:bg-blue-700 transition-colors text-sm flex items-center gap-2"
+                  >
+                    {t.save}
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setDetailEditMode(true)}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 transition-colors"
+                >
+                  <FileEdit size={16} />
+                  {t.editApplication}
+                </button>
+              )
+            )}
             <span className="text-xs bg-gray-100 px-3 py-1.5 rounded-full text-gray-600 font-medium">
               {app.createdAt ? new Date(app.createdAt).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
             </span>
@@ -605,7 +760,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
         )}
 
         {/* 2. Top Info Cards: Student & Program (and Agent if Admin) */}
-        <div className={`grid grid-cols-1 gap-6 ${currentUser?.role === 'ADMIN' && app.agentName ? 'lg:grid-cols-3 md:grid-cols-2' : 'md:grid-cols-2'}`}>
+        <div className={`grid grid-cols-1 gap-6 ${isAdminOrUser ? 'lg:grid-cols-3 md:grid-cols-2' : 'md:grid-cols-2'}`}>
           {/* Student Card */}
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
             <div className="flex items-start gap-4 mb-4">
@@ -670,18 +825,150 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
             </div>
           </div>
 
-          {/* Agent Card (Visible to Admin Only) */}
-          {currentUser?.role === 'ADMIN' && app.agentName && (
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-orange-100 flex items-start gap-4 hover:shadow-md transition-shadow">
-              <div className="bg-orange-50 p-4 rounded-xl text-orange-600">
-                <UserIcon size={24} />
-              </div>
-              <div>
-                <h3 className="text-orange-400 text-xs font-bold uppercase tracking-wider mb-1">{t.hostAgent}</h3>
-                <p className="text-xl font-bold text-gray-800 leading-tight">{app.agentName}</p>
-                <div className="flex gap-4 mt-2 text-sm text-orange-500 font-medium font-mono">
-                  {app.agentPhone && <span className="flex items-center gap-1">{app.agentCountryCode || ''} {app.agentPhone}</span>}
+          {/* Sorumlu Temsilci card (Admin/User): Temsilci (agent) + Sorumlu (responsible), both editable in edit mode */}
+          {isAdminOrUser && (
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-orange-100 hover:shadow-md transition-shadow">
+              <div className="flex items-start gap-4 mb-4">
+                <div className="bg-orange-50 p-4 rounded-xl text-orange-600 shrink-0">
+                  <UserIcon size={24} />
                 </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-orange-400 text-xs font-bold uppercase tracking-wider mb-3">{t.hostAgent}</h3>
+                  <div className="space-y-3">
+                    <div>
+                      <p className="text-xs font-medium text-gray-500 mb-1">{t.agent}</p>
+                      {detailEditMode && onUpdateApplication ? (
+                        <select
+                          value={editFormAgentId}
+                          onChange={(e) => setEditFormAgentId(e.target.value)}
+                          className="w-full max-w-xs p-2.5 border border-gray-200 rounded-xl text-gray-800 font-medium focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                        >
+                          <option value="">{t.selectAgent}</option>
+                          {agentUsers.map(u => (
+                            <option key={u.id} value={u.id}>{u.name} {u.email ? `(${u.email})` : ''}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <p className="text-lg font-bold text-gray-800 leading-tight">{getAgentName(app)}</p>
+                      )}
+                      {!detailEditMode && (app.agentPhone || (app.userId && users.find(u => u.id === app.userId)?.phone)) && (
+                        <p className="text-sm text-orange-600 font-mono mt-0.5">
+                          {app.agentCountryCode || (app.userId && users.find(u => u.id === app.userId)?.countryCode) || ''}{' '}
+                          {app.agentPhone || (app.userId && users.find(u => u.id === app.userId)?.phone)}
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-gray-500 mb-1">{t.responsible}</p>
+                      {detailEditMode && onUpdateApplication ? (
+                        <select
+                          value={editFormResponsibleId}
+                          onChange={(e) => setEditFormResponsibleId(e.target.value)}
+                          className="w-full max-w-xs p-2.5 border border-gray-200 rounded-xl text-gray-800 font-medium focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                        >
+                          <option value="">{t.selectResponsible}</option>
+                          {responsibleUsers.map(u => (
+                            <option key={u.id} value={u.id}>{u.name}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <p className="text-lg font-bold text-gray-800 leading-tight">{app.responsibleName || '—'}</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Financial block (Admin only) – full width, single row: cost, commission, sale amount, currency, profit */}
+          {isAdmin && (
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow col-span-1 md:col-span-2 lg:col-span-3 w-full">
+              <h3 className="text-gray-500 text-xs font-bold uppercase tracking-wider mb-3">{t.cost} / {t.commission} / {t.saleAmount}</h3>
+              <div className="grid grid-cols-5 gap-4 text-sm w-full">
+                {detailEditMode ? (
+                  <>
+                    <div className="min-w-0 flex flex-col gap-1">
+                      <label className="text-gray-500 text-xs font-medium">{t.cost}</label>
+                      <input
+                        type="number"
+                        step="any"
+                        value={detailCost}
+                        onChange={(e) => setDetailCost(e.target.value)}
+                        className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                      />
+                    </div>
+                    <div className="min-w-0 flex flex-col gap-1">
+                      <label className="text-gray-500 text-xs font-medium">{t.commission}</label>
+                      <input
+                        type="number"
+                        step="any"
+                        value={detailCommission}
+                        onChange={(e) => setDetailCommission(e.target.value)}
+                        className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                      />
+                    </div>
+                    <div className="min-w-0 flex flex-col gap-1">
+                      <label className="text-gray-500 text-xs font-medium">{t.saleAmount}</label>
+                      <input
+                        type="number"
+                        step="any"
+                        value={detailSaleAmount}
+                        onChange={(e) => setDetailSaleAmount(e.target.value)}
+                        className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                      />
+                    </div>
+                    <div className="min-w-0 flex flex-col gap-1">
+                      <label className="text-gray-500 text-xs font-medium">{t.currency}</label>
+                      <select
+                        value={detailCurrency}
+                        onChange={(e) => setDetailCurrency(e.target.value)}
+                        className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium"
+                      >
+                        {APPLICATION_CURRENCIES.map(c => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="min-w-0 flex flex-col gap-1 justify-end">
+                      <span className="text-gray-500 text-xs font-medium">{t.profit}</span>
+                      <p className="font-medium text-gray-900 pt-2">
+                        {(app.saleAmount != null && (app.cost != null || app.commission != null))
+                          ? (Number(app.saleAmount) - (Number(app.cost) || 0) - (Number(app.commission) || 0))
+                          : '—'}
+                        <span className="ml-1 text-gray-600 text-sm">{app.currency || 'USD'}</span>
+                      </p>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="min-w-0 py-1">
+                      <p className="text-gray-500 text-xs font-medium">{t.cost}</p>
+                      <p className="font-medium text-gray-900 mt-0.5">{app.cost != null ? Number(app.cost) : '—'} <span className="text-gray-600">{app.currency || 'USD'}</span></p>
+                    </div>
+                    <div className="min-w-0 py-1">
+                      <p className="text-gray-500 text-xs font-medium">{t.commission}</p>
+                      <p className="font-medium text-gray-900 mt-0.5">{app.commission != null ? Number(app.commission) : '—'} <span className="text-gray-600">{app.currency || 'USD'}</span></p>
+                    </div>
+                    <div className="min-w-0 py-1">
+                      <p className="text-gray-500 text-xs font-medium">{t.saleAmount}</p>
+                      <p className="font-medium text-gray-900 mt-0.5">{app.saleAmount != null ? Number(app.saleAmount) : '—'} <span className="text-gray-600">{app.currency || 'USD'}</span></p>
+                    </div>
+                    <div className="min-w-0 py-1">
+                      <p className="text-gray-500 text-xs font-medium">{t.currency}</p>
+                      <p className="font-medium text-gray-900 mt-0.5">{app.currency || 'USD'}</p>
+                    </div>
+                    <div className="min-w-0 py-1">
+                      <p className="text-gray-500 text-xs font-medium">{t.profit}</p>
+                      <p className="font-medium text-gray-900 mt-0.5">
+                        {(app.saleAmount != null && (app.cost != null || app.commission != null))
+                          ? (Number(app.saleAmount) - (Number(app.cost) || 0) - (Number(app.commission) || 0))
+                          : '—'}
+                        <span className="ml-1 text-gray-600">{app.currency || 'USD'}</span>
+                      </p>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -1007,19 +1294,19 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
           {listViewMode === 'tree' && (
             <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden mt-4 overflow-x-auto">
               <table className="w-full text-right text-sm">
-                <thead className="bg-gray-50/50 text-gray-400 border-b border-gray-100">
+                <thead style={{ fontWeight: 700 }} className="bg-gray-50/50 text-gray-900 border-b border-gray-100">
                   <tr>
-                    <th className="px-6 py-5 font-bold uppercase tracking-wider">{t.number}</th>
-                    <th className="px-6 py-5 font-bold uppercase tracking-wider">{t.agent}</th>
-                    <th className="px-6 py-5 font-bold uppercase tracking-wider">{t.studentInfo}</th>
-                    <th className="px-6 py-5 font-bold uppercase tracking-wider">{t.programsTitle}</th>
-                    <th className="px-6 py-5 font-bold uppercase tracking-wider">{t.createdAt}</th>
-                    <th className="px-6 py-5 font-bold uppercase tracking-wider text-center">{t.applicationStatus}</th>
+                    <SortTh colKey="number" label={t.number} />
+                    <SortTh colKey="agent" label={t.agent} />
+                    <SortTh colKey="student" label={t.studentInfo} />
+                    <SortTh colKey="program" label={t.programsTitle} />
+                    <SortTh colKey="createdAt" label={t.createdAt} />
+                    <SortTh colKey="status" label={t.applicationStatus} className="text-center" />
                     <th className="px-6 py-5"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {filteredApplications.map((app) => {
+                  {sortedApplications.map((app) => {
                     const s = getStudent(app.studentId);
                     const p = getProgram(app.programId);
                     return (
@@ -1029,19 +1316,19 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                         onClick={() => { setSelectedAppId(app.id); setView('detail'); }}
                       >
                         <td className="px-6 py-4">
-                          <span className="font-mono font-bold text-gray-400 group-hover:text-blue-600 transition-colors">#{app.id}</span>
+                          <span className="font-mono font-bold text-gray-900 group-hover:text-blue-600 transition-colors">#{app.id}</span>
                         </td>
-                        <td className="px-6 py-4 text-gray-700">{getAgentName(app)}</td>
-                        <td className="px-6 py-4 font-bold text-gray-800">{s?.firstName} {s?.lastName}</td>
+                        <td className="px-6 py-4 text-gray-900">{getAgentName(app)}</td>
+                        <td className="px-6 py-4 font-bold text-gray-900">{s?.firstName} {s?.lastName}</td>
                         <td className="px-6 py-4">
                           <div>
-                            <span className="font-bold text-gray-700">{p?.name}</span>
+                            <span className="font-bold text-gray-900">{p?.name}</span>
                             {(getPeriod(app.periodId || p?.periodId)?.name) && (
-                              <span className="text-gray-500 text-xs block mt-0.5">{getPeriod(app.periodId || p?.periodId)?.name}</span>
+                              <span className="text-gray-900 text-xs block mt-0.5">{getPeriod(app.periodId || p?.periodId)?.name}</span>
                             )}
                           </div>
                         </td>
-                        <td className="px-6 py-4 text-gray-500 font-medium">
+                        <td className="px-6 py-4 text-gray-900 font-medium">
                           {app.createdAt ? new Date(app.createdAt).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
                         </td>
                         <td className="px-6 py-4">
@@ -1066,7 +1353,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                   })}
                 </tbody>
               </table>
-              {filteredApplications.length === 0 && (
+              {sortedApplications.length === 0 && (
                 <div className="py-20 text-center">
                   <FileText size={48} className="mx-auto text-gray-100 mb-4" />
                   <p className="text-gray-400 font-medium">{t.noApplicationsInSystem}</p>
@@ -1077,13 +1364,13 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
 
           {listViewMode === 'kanban' && (
             <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {filteredApplications.length === 0 ? (
+              {sortedApplications.length === 0 ? (
                 <div className="col-span-full py-20 text-center">
                   <FileText size={48} className="mx-auto text-gray-100 mb-4" />
                   <p className="text-gray-400 font-medium">{t.noApplicationsInSystem}</p>
                 </div>
               ) : (
-                filteredApplications.map((app) => {
+                sortedApplications.map((app) => {
                   const s = getStudent(app.studentId);
                   const p = getProgram(app.programId);
                   return (

@@ -131,24 +131,24 @@ export const UserManager: React.FC<UserManagerProps> = ({ users, currentUser, on
 
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
             <table className="w-full text-right text-sm">
-              <thead className="bg-gray-50 text-gray-500">
-                <tr>
-                  <th className="px-6 py-4 font-medium">{t.userName}</th>
-                  <th className="px-6 py-4 font-medium">{t.email}</th>
-                  <th className="px-6 py-4 font-medium">{t.userRole}</th>
-                  <th className="px-6 py-4 font-medium">{t.phone}</th>
-                  <th className="px-6 py-4 font-medium">{t.applicationDetails}</th>
+<thead className="bg-gray-50 text-gray-900 font-bold">
+                  <tr>
+                  <th className="px-6 py-4 font-bold">{t.userName}</th>
+                  <th className="px-6 py-4 font-bold">{t.email}</th>
+                  <th className="px-6 py-4 font-bold">{t.userRole}</th>
+                  <th className="px-6 py-4 font-bold">{t.phone}</th>
+                  <th className="px-6 py-4 font-bold">{t.applicationDetails}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {users.map(user => (
                   <tr key={user.id}>
                     <td className="px-6 py-4 font-medium text-gray-900">{user.name}</td>
-                    <td className="px-6 py-4 text-gray-600">{user.email}</td>
-                    <td className="px-6 py-4 text-blue-600">
+                    <td className="px-6 py-4 text-gray-900">{user.email}</td>
+                    <td className="px-6 py-4 text-gray-900">
                       {translateRole(user.role)}
                     </td>
-                    <td className="px-6 py-4 text-gray-600">{user.countryCode ? `${user.countryCode} ${user.phone || ''}` : (user.phone || '')}</td>
+                    <td className="px-6 py-4 text-gray-900">{user.countryCode ? `${user.countryCode} ${user.phone || ''}` : (user.phone || '')}</td>
                     <td className="px-6 py-4">
                       {user.id !== currentUser.id && (
                         <button onClick={() => onDeleteUser(user.id)} className="text-red-600 hover:text-red-800">

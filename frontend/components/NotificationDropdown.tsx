@@ -61,6 +61,20 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ curr
         }
     };
 
+    const markAllAsRead = async () => {
+        if (!currentUserId || unreadCount === 0) return;
+        try {
+            const res = await fetch(`/api/notifications/read-all?user_id=${currentUserId}`, {
+                method: 'PUT'
+            });
+            if (res.ok) {
+                setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+            }
+        } catch (err) {
+            console.error('Failed to mark all as read', err);
+        }
+    };
+
     const handleNotificationClick = (notification: Notification) => {
         markAsRead(notification.id);
         setIsOpen(false);
@@ -98,11 +112,22 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ curr
                         onClick={() => setIsOpen(false)}
                     />
                     <div className={`absolute ${language === 'ar' ? 'left-0' : 'right-0'} mt-2 w-96 bg-white rounded-lg shadow-xl border border-gray-200 z-20 max-h-96 overflow-y-auto ${language === 'ar' ? 'text-right' : 'text-left'}`} dir={language === 'ar' ? 'rtl' : 'ltr'}>
-                        <div className="p-4 border-b border-gray-200 flex justify-between items-center">
+                        <div className="p-4 border-b border-gray-200 flex justify-between items-center flex-wrap gap-2">
                             <h3 className="font-bold text-gray-800">{t.notificationsTitle}</h3>
-                            {unreadCount > 0 && (
-                                <span className="text-sm text-gray-500">{unreadCount} {t.newMessage}</span>
-                            )}
+                            <div className="flex items-center gap-2">
+                                {unreadCount > 0 && (
+                                    <>
+                                        <button
+                                            type="button"
+                                            onClick={(e) => { e.stopPropagation(); markAllAsRead(); }}
+                                            className="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline"
+                                        >
+                                            {t.markAllAsRead}
+                                        </button>
+                                        <span className="text-sm text-gray-500">{unreadCount} {t.newMessage}</span>
+                                    </>
+                                )}
+                            </div>
                         </div>
 
                         {loading ? (

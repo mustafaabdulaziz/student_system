@@ -98,8 +98,24 @@ if __name__ == '__main__':
                     if 'period_id' not in app_cols:
                         conn.execute(text('ALTER TABLE applications ADD COLUMN period_id VARCHAR REFERENCES periods(id)'))
                         conn.commit()
+                    for col, typ in [('responsible_id', 'VARCHAR REFERENCES users(id)'), ('cost', 'FLOAT'), ('commission', 'FLOAT'), ('sale_amount', 'FLOAT'), ('currency', 'VARCHAR')]:
+                        if col not in app_cols:
+                            try:
+                                conn.execute(text(f'ALTER TABLE applications ADD COLUMN {col} {typ}'))
+                                conn.commit()
+                            except Exception:
+                                pass
             except Exception as e:
                 print('Applications period_id column check:', e)
+            # Ensure students table has created_at column
+            try:
+                if 'students' in inspector.get_table_names():
+                    student_cols = [c['name'] for c in inspector.get_columns('students')]
+                    if 'created_at' not in student_cols:
+                        conn.execute(text('ALTER TABLE students ADD COLUMN created_at VARCHAR'))
+                        conn.commit()
+            except Exception as e:
+                print('Students created_at column check:', e)
         # إضافة أدمن افتراضي إذا لم يوجد
         try:
             exists = User.query.options(load_only(User.email)).filter_by(email='admin@admin.com').first()

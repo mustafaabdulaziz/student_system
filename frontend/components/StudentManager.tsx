@@ -1,6 +1,6 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Student, Application, Program, University, ApplicationStatus } from '../types';
-import { Plus, User, Search, Eye, X, List, LayoutGrid, Pencil, ArrowLeft, ChevronDown, Filter } from 'lucide-react';
+import { Plus, User, Search, Eye, X, List, LayoutGrid, Pencil, ArrowLeft, ChevronDown, ChevronUp, Filter } from 'lucide-react';
 import { useTranslation } from '../hooks/useTranslation';
 import { COUNTRIES } from '../constants/countries';
 
@@ -77,6 +77,7 @@ interface StudentManagerProps {
   applications: Application[];
   programs: Program[];
   universities: University[];
+  users?: { id: string; name: string; email?: string; role?: string; phone?: string; countryCode?: string }[];
   onAddStudent: (student: Student) => Promise<string | null> | string | null;
   onEditStudent?: (student: Student) => Promise<void> | void;
   onCreateApplicationForStudent?: (studentId: string) => void;
@@ -89,6 +90,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
   applications = [],
   programs = [],
   universities = [],
+  users = [],
   onAddStudent,
   onEditStudent,
   onCreateApplicationForStudent,
@@ -100,9 +102,17 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
   const [filterNationalities, setFilterNationalities] = useState<string[]>([]);
   const [filterGender, setFilterGender] = useState('');
   const [viewMode, setViewMode] = useState<'tree' | 'kanban'>('tree');
+  const [sortBy, setSortBy] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [isModalOpen, setModalOpen] = useState(false);
   const [selectedStudentForEdit, setSelectedStudentForEdit] = useState<Student | null>(null);
   const [selectedStudentForDetails, setSelectedStudentForDetails] = useState<Student | null>(null);
+  const [selectedAgentId, setSelectedAgentId] = useState('');
+
+  const agentUsers = useMemo(() => users.filter(u => (u.role || '').toString().toLowerCase() === 'agent'), [users]);
+  const isAdminOrUser = currentUser && ((currentUser.role || '').toString().toUpperCase() === 'ADMIN' || (currentUser.role || '').toString().toUpperCase() === 'USER');
+  const isAgent = currentUser && (currentUser.role || '').toString().toLowerCase() === 'agent';
+  const getAgentName = (student: Student) => (student.userId && users.find(u => u.id === student.userId)?.name) || '—';
 
   const [formData, setFormData] = useState<Partial<Student>>({
     firstName: '',
@@ -121,6 +131,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
 
   const openAddModal = () => {
     setSelectedStudentForEdit(null);
+    setSelectedAgentId('');
     setFormData({
       firstName: '', lastName: '', passportNumber: '', nationality: '', email: '', phone: '',
       fatherName: '', motherName: '', gender: 'Male', degreeTarget: '', dob: '', residenceCountry: ''
@@ -167,6 +178,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
     }
 
     const isEdit = !!selectedStudentForEdit;
+    const agentId = selectedAgentId || (currentUser?.id ?? '');
     const payload: Student = {
       id: selectedStudentForEdit?.id ?? Date.now().toString(),
       firstName: formData.firstName!,
@@ -180,7 +192,8 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
       gender: formData.gender as 'Male' | 'Female' || 'Male',
       degreeTarget: formData.degreeTarget || '',
       dob: formData.dob || '',
-      residenceCountry: formData.residenceCountry || ''
+      residenceCountry: formData.residenceCountry || '',
+      ...(!isEdit && agentId ? { userId: agentId } : {})
     };
 
     try {
@@ -196,7 +209,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
     }
   };
 
-  const filteredStudents = students.filter(student => {
+  const filteredStudents = useMemo(() => students.filter(student => {
     const matchSearch = !searchTerm.trim() ||
       student.firstName.toLowerCase().includes(searchTerm.trim().toLowerCase()) ||
       student.lastName.toLowerCase().includes(searchTerm.trim().toLowerCase()) ||
@@ -204,7 +217,57 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
     const matchNationality = filterNationalities.length === 0 || filterNationalities.includes(student.nationality);
     const matchGender = !filterGender || student.gender === filterGender;
     return matchSearch && matchNationality && matchGender;
-  });
+  }), [students, searchTerm, filterNationalities, filterGender]);
+
+  const sortedStudents = useMemo(() => {
+    const list = [...filteredStudents];
+    const sortKey = sortBy || 'createdAt';
+    const sortDesc = sortBy ? sortDir : 'desc';
+    const d = sortDesc === 'asc' ? 1 : -1;
+    list.sort((a, b) => {
+      let cmp = 0;
+      switch (sortKey) {
+        case 'createdAt':
+          cmp = (new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()) * d;
+          break;
+        case 'name':
+          cmp = d * `${a.firstName} ${a.lastName}`.toLowerCase().localeCompare(`${b.firstName} ${b.lastName}`.toLowerCase());
+          break;
+        case 'passport':
+          cmp = d * (a.passportNumber || '').localeCompare(b.passportNumber || '');
+          break;
+        case 'nationality':
+          cmp = d * (a.nationality || '').toLowerCase().localeCompare((b.nationality || '').toLowerCase());
+          break;
+        case 'gender':
+          cmp = d * (a.gender || '').toLowerCase().localeCompare((b.gender || '').toLowerCase());
+          break;
+        case 'email':
+          cmp = d * (a.email || '').toLowerCase().localeCompare((b.email || '').toLowerCase());
+          break;
+        case 'agent':
+          cmp = d * getAgentName(a).toLowerCase().localeCompare(getAgentName(b).toLowerCase());
+          break;
+        default:
+          cmp = 0;
+      }
+      return cmp;
+    });
+    return list;
+  }, [filteredStudents, sortBy, sortDir, users]);
+
+  const toggleSort = (key: string) => {
+    setSortBy(prev => (prev === key ? prev : key));
+    setSortDir(prev => (sortBy === key ? (prev === 'asc' ? 'desc' : 'asc') : 'asc'));
+  };
+  const SortTh = ({ colKey, label, className = '' }: { colKey: string; label: string; className?: string }) => (
+    <th className={`px-4 py-3 font-bold cursor-pointer select-none hover:bg-gray-100 transition-colors ${className}`} onClick={() => toggleSort(colKey)}>
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {sortBy === colKey ? (sortDir === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />) : <span className="opacity-30"><ChevronDown size={14} /></span>}
+      </span>
+    </th>
+  );
 
   const hasActiveFilters = !!(searchTerm.trim() || filterNationalities.length > 0 || filterGender);
   const clearFilters = () => {
@@ -280,7 +343,8 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
               <button
                 type="submit"
                 form="student-form"
-                className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-medium transition-colors shadow-md shadow-blue-600/20"
+                disabled={!selectedStudentForEdit && isAdminOrUser && agentUsers.length > 0 && !selectedAgentId}
+                className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-medium transition-colors shadow-md shadow-blue-600/20 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {t.save}
               </button>
@@ -289,6 +353,23 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
 
           <form id="student-form" onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 md:p-8">
             <div className="max-w-4xl mx-auto space-y-8">
+              {!selectedStudentForEdit && isAdminOrUser && agentUsers.length > 0 && (
+                <section className="bg-gray-50/80 rounded-2xl p-6 border border-gray-100">
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t.agent}</label>
+                  <select
+                    required
+                    className="w-full max-w-md border border-gray-300 rounded-xl px-4 py-2.5 text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                    value={selectedAgentId}
+                    onChange={e => setSelectedAgentId(e.target.value)}
+                  >
+                    <option value="">{t.selectAgent}</option>
+                    {agentUsers.map(u => (
+                      <option key={u.id} value={u.id}>{u.name} {u.email ? `(${u.email})` : ''}</option>
+                    ))}
+                  </select>
+                </section>
+              )}
+
               {/* Personal info */}
               <section className="bg-gray-50/80 rounded-2xl p-6 border border-gray-100">
                 <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
@@ -442,6 +523,8 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                     <option value="Bachelor">{t.bachelor}</option>
                     <option value="Master">{t.master}</option>
                     <option value="PhD">{t.phd}</option>
+                    <option value="CombinedPhD">{t.combinedPhd}</option>
+                    <option value="Diploma">Diploma</option>
                   </select>
                 </div>
               </section>
@@ -468,6 +551,11 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                 <p className="text-gray-500 text-sm">{t.passportNumber}: {selectedStudentForDetails.passportNumber}</p>
               </div>
             </div>
+            {selectedStudentForDetails.createdAt && (
+              <div className="text-sm text-gray-500 shrink-0">
+                {t.createdAt}: {new Date(selectedStudentForDetails.createdAt).toLocaleDateString(undefined, { dateStyle: 'medium' })}
+              </div>
+            )}
             <div className="flex items-center gap-2 shrink-0 flex-wrap">
               <button
                 type="button"
@@ -575,6 +663,19 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                   </div>
                 </div>
               </section>
+
+              {/* Agent (only for ADMIN / USER when student has assigned agent; Agent role does not see this) */}
+              {isAdminOrUser && selectedStudentForDetails.userId && (
+                <section className="bg-white rounded-2xl p-6 border border-orange-100">
+                  <h3 className="text-orange-400 text-xs font-bold uppercase tracking-wider mb-2">{t.hostAgent}</h3>
+                  <p className="text-lg font-bold text-gray-800">{getAgentName(selectedStudentForDetails)}</p>
+                  {(users.find(u => u.id === selectedStudentForDetails.userId)?.phone) && (
+                    <p className="text-sm text-gray-600 mt-1 font-mono">
+                      {users.find(u => u.id === selectedStudentForDetails.userId)?.countryCode || ''} {users.find(u => u.id === selectedStudentForDetails.userId)?.phone}
+                    </p>
+                  )}
+                </section>
+              )}
 
               {/* Application Management - unchanged */}
               <section className="bg-white rounded-2xl p-6 border border-gray-100">
@@ -722,26 +823,28 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm text-left">
-                  <thead className="bg-gray-50 text-gray-600 font-medium border-b border-gray-200">
+                  <thead className="bg-gray-50 text-gray-900 font-bold border-b border-gray-200">
                     <tr>
-                      <th className="px-4 py-3">{t.userName}</th>
-                      <th className="px-4 py-3">{t.passportNumber}</th>
-                      <th className="px-4 py-3">{t.nationality}</th>
-                      <th className="px-4 py-3">{t.gender}</th>
-                      <th className="px-4 py-3">{t.email}</th>
-                      <th className="px-4 py-3 min-w-[280px] text-right">{t.actions || 'Actions'}</th>
+                      <SortTh colKey="name" label={t.userName} />
+                      <SortTh colKey="passport" label={t.passportNumber} />
+                      <SortTh colKey="nationality" label={t.nationality} />
+                      <SortTh colKey="gender" label={t.gender} />
+                      <SortTh colKey="email" label={t.email} />
+                      {isAdminOrUser && <SortTh colKey="agent" label={t.agent} />}
+                      <th className="px-4 py-3 font-bold min-w-[280px] text-right">{t.actions || 'Actions'}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {filteredStudents.map(student => (
+                    {sortedStudents.map(student => (
                       <tr key={student.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 font-medium text-gray-800">
+                        <td className="px-4 py-3 font-medium text-gray-900">
                           {student.firstName} {student.lastName}
                         </td>
-                        <td className="px-4 py-3 font-mono text-gray-600">{student.passportNumber}</td>
-                        <td className="px-4 py-3 text-gray-600">{student.nationality}</td>
-                        <td className="px-4 py-3 text-gray-600">{student.gender === 'Female' ? t.female : t.male}</td>
-                        <td className="px-4 py-3 text-gray-600">{student.email}</td>
+                        <td className="px-4 py-3 font-mono text-gray-900">{student.passportNumber}</td>
+                        <td className="px-4 py-3 text-gray-900">{student.nationality}</td>
+                        <td className="px-4 py-3 text-gray-900">{student.gender === 'Female' ? t.female : t.male}</td>
+                        <td className="px-4 py-3 text-gray-900">{student.email}</td>
+                        {isAdminOrUser && <td className="px-4 py-3 text-gray-900">{getAgentName(student)}</td>}
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center justify-end gap-2 flex-nowrap">
                             <button
@@ -773,7 +876,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                   </tbody>
                 </table>
               </div>
-              {filteredStudents.length === 0 && (
+              {sortedStudents.length === 0 && (
                 <div className="text-center py-12 text-gray-500">{t.noStudents || 'No students'}</div>
               )}
             </div>

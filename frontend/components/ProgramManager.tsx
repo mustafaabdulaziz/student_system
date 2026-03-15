@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Program, University, User, UserRole, PROGRAM_CATEGORIES, Period } from '../types';
 import { COUNTRIES } from '../constants/countries';
-import { Plus, BookOpen, Clock, DollarSign, Calendar, Trash2, Pencil, Search, Filter, X, ChevronDown, Eye, ArrowLeft } from 'lucide-react';
+import { Plus, BookOpen, Clock, DollarSign, Calendar, Trash2, Pencil, Search, Filter, X, ChevronDown, ChevronUp, Eye, ArrowLeft } from 'lucide-react';
 import { useTranslation } from '../hooks/useTranslation';
 
 interface MultiSelectOption {
@@ -113,6 +113,8 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
   const [filterUniversityIds, setFilterUniversityIds] = useState<string[]>([]);
   const [filterDegrees, setFilterDegrees] = useState<string[]>([]);
   const [filterLanguages, setFilterLanguages] = useState<string[]>([]);
+  const [sortBy, setSortBy] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const LANGUAGES = ['English', 'Turkish', 'Arabic'];
   const DEGREES = ['Bachelor', 'Master', 'PhD', 'CombinedPhD', 'Diploma'] as const;
   const [formData, setFormData] = useState<Partial<Program>>({
@@ -147,6 +149,38 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
       return matchName && matchNameAr && matchCategory && matchUniversity && matchDegree && matchLanguage;
     });
   }, [programs, searchProgramName, searchNameInArabic, filterCategories, filterUniversityIds, filterDegrees, filterLanguages]);
+
+  const sortedPrograms = useMemo(() => {
+    if (!sortBy) return filteredPrograms;
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return [...filteredPrograms].sort((a, b) => {
+      let va: string | number, vb: string | number;
+      switch (sortBy) {
+        case 'name': va = a.name.toLowerCase(); vb = b.name.toLowerCase(); return dir * (va as string).localeCompare(vb as string);
+        case 'university': va = getUniversityName(a.universityId); vb = getUniversityName(b.universityId); return dir * (va as string).localeCompare(vb as string);
+        case 'degree': va = a.degree; vb = b.degree; return dir * (va as string).localeCompare(vb as string);
+        case 'language': va = a.language; vb = b.language; return dir * (va as string).localeCompare(vb as string);
+        case 'fee': va = a.fee ?? 0; vb = b.fee ?? 0; return dir * ((va as number) - (vb as number));
+        case 'deposit': va = a.deposit ?? -1; vb = b.deposit ?? -1; return dir * ((va as number) - (vb as number));
+        case 'cashPrice': va = a.cashPrice ?? -1; vb = b.cashPrice ?? -1; return dir * ((va as number) - (vb as number));
+        case 'period': va = getPeriodName(a.periodId); vb = getPeriodName(b.periodId); return dir * (va as string).localeCompare(vb as string);
+        default: return 0;
+      }
+    });
+  }, [filteredPrograms, sortBy, sortDir, getUniversityName, getPeriodName]);
+
+  const toggleSort = (key: string) => {
+    setSortBy(prev => (prev === key ? prev : key));
+    setSortDir(prev => (sortBy === key ? (prev === 'asc' ? 'desc' : 'asc') : 'asc'));
+  };
+  const SortTh = ({ colKey, label, className = '' }: { colKey: string; label: string; className?: string }) => (
+    <th className={`px-6 py-4 font-bold cursor-pointer select-none hover:bg-gray-100 transition-colors ${className}`} onClick={() => toggleSort(colKey)}>
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {sortBy === colKey ? (sortDir === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />) : <span className="opacity-30"><ChevronDown size={14} /></span>}
+      </span>
+    </th>
+  );
 
   const hasActiveFilters = !!(searchProgramName.trim() || searchNameInArabic.trim() || filterCategories.length > 0 || filterUniversityIds.length > 0 || filterDegrees.length > 0 || filterLanguages.length > 0);
 
@@ -684,40 +718,40 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-right text-sm">
-            <thead className="bg-gray-50 text-gray-500 border-b border-gray-200">
+            <thead className="bg-gray-50 text-gray-900 border-b border-gray-200">
               <tr>
-                <th className="px-6 py-4 font-medium">{t.programName}</th>
-                <th className="px-6 py-4 font-medium">{t.universities}</th>
-                <th className="px-6 py-4 font-medium">{t.programDegree}</th>
-                <th className="px-6 py-4 font-medium">{t.programLanguage}</th>
-                <th className="px-6 py-4 font-medium">{t.programFee}</th>
-                <th className="px-6 py-4 font-medium">{t.deposit}</th>
-                <th className="px-6 py-4 font-medium">{t.cashPrice}</th>
-                <th className="px-6 py-4 font-medium">{t.programPeriod}</th>
-                <th className="px-6 py-4 font-medium text-center">{t.edit}</th>
+                <SortTh colKey="name" label={t.programName} />
+                <SortTh colKey="university" label={t.universities} />
+                <SortTh colKey="degree" label={t.programDegree} />
+                <SortTh colKey="language" label={t.programLanguage} />
+                <SortTh colKey="fee" label={t.programFee} />
+                <SortTh colKey="deposit" label={t.deposit} />
+                <SortTh colKey="cashPrice" label={t.cashPrice} />
+                <SortTh colKey="period" label={t.programPeriod} />
+                <th className="px-6 py-4 font-bold text-center">{t.edit}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filteredPrograms.map((program) => (
+              {sortedPrograms.map((program) => (
                 <tr key={program.id} className="hover:bg-gray-50 transition-colors group">
                   <td className="px-6 py-4 font-medium text-gray-900">{program.name}</td>
-                  <td className="px-6 py-4 text-blue-600">{getUniversityName(program.universityId)}</td>
+                  <td className="px-6 py-4 text-gray-900">{getUniversityName(program.universityId)}</td>
                   <td className="px-6 py-4">
                     <span className="px-2 py-1 bg-purple-50 text-purple-700 rounded text-xs">
                       {translateDegree(program.degree)}
                     </span>
                   </td>
                   <td className="px-6 py-4">{program.language}</td>
-                  <td className="px-6 py-4 font-bold text-gray-700">
+                  <td className="px-6 py-4 font-bold text-gray-900">
                     {program.currency ? `${program.currency} ${program.fee.toLocaleString()}` : `$${program.fee.toLocaleString()}`}
                   </td>
-                  <td className="px-6 py-4 text-gray-600">
+                  <td className="px-6 py-4 text-gray-900">
                     {program.deposit != null ? (program.currency ? `${program.currency} ${program.deposit.toLocaleString()}` : program.deposit.toLocaleString()) : '—'}
                   </td>
-                  <td className="px-6 py-4 text-gray-600">
+                  <td className="px-6 py-4 text-gray-900">
                     {program.cashPrice != null ? (program.currency ? `${program.currency} ${program.cashPrice.toLocaleString()}` : program.cashPrice.toLocaleString()) : '—'}
                   </td>
-                  <td className="px-6 py-4 text-gray-600">{getPeriodName(program.periodId)}</td>
+                  <td className="px-6 py-4 text-gray-900">{getPeriodName(program.periodId)}</td>
                   <td className="px-6 py-4 text-center">
                     <div className="flex justify-center gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
                       <button
@@ -749,7 +783,7 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
                   </td>
                 </tr>
               ))}
-              {filteredPrograms.length === 0 && (
+              {sortedPrograms.length === 0 && (
                 <tr>
                   <td colSpan={9} className="px-6 py-8 text-center text-gray-400">
                     {hasActiveFilters ? t.searchNoResults : t.noPrograms}

@@ -28,6 +28,7 @@ class Student(db.Model):
     dob = db.Column(db.String, nullable=False)
     residence_country = db.Column(db.String, nullable=False)
     user_id = db.Column(db.String, db.ForeignKey('users.id'), nullable=True)  # Added to link student to agent
+    created_at = db.Column(db.String, nullable=True)
 
 class University(db.Model):
     __tablename__ = 'universities'
@@ -69,8 +70,14 @@ class Application(db.Model):
     semester = db.Column(db.String, nullable=False)
     created_at = db.Column(db.String, nullable=False)
     files = db.Column(db.ARRAY(db.String))
-    user_id = db.Column(db.String, db.ForeignKey('users.id'), nullable=True)  # Added to link application to agent
-    user = db.relationship('User', backref='applications')
+    user_id = db.Column(db.String, db.ForeignKey('users.id'), nullable=True)  # Agent
+    user = db.relationship('User', backref='applications', foreign_keys=[user_id])
+    responsible_id = db.Column(db.String, db.ForeignKey('users.id'), nullable=True)  # Admin or User responsible
+    responsible = db.relationship('User', foreign_keys=[responsible_id])
+    cost = db.Column(db.Float, nullable=True)
+    commission = db.Column(db.Float, nullable=True)
+    sale_amount = db.Column(db.Float, nullable=True)
+    currency = db.Column(db.String, nullable=True, default='USD')
 
 
 

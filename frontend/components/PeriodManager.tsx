@@ -150,7 +150,7 @@ export const PeriodManager: React.FC<PeriodManagerProps> = ({
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-left">
-            <thead className="bg-gray-50 text-gray-600 font-medium border-b border-gray-200">
+            <thead className="bg-gray-50 text-gray-900 font-medium border-b border-gray-200">
               <tr>
                 <th className="px-4 py-3">{t.periodName}</th>
                 <th className="px-4 py-3">{t.startDate}</th>
@@ -221,9 +221,9 @@ export const PeriodManager: React.FC<PeriodManagerProps> = ({
                 <React.Fragment key={p.id}>
                   {editingId === p.id ? null : (
                     <tr className="hover:bg-gray-50">
-                      <td className="px-4 py-3 font-medium text-gray-800">{p.name}</td>
-                      <td className="px-4 py-3 text-gray-600">{p.startDate}</td>
-                      <td className="px-4 py-3 text-gray-600">{p.endDate}</td>
+                      <td className="px-4 py-3 font-medium text-gray-900">{p.name}</td>
+                      <td className="px-4 py-3 text-gray-900">{p.startDate}</td>
+                      <td className="px-4 py-3 text-gray-900">{p.endDate}</td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${p.active !== false ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>
                           {p.active !== false ? t.active : t.inactive}

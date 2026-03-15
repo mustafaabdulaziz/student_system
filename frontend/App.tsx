@@ -270,18 +270,26 @@ export default function App() {
 
   const addStudent = async (stud: Student) => {
     try {
+      const userIdToSend = stud.userId ?? state.currentUser?.id ?? '';
       const res = await fetch('/api/students', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...stud,
           role: state.currentUser?.role,
-          user_id: state.currentUser?.id
+          user_id: userIdToSend
         })
       });
       const data = await res.json();
       if (res.ok) {
-        setState(prev => ({ ...prev, students: [...prev.students, { ...stud, id: data.id }] }));
+        const agentUser = state.users.find(u => u.id === userIdToSend);
+        const newStudent = {
+          ...stud,
+          id: data.id,
+          userId: userIdToSend || undefined,
+          ...(data.createdAt && { createdAt: data.createdAt })
+        };
+        setState(prev => ({ ...prev, students: [...prev.students, newStudent] }));
         return data.id;
       } else {
         alert(data.message || 'فشل إضافة الطالب');
@@ -323,10 +331,14 @@ export default function App() {
     if (files) {
       Array.from(files).forEach(f => formData.append('files', f));
     }
-    if (state.currentUser) {
-      formData.append('user_id', state.currentUser.id);
-      formData.append('role', state.currentUser.role);
-    }
+    const userIdToSend = app.userId ?? state.currentUser?.id ?? '';
+    if (userIdToSend) formData.append('user_id', userIdToSend);
+    if (app.responsibleId) formData.append('responsible_id', app.responsibleId);
+    if (app.cost != null) formData.append('cost', String(app.cost));
+    if (app.commission != null) formData.append('commission', String(app.commission));
+    if (app.saleAmount != null) formData.append('sale_amount', String(app.saleAmount));
+    formData.append('currency', app.currency && ['USD', 'TRY', 'EUR'].includes(app.currency) ? app.currency : 'USD');
+    if (state.currentUser) formData.append('role', state.currentUser.role);
     try {
       const res = await fetch('/api/applications', {
         method: 'POST',
@@ -335,14 +347,29 @@ export default function App() {
       const data = await res.json();
       if (res.ok) {
         const savedFiles = data.files || [];
+        const agentId = app.userId || state.currentUser?.id;
+        const agentUser = state.users.find(u => u.id === agentId);
+        const responsibleUser = app.responsibleId ? state.users.find(u => u.id === app.responsibleId) : null;
+        const newApp = {
+          ...app,
+          id: data.id,
+          files: savedFiles,
+          createdAt: data.createdAt != null ? data.createdAt : app.createdAt,
+          ...(agentId && { userId: agentId }),
+          ...(agentUser && {
+            agentName: agentUser.name,
+            agentPhone: agentUser.phone,
+            agentCountryCode: agentUser.countryCode
+          }),
+          ...(app.responsibleId && { responsibleId: app.responsibleId, responsibleName: responsibleUser?.name }),
+          ...(app.cost != null && { cost: app.cost }),
+          ...(app.commission != null && { commission: app.commission }),
+          ...(app.saleAmount != null && { saleAmount: app.saleAmount }),
+          currency: app.currency && ['USD', 'TRY', 'EUR'].includes(app.currency) ? app.currency : 'USD'
+        };
         setState(prev => ({
           ...prev,
-          applications: [...prev.applications, {
-            ...app,
-            id: data.id,
-            files: savedFiles,
-            createdAt: data.createdAt != null ? data.createdAt : app.createdAt
-          }]
+          applications: [...prev.applications, newApp]
         }));
         return data.id;
       }
@@ -372,6 +399,43 @@ export default function App() {
       }
     } catch (err) {
       alert('خطأ في الاتصال بالخادم');
+    }
+  };
+
+  const updateApplication = async (id: string, payload: { status?: ApplicationStatus; userId?: string | null; responsibleId?: string | null; cost?: number | null; commission?: number | null; saleAmount?: number | null; currency?: string }) => {
+    try {
+      const res = await fetch(`/api/applications/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        const responsibleUser = payload.responsibleId != null ? state.users.find(u => u.id === payload.responsibleId) : undefined;
+        const agentUser = payload.userId != null ? state.users.find(u => u.id === payload.userId) : undefined;
+        setState(prev => ({
+          ...prev,
+          applications: prev.applications.map(a => a.id === id ? {
+            ...a,
+            ...(payload.status != null && { status: payload.status }),
+            ...(payload.userId !== undefined && {
+              userId: payload.userId || undefined,
+              agentName: agentUser?.name,
+              agentPhone: agentUser?.phone,
+              agentCountryCode: agentUser?.countryCode
+            }),
+            ...(payload.responsibleId !== undefined && { responsibleId: payload.responsibleId || undefined, responsibleName: responsibleUser?.name }),
+            ...(payload.cost !== undefined && { cost: payload.cost ?? undefined }),
+            ...(payload.commission !== undefined && { commission: payload.commission ?? undefined }),
+            ...(payload.saleAmount !== undefined && { saleAmount: payload.saleAmount ?? undefined }),
+            ...(payload.currency !== undefined && { currency: payload.currency })
+          } : a)
+        }));
+      } else {
+        alert(data.message || 'Update failed');
+      }
+    } catch (err) {
+      alert('Connection error');
     }
   };
 
@@ -580,9 +644,9 @@ export default function App() {
       case 'programs':
         return <ProgramManager programs={state.programs} universities={state.universities} periods={state.periods} onAddProgram={addProgram} onEditProgram={editProgram} onDeleteProgram={deleteProgram} currentUser={state.currentUser} />;
       case 'students':
-        return <StudentManager students={state.students} applications={state.applications} programs={state.programs} universities={state.universities} onAddStudent={addStudent} onEditStudent={updateStudent} onCreateApplicationForStudent={openCreateApplicationForStudent} onViewApplication={openApplicationDetails} currentUser={state.currentUser} />;
+        return <StudentManager students={state.students} applications={state.applications} programs={state.programs} universities={state.universities} users={state.users} onAddStudent={addStudent} onEditStudent={updateStudent} onCreateApplicationForStudent={openCreateApplicationForStudent} onViewApplication={openApplicationDetails} currentUser={state.currentUser} />;
       case 'applications':
-        return <ApplicationManager applications={state.applications} students={state.students} programs={state.programs} universities={state.universities} periods={state.periods} users={state.users} onAddApplication={addApplication} onUpdateStatus={updateAppStatus} initialStudentId={prefillStudentIdForApp} clearInitialStudent={() => setPrefillStudentIdForApp(null)} targetApplicationId={targetApplicationId} clearTargetApplication={() => setTargetApplicationId(null)} currentUser={state.currentUser} />;
+        return <ApplicationManager applications={state.applications} students={state.students} programs={state.programs} universities={state.universities} periods={state.periods} users={state.users} onAddApplication={addApplication} onUpdateStatus={updateAppStatus} onUpdateApplication={updateApplication} initialStudentId={prefillStudentIdForApp} clearInitialStudent={() => setPrefillStudentIdForApp(null)} targetApplicationId={targetApplicationId} clearTargetApplication={() => setTargetApplicationId(null)} currentUser={state.currentUser} />;
       case 'periods':
         if (state.currentUser?.role !== UserRole.ADMIN) {
           return (

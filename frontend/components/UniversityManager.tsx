@@ -3,7 +3,7 @@ import { University, Program, User, UserRole } from '../types';
 import {
   Plus, Globe, Sparkles, X, Image, Pencil, Trash2,
   BookOpen, Clock, DollarSign, Calendar, ChevronLeft,
-  MapPin, ExternalLink, GraduationCap, Search, LayoutGrid, List, ArrowLeft
+  MapPin, ExternalLink, GraduationCap, Search, LayoutGrid, List, ArrowLeft, ChevronUp, ChevronDown
 } from 'lucide-react';
 import { generateUniversityDescription } from '../services/geminiService';
 import { useTranslation } from '../hooks/useTranslation';
@@ -49,6 +49,8 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'tree' | 'kanban'>('kanban');
+  const [sortBy, setSortBy] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
   /* -------- Form State -------- */
   const [formData, setFormData] = useState<Partial<University>>(EMPTY_FORM);
@@ -172,12 +174,43 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
   const filteredUniversities = universities.filter(uni =>
     !searchQuery.trim() || uni.name.toLowerCase().includes(searchQuery.trim().toLowerCase())
   );
-  const byCountry = filteredUniversities.reduce<Record<string, University[]>>((acc, uni) => {
+  const sortedUniversities = (() => {
+    if (!sortBy) return filteredUniversities;
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return [...filteredUniversities].sort((a, b) => {
+      let va: string | number, vb: string | number;
+      switch (sortBy) {
+        case 'name': va = a.name.toLowerCase(); vb = b.name.toLowerCase(); return dir * (va as string).localeCompare(vb as string);
+        case 'country': va = (a.country || '').toLowerCase(); vb = (b.country || '').toLowerCase(); return dir * (va as string).localeCompare(vb as string);
+        case 'city': va = (a.city || '').toLowerCase(); vb = (b.city || '').toLowerCase(); return dir * (va as string).localeCompare(vb as string);
+        case 'website': va = (a.website || '').toLowerCase(); vb = (b.website || '').toLowerCase(); return dir * (va as string).localeCompare(vb as string);
+        case 'programs': va = programs.filter(p => p.universityId === a.id).length; vb = programs.filter(p => p.universityId === b.id).length; return dir * ((va as number) - (vb as number));
+        default: return 0;
+      }
+    });
+  })();
+  const byCountry = sortedUniversities.reduce<Record<string, University[]>>((acc, uni) => {
     const c = uni.country || 'Other';
     if (!acc[c]) acc[c] = [];
     acc[c].push(uni);
     return acc;
   }, {});
+  const toggleSort = (key: string) => {
+    setSortBy(prev => (prev === key ? prev : key));
+    setSortDir(prev => (sortBy === key ? (prev === 'asc' ? 'desc' : 'asc') : 'asc'));
+  };
+  const SortHeader = ({ colKey, label }: { colKey: string; label: string }) => (
+    <span
+      role="button"
+      tabIndex={0}
+      onClick={() => toggleSort(colKey)}
+      onKeyDown={e => e.key === 'Enter' && toggleSort(colKey)}
+      className="font-bold text-gray-900 cursor-pointer select-none hover:text-gray-700 inline-flex items-center gap-0.5"
+    >
+      {label}
+      {sortBy === colKey ? (sortDir === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />) : <span className="opacity-30"><ChevronDown size={12} /></span>}
+    </span>
+  );
 
   const LogoBox = ({ uni, size = 'lg' }: { uni: University; size?: 'sm' | 'lg' }) => {
     const cls = size === 'lg'
@@ -516,19 +549,19 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
               ) : (
                 <>
                   {/* Column headers */}
-                  <div className="grid grid-cols-[auto_1fr_100px_100px_1fr_auto_80px] md:grid-cols-[auto_1fr_120px_120px_minmax(140px,1fr)_auto_80px] gap-3 px-4 py-3 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider min-w-[640px]">
+                  <div className="grid grid-cols-[auto_1fr_100px_100px_1fr_auto_80px] md:grid-cols-[auto_1fr_120px_120px_minmax(140px,1fr)_auto_80px] gap-3 px-4 py-3 bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-900 uppercase tracking-wider min-w-[640px]">
                     <span className="w-10" />
-                    <span>{t.universityName}</span>
-                    <span>{t.universityCountry}</span>
-                    <span>{t.city}</span>
-                    <span>{t.universityWebsite}</span>
-                    <span className="text-right">{t.programs}</span>
+                    <SortHeader colKey="name" label={t.universityName} />
+                    <SortHeader colKey="country" label={t.universityCountry} />
+                    <SortHeader colKey="city" label={t.city} />
+                    <SortHeader colKey="website" label={t.universityWebsite} />
+                    <span className="text-right"><SortHeader colKey="programs" label={t.programs} /></span>
                     <span />
                   </div>
                   <ul className="divide-y divide-gray-100">
                     {Object.entries(byCountry).map(([country, list]) => (
                       <li key={country}>
-                        <div className="px-4 py-2 bg-gray-50/80 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-100">
+                        <div className="px-4 py-2 bg-gray-50/80 text-xs font-semibold text-gray-900 uppercase tracking-wider border-b border-gray-100">
                           {country}
                         </div>
                         <ul className="divide-y divide-gray-50">
@@ -543,16 +576,16 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                                 >
                                   <LogoBox uni={uni} size="sm" />
                                   <div className="min-w-0">
-                                    <p className="font-medium text-gray-800 truncate">{uni.name}</p>
+                                    <p className="font-medium text-gray-900 truncate">{uni.name}</p>
                                   </div>
-                                  <span className="text-sm text-gray-600 truncate">{uni.country}</span>
-                                  <span className="text-sm text-gray-600 truncate">{uni.city || '—'}</span>
+                                  <span className="text-sm text-gray-900 truncate">{uni.country}</span>
+                                  <span className="text-sm text-gray-900 truncate">{uni.city || '—'}</span>
                                   <a
                                     href={uni.website}
                                     target="_blank"
                                     rel="noreferrer"
                                     onClick={e => e.stopPropagation()}
-                                    className="text-sm text-blue-600 hover:underline truncate"
+                                    className="text-sm text-gray-900 hover:underline truncate"
                                   >
                                     {uni.website.replace(/^https?:\/\//, '')}
                                   </a>

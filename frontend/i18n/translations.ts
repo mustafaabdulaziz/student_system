@@ -53,6 +53,10 @@ export interface Translations {
     rejectedApplications: string;
     recentApplications: string;
     viewDetails: string;
+    fromDate: string;
+    toDate: string;
+    applyFilter: string;
+    clearFilter: string;
 
     // Universities
     universitiesTitle: string;
@@ -180,6 +184,14 @@ export interface Translations {
     messages: string;
     noMessages: string;
     typeMessage: string;
+    responsible: string;
+    cost: string;
+    commission: string;
+    saleAmount: string;
+    profit: string;
+    currency: string;
+    editApplication: string;
+    selectResponsible: string;
 
     // Users
     usersTitle: string;
@@ -193,6 +205,7 @@ export interface Translations {
     noUsers: string;
     admin: string;
     agent: string;
+    selectAgent: string;
     hostAgent: string;
     user: string;
     changePassword: string;
@@ -216,6 +229,7 @@ export interface Translations {
     notificationsTitle: string;
     noNotifications: string;
     markAsRead: string;
+    markAllAsRead: string;
     newMessage: string;
     statusUpdate: string;
     statusUpdateMessage: string;
@@ -299,6 +313,10 @@ export const translations: Record<Language, Translations> = {
         rejectedApplications: 'طلبات مرفوضة',
         recentApplications: 'الطلبات الأخيرة',
         viewDetails: 'عرض التفاصيل',
+        fromDate: 'من تاريخ',
+        toDate: 'إلى تاريخ',
+        applyFilter: 'تطبيق',
+        clearFilter: 'مسح الفلتر',
 
         // Universities
         universitiesTitle: 'إدارة الجامعات',
@@ -426,6 +444,14 @@ export const translations: Record<Language, Translations> = {
         messages: 'الرسائل',
         noMessages: 'لا توجد رسائل',
         typeMessage: 'اكتب رسالة...',
+        responsible: 'المسؤول',
+        cost: 'التكلفة',
+        commission: 'العمولة',
+        saleAmount: 'مبلغ البيع',
+        profit: 'الربح',
+        currency: 'العملة',
+        editApplication: 'تعديل الطلب',
+        selectResponsible: 'اختر المسؤول',
 
         // Users
         usersTitle: 'إدارة المستخدمين',
@@ -439,6 +465,7 @@ export const translations: Record<Language, Translations> = {
         noUsers: 'لا يوجد مستخدمون',
         admin: 'مدير',
         agent: 'وكيل',
+        selectAgent: 'اختر الوكيل',
         hostAgent: 'الوكيل المضيف',
         user: 'مستخدم',
         changePassword: 'تغيير كلمة المرور',
@@ -462,6 +489,7 @@ export const translations: Record<Language, Translations> = {
         notificationsTitle: 'الإشعارات',
         noNotifications: 'لا توجد إشعارات',
         markAsRead: 'تعليم كمقروء',
+        markAllAsRead: 'تجاهل الكل',
         newMessage: 'رسالة جديدة',
         statusUpdate: 'تحديث الحالة',
         statusUpdateMessage: 'تم تغيير حالة طلبك #{id} إلى {status}',
@@ -544,6 +572,10 @@ export const translations: Record<Language, Translations> = {
         rejectedApplications: 'Rejected Applications',
         recentApplications: 'Recent Applications',
         viewDetails: 'View Details',
+        fromDate: 'From date',
+        toDate: 'To date',
+        applyFilter: 'Apply',
+        clearFilter: 'Clear filter',
 
         // Universities
         universitiesTitle: 'University Management',
@@ -671,6 +703,14 @@ export const translations: Record<Language, Translations> = {
         messages: 'Messages',
         noMessages: 'No messages',
         typeMessage: 'Type a message...',
+        responsible: 'Responsible',
+        cost: 'Cost',
+        commission: 'Commission',
+        saleAmount: 'Sale amount',
+        profit: 'Profit',
+        currency: 'Currency',
+        editApplication: 'Edit application',
+        selectResponsible: 'Select responsible',
 
         // Users
         usersTitle: 'User Management',
@@ -684,6 +724,7 @@ export const translations: Record<Language, Translations> = {
         noUsers: 'No users found',
         admin: 'Admin',
         agent: 'Agent',
+        selectAgent: 'Select agent',
         hostAgent: 'Host Agent',
         user: 'User',
         changePassword: 'Change Password',
@@ -707,6 +748,7 @@ export const translations: Record<Language, Translations> = {
         notificationsTitle: 'Notifications',
         noNotifications: 'No notifications',
         markAsRead: 'Mark as Read',
+        markAllAsRead: 'Ignore all',
         newMessage: 'New Message',
         statusUpdate: 'Status Update',
         statusUpdateMessage: 'Your application #{id} status changed to {status}',
@@ -789,6 +831,10 @@ export const translations: Record<Language, Translations> = {
         rejectedApplications: 'Reddedilen Başvurular',
         recentApplications: 'Son Başvurular',
         viewDetails: 'Detayları Görüntüle',
+        fromDate: 'Başlangıç tarihi',
+        toDate: 'Bitiş tarihi',
+        applyFilter: 'Uygula',
+        clearFilter: 'Filtreyi temizle',
 
         // Universities
         universitiesTitle: 'Üniversite Yönetimi',
@@ -916,6 +962,14 @@ export const translations: Record<Language, Translations> = {
         messages: 'Mesajlar',
         noMessages: 'Mesaj yok',
         typeMessage: 'Mesaj yazın...',
+        responsible: 'Sorumlu',
+        cost: 'Maliyet',
+        commission: 'Komisyon',
+        saleAmount: 'Satış tutarı',
+        profit: 'Kâr',
+        currency: 'Para birimi',
+        editApplication: 'Başvuruyu düzenle',
+        selectResponsible: 'Sorumlu seçin',
 
         // Users
         usersTitle: 'Kullanıcı Yönetimi',
@@ -929,6 +983,7 @@ export const translations: Record<Language, Translations> = {
         noUsers: 'Kullanıcı bulunamadı',
         admin: 'Yönetici',
         agent: 'Temsilci',
+        selectAgent: 'Temsilci seçin',
         hostAgent: 'Sorumlu Temsilci',
         user: 'Kullanıcı',
         changePassword: 'Şifre Değiştir',
@@ -952,6 +1007,7 @@ export const translations: Record<Language, Translations> = {
         notificationsTitle: 'Bildirimler',
         noNotifications: 'Bildirim yok',
         markAsRead: 'Okundu Olarak İşaretle',
+        markAllAsRead: 'Tümünü okundu işaretle',
         newMessage: 'Yeni Mesaj',
         statusUpdate: 'Durum Güncellemesi',
         statusUpdateMessage: '#{id} numaralı başvurunuzun durumu {status} olarak güncellendi',

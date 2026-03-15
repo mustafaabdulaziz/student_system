@@ -78,6 +78,8 @@ export interface Student {
   degreeTarget: string; // Desired degree level
   dob: string;
   residenceCountry: string;
+  userId?: string; // Agent who owns this student (for ADMIN/USER display)
+  createdAt?: string;
 }
 
 export enum ApplicationStatus {
@@ -101,7 +103,15 @@ export interface Application {
   agentPhone?: string;
   agentName?: string;
   agentCountryCode?: string;
+  responsibleId?: string;
+  responsibleName?: string;
+  cost?: number;
+  commission?: number;
+  saleAmount?: number;
+  currency?: string;
 }
+
+export const APPLICATION_CURRENCIES = ['USD', 'TRY', 'EUR'] as const;
 
 export interface Period {
   id: string;

@@ -175,7 +175,8 @@ def get_students():
         'degreeTarget': s.degree_target,
         'dob': s.dob,
         'residenceCountry': s.residence_country,
-        'userId': getattr(s, 'user_id', None)
+        'userId': getattr(s, 'user_id', None),
+        'createdAt': getattr(s, 'created_at', None)
     } for s in students])
 
 @api_bp.route('/students', methods=['POST'])
@@ -185,6 +186,7 @@ def add_student():
     user_id = data.get('user_id')
     if user_role == 'agent' and not user_id:
         return jsonify({'message': 'Agent user_id required'}), 400
+    created_at = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
     student = Student(
         id=str(uuid.uuid4()),
         first_name=data['firstName'],
@@ -199,12 +201,29 @@ def add_student():
         degree_target=data['degreeTarget'],
         dob=data['dob'],
         residence_country=data['residenceCountry'],
-        user_id=user_id
+        user_id=user_id,
+        created_at=created_at
     )
     db.session.add(student)
     db.session.commit()
+    # 7. Notify admin and users when an agent adds a student
+    if user_id:
+        agent_user = User.query.get(user_id)
+        if agent_user and (agent_user.role or '').lower() == 'agent':
+            for u in User.query.filter(User.role.in_(['ADMIN', 'USER'])).all():
+                n = Notification(
+                    id=str(uuid.uuid4()),
+                    user_id=u.id,
+                    title="New student by agent",
+                    message=f"Agent {agent_user.name} added student {student.first_name} {student.last_name}.",
+                    link="/students",
+                    created_at=datetime.utcnow().isoformat(),
+                    type="STATUS"
+                )
+                db.session.add(n)
+            db.session.commit()
     print(f"Created student {student.id} user_id={user_id}")
-    return jsonify({'message': 'Student added', 'id': student.id}), 201
+    return jsonify({'message': 'Student added', 'id': student.id, 'createdAt': created_at}), 201
 
 
 @api_bp.route('/students/<student_id>', methods=['PUT'])
@@ -498,7 +517,13 @@ def get_applications():
         'userId': a.user_id,
         'agentPhone': a.user.phone if a.user else None,
         'agentName': a.user.name if a.user else None,
-        'agentCountryCode': a.user.country_code if a.user else None
+        'agentCountryCode': a.user.country_code if a.user else None,
+        'responsibleId': getattr(a, 'responsible_id', None),
+        'responsibleName': a.responsible.name if getattr(a, 'responsible', None) and a.responsible else None,
+        'cost': getattr(a, 'cost', None),
+        'commission': getattr(a, 'commission', None),
+        'saleAmount': getattr(a, 'sale_amount', None),
+        'currency': getattr(a, 'currency', None) or 'USD'
     } for a in applications])
 
 
@@ -520,6 +545,13 @@ def add_application():
     semester = request.form.get('semester')
     user_role = request.form.get('role')
     user_id = request.form.get('user_id')
+    responsible_id = request.form.get('responsible_id') or None
+    cost = request.form.get('cost', type=float) if request.form.get('cost') not in (None, '') else None
+    commission = request.form.get('commission', type=float) if request.form.get('commission') not in (None, '') else None
+    sale_amount = request.form.get('sale_amount', type=float) if request.form.get('sale_amount') not in (None, '') else None
+    currency = (request.form.get('currency') or 'USD').strip() or 'USD'
+    if currency not in ('USD', 'TRY', 'EUR'):
+        currency = 'USD'
     created_at = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
     saved_files = []
     upload_folder = UPLOADS_DIR
@@ -537,10 +569,31 @@ def add_application():
         semester=semester,
         created_at=created_at,
         files=saved_files,
-        user_id=user_id
+        user_id=user_id,
+        responsible_id=responsible_id,
+        cost=cost,
+        commission=commission,
+        sale_amount=sale_amount,
+        currency=currency
     )
     db.session.add(application)
     db.session.commit()
+    # 7. Notify admin and users when an agent adds an application
+    if user_id:
+        agent_user = User.query.get(user_id)
+        if agent_user and (agent_user.role or '').lower() == 'agent':
+            for u in User.query.filter(User.role.in_(['ADMIN', 'USER'])).all():
+                n = Notification(
+                    id=str(uuid.uuid4()),
+                    user_id=u.id,
+                    title="New application by agent",
+                    message=f"Agent {agent_user.name} added application #{application.id}.",
+                    link=f"/applications/{application.id}",
+                    created_at=datetime.utcnow().isoformat(),
+                    type="STATUS"
+                )
+                db.session.add(n)
+            db.session.commit()
     file_urls = [url_for('api.upload_file', filename=f, _external=False) for f in saved_files]
     return jsonify({
         'message': 'Application added',
@@ -817,13 +870,11 @@ def update_application_status(app_id):
     application.status = new_status
     db.session.commit()
     
-    # Create notification
-    # Notify Student Owner
+    # 5. Notify agent (application owner) when status changes
     if application.user_id:
-        notify_user_id = application.user_id
         notification = Notification(
             id=str(uuid.uuid4()),
-            user_id=notify_user_id,
+            user_id=application.user_id,
             title="Application Status Update",
             message=f"Your application #{application.id} status changed to {new_status}",
             link=f"/applications/{application.id}",
@@ -831,9 +882,60 @@ def update_application_status(app_id):
             type="STATUS"
         )
         db.session.add(notification)
-        db.session.commit()
+    
+    # 6. Notify admin(s) when application is sent to review (e.g. by agent)
+    if new_status in ('Under Review', 'UnderReview', 'UNDER_REVIEW'):
+        admins = User.query.filter(User.role == 'ADMIN').all()
+        for admin in admins:
+            n = Notification(
+                id=str(uuid.uuid4()),
+                user_id=admin.id,
+                title="Application sent to review",
+                message=f"Application #{application.id} has been sent to review.",
+                link=f"/applications/{application.id}",
+                created_at=datetime.utcnow().isoformat(),
+                type="STATUS"
+            )
+            db.session.add(n)
+    db.session.commit()
         
     return jsonify({'message': 'Status updated', 'status': application.status}), 200
+
+
+@api_bp.route('/applications/<app_id>', methods=['PUT'])
+def update_application(app_id):
+    """Update application: status, responsible_id, cost, commission, sale_amount."""
+    application = Application.query.get(app_id)
+    if not application:
+        return jsonify({'message': 'Application not found'}), 404
+    data = request.get_json() or {}
+    if 'status' in data and data['status']:
+        application.status = data['status']
+    if 'userId' in data:
+        application.user_id = data['userId'] or None
+    if 'responsibleId' in data:
+        application.responsible_id = data['responsibleId'] or None
+    if 'cost' in data:
+        application.cost = data['cost'] if data.get('cost') not in (None, '') else None
+    if 'commission' in data:
+        application.commission = data['commission'] if data.get('commission') not in (None, '') else None
+    if 'saleAmount' in data:
+        application.sale_amount = data['saleAmount'] if data.get('saleAmount') not in (None, '') else None
+    if 'currency' in data and data.get('currency') in ('USD', 'TRY', 'EUR'):
+        application.currency = data['currency']
+    db.session.commit()
+    return jsonify({
+        'message': 'Application updated',
+        'id': application.id,
+        'status': application.status,
+        'userId': application.user_id,
+        'responsibleId': application.responsible_id,
+        'cost': application.cost,
+        'commission': application.commission,
+        'saleAmount': application.sale_amount,
+        'currency': application.currency or 'USD'
+    }), 200
+
 
 # Notifications
 @api_bp.route('/notifications', methods=['GET'])
@@ -860,3 +962,13 @@ def mark_notification_read(n_id):
     notification.is_read = True
     db.session.commit()
     return jsonify({'message': 'Marked as read'}), 200
+
+
+@api_bp.route('/notifications/read-all', methods=['PUT'])
+def mark_all_notifications_read():
+    user_id = request.args.get('user_id')
+    if not user_id:
+        return jsonify({'message': 'User ID required'}), 400
+    updated = Notification.query.filter_by(user_id=user_id, is_read=False).update({'is_read': True})
+    db.session.commit()
+    return jsonify({'message': 'All marked as read', 'count': updated}), 200
