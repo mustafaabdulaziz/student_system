@@ -177,7 +177,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
       setFilterStatuses([ApplicationStatus.MISSING_DOCS, ApplicationStatus.UNDER_REVIEW, ApplicationStatus.DRAFT]);
     }
   }, [currentUser]);
-  const [messages, setMessages] = React.useState<Array<{ id: string; sender: string; message: string; createdAt: string }>>([]);
+  const [messages, setMessages] = React.useState<Array<{ id: string; sender: string; message: string; createdAt: string; senderName?: string | null }>>([]);
   const [newMessage, setNewMessage] = React.useState('');
   const [detailFiles, setDetailFiles] = React.useState<Array<{ url: string; name: string; filename?: string }>>([]);
   const [attachFiles, setAttachFiles] = React.useState<FileList | null>(null);
@@ -610,15 +610,26 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     const sendMessage = async () => {
       if (!newMessage.trim() || !selectedAppId) return;
       try {
-        const senderRole = currentUser?.role || 'USER';
+        const senderRole = (currentUser?.role || 'USER').toString().toUpperCase();
         const res = await fetch(`/api/applications/${selectedAppId}/messages`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sender: senderRole, message: newMessage.trim() })
+          body: JSON.stringify({
+            sender: senderRole,
+            message: newMessage.trim(),
+            senderUserId: currentUser?.id ?? undefined
+          })
         });
         const data = await res.json();
         if (res.ok) {
-          setMessages(prev => [...prev, { id: data.id, sender: senderRole, message: newMessage.trim(), createdAt: new Date().toISOString() }]);
+          const senderName = data.senderName ?? currentUser?.name ?? null;
+          setMessages(prev => [...prev, {
+            id: data.id,
+            sender: senderRole,
+            message: newMessage.trim(),
+            createdAt: new Date().toISOString(),
+            senderName: senderName
+          }]);
           setNewMessage('');
         } else { alert(data.message || 'فشل إرسال الرسالة'); }
       } catch { alert('خطأ في الاتصال'); }
@@ -1022,7 +1033,13 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                         {/* Meta */}
                         <div className="flex items-center gap-2 mb-1 px-1">
                           <span className={`text-[10px] font-bold uppercase tracking-widest ${isAdmin ? 'text-blue-400' : isUser ? 'text-orange-400' : 'text-gray-400'}`}>
-                            {isAdmin ? 'System Admin' : isUser ? 'Applicant' : 'Counselor'}
+                            {m.senderName != null && m.senderName !== ''
+                              ? m.senderName
+                              : isAdmin
+                                ? (currentUser?.name || 'Admin')
+                                : isUser
+                                  ? 'Applicant'
+                                  : (getAgentName(app) !== '—' ? getAgentName(app) : 'Temsilci')}
                           </span>
                           <span className="text-[10px] text-gray-300">{new Date(m.createdAt).toLocaleTimeString(dateLocale, { hour: '2-digit', minute: '2-digit' })}</span>
                         </div>

@@ -116,6 +116,15 @@ if __name__ == '__main__':
                         conn.commit()
             except Exception as e:
                 print('Students created_at column check:', e)
+            # Ensure application_messages has sender_user_id (who sent the message)
+            try:
+                if 'application_messages' in inspector.get_table_names():
+                    msg_cols = [c['name'] for c in inspector.get_columns('application_messages')]
+                    if 'sender_user_id' not in msg_cols:
+                        conn.execute(text('ALTER TABLE application_messages ADD COLUMN sender_user_id VARCHAR'))
+                        conn.commit()
+            except Exception as e:
+                print('application_messages sender_user_id column check:', e)
         # إضافة أدمن افتراضي إذا لم يوجد
         try:
             exists = User.query.options(load_only(User.email)).filter_by(email='admin@admin.com').first()

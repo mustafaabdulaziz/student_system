@@ -85,7 +85,8 @@ class ApplicationMessage(db.Model):
     __tablename__ = 'application_messages'
     id = db.Column(db.String, primary_key=True)
     application_id = db.Column(db.String, db.ForeignKey('applications.id'), nullable=False)
-    sender = db.Column(db.String, nullable=False)  # 'ADMIN' or 'USER'
+    sender = db.Column(db.String, nullable=False)  # 'ADMIN', 'USER', 'AGENT'
+    sender_user_id = db.Column(db.String, db.ForeignKey('users.id'), nullable=True)  # who sent (for display name)
     message = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.String, nullable=False)
 

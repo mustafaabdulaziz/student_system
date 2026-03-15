@@ -57,6 +57,25 @@ export interface Translations {
     toDate: string;
     applyFilter: string;
     clearFilter: string;
+    applicationsDashboard: string;
+    yesterday: string;
+    last7Days: string;
+    thisWeek: string;
+    lastWeek: string;
+    thisMonth: string;
+    lastMonth: string;
+    thisYear: string;
+    selectedCountLabel: string;
+    noOptions: string;
+    byResponsible: string;
+    byAgent: string;
+    byUniversity: string;
+    byProgram: string;
+    byCountry: string;
+    byStatus: string;
+    others: string;
+    totalsByFilter: string;
+    totalCost: string;
 
     // Universities
     universitiesTitle: string;
@@ -317,6 +336,25 @@ export const translations: Record<Language, Translations> = {
         toDate: 'إلى تاريخ',
         applyFilter: 'تطبيق',
         clearFilter: 'مسح الفلتر',
+        applicationsDashboard: 'لوحة البطبات',
+        yesterday: 'أمس',
+        last7Days: 'آخر 7 أيام',
+        thisWeek: 'هذا الأسبوع',
+        lastWeek: 'الأسبوع الماضي',
+        thisMonth: 'هذا الشهر',
+        lastMonth: 'الشهر الماضي',
+        thisYear: 'هذه السنة',
+        selectedCountLabel: 'محدد',
+        noOptions: 'لا خيارات',
+        byResponsible: 'حسب المسؤول',
+        byAgent: 'حسب الوكيل',
+        byUniversity: 'حسب الجامعة',
+        byProgram: 'حسب البرنامج',
+        byCountry: 'حسب الدولة',
+        byStatus: 'حسب الحالة',
+        others: 'أخرى',
+        totalsByFilter: 'المجاميع حسب الفلتر',
+        totalCost: 'إجمالي التكلفة',
 
         // Universities
         universitiesTitle: 'إدارة الجامعات',
@@ -576,6 +614,25 @@ export const translations: Record<Language, Translations> = {
         toDate: 'To date',
         applyFilter: 'Apply',
         clearFilter: 'Clear filter',
+        applicationsDashboard: 'Applications Dashboard',
+        yesterday: 'Yesterday',
+        last7Days: 'Last 7 days',
+        thisWeek: 'This week',
+        lastWeek: 'Last week',
+        thisMonth: 'This month',
+        lastMonth: 'Last month',
+        thisYear: 'This year',
+        selectedCountLabel: 'selected',
+        noOptions: 'No options',
+        byResponsible: 'By responsible',
+        byAgent: 'By agent',
+        byUniversity: 'By university',
+        byProgram: 'By program',
+        byCountry: 'By country',
+        byStatus: 'By status',
+        others: 'Others',
+        totalsByFilter: 'Totals (filtered)',
+        totalCost: 'Total cost',
 
         // Universities
         universitiesTitle: 'University Management',
@@ -835,6 +892,25 @@ export const translations: Record<Language, Translations> = {
         toDate: 'Bitiş tarihi',
         applyFilter: 'Uygula',
         clearFilter: 'Filtreyi temizle',
+        applicationsDashboard: 'Başvuru Panosu',
+        yesterday: 'Dün',
+        last7Days: 'Son 7 gün',
+        thisWeek: 'Bu hafta',
+        lastWeek: 'Geçen hafta',
+        thisMonth: 'Bu ay',
+        lastMonth: 'Geçen ay',
+        thisYear: 'Bu yıl',
+        selectedCountLabel: 'seçildi',
+        noOptions: 'Seçenek yok',
+        byResponsible: 'Sorumluya göre',
+        byAgent: 'Temsilciye göre',
+        byUniversity: 'Üniversiteye göre',
+        byProgram: 'Bölüme göre',
+        byCountry: 'Ülkeye göre',
+        byStatus: 'Duruma göre',
+        others: 'Diğerleri',
+        totalsByFilter: 'Toplamlar (filtreye göre)',
+        totalCost: 'Toplam maliyet',
 
         // Universities
         universitiesTitle: 'Üniversite Yönetimi',

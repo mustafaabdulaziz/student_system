@@ -10,7 +10,8 @@ import {
   X,
   UserCircle,
   UserCog,
-  CalendarRange
+  CalendarRange,
+  BarChart2
 } from 'lucide-react';
 import { User, UserRole } from '../types';
 import { NotificationDropdown } from './NotificationDropdown';
@@ -47,6 +48,9 @@ export const Layout: React.FC<LayoutProps> = ({
 
   const navItems = [
     { id: 'dashboard', label: t.dashboard, icon: LayoutDashboard },
+    ...(currentUser?.role === UserRole.ADMIN
+      ? [{ id: 'applications-dashboard' as const, label: t.applicationsDashboard, icon: BarChart2 }]
+      : []),
     { id: 'universities', label: t.universities, icon: School },
     { id: 'programs', label: t.programs, icon: BookOpen },
     { id: 'students', label: t.students, icon: Users },

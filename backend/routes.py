@@ -662,13 +662,22 @@ def add_application_v2():
 @api_bp.route('/applications/<app_id>/messages', methods=['GET'])
 def get_application_messages(app_id):
     msgs = ApplicationMessage.query.filter_by(application_id=app_id).order_by(ApplicationMessage.created_at).all()
-    return jsonify([{
-        'id': m.id,
-        'applicationId': m.application_id,
-        'sender': m.sender,
-        'message': m.message,
-        'createdAt': m.created_at
-    } for m in msgs])
+    out = []
+    for m in msgs:
+        obj = {
+            'id': m.id,
+            'applicationId': m.application_id,
+            'sender': m.sender,
+            'message': m.message,
+            'createdAt': m.created_at
+        }
+        if getattr(m, 'sender_user_id', None):
+            u = User.query.get(m.sender_user_id)
+            obj['senderName'] = u.name if u else None
+        else:
+            obj['senderName'] = None
+        out.append(obj)
+    return jsonify(out)
 
 
 @api_bp.route('/applications/<app_id>/messages', methods=['POST'])
@@ -676,12 +685,14 @@ def post_application_message(app_id):
     data = request.json or {}
     sender = data.get('sender')
     message = data.get('message')
+    sender_user_id = data.get('senderUserId') or data.get('sender_user_id')
     if not sender or not message:
         return jsonify({'message': 'sender and message required'}), 400
     msg = ApplicationMessage(
         id=str(uuid.uuid4()),
         application_id=app_id,
         sender=sender,
+        sender_user_id=sender_user_id,
         message=message,
         created_at=datetime.utcnow().isoformat()
     )
@@ -721,7 +732,13 @@ def post_application_message(app_id):
                 db.session.add(n)
         db.session.commit()
 
-    return jsonify({'message': 'Message added', 'id': msg.id}), 201
+    resp = {'message': 'Message added', 'id': msg.id}
+    if sender_user_id:
+        u = User.query.get(sender_user_id)
+        resp['senderName'] = u.name if u else None
+    else:
+        resp['senderName'] = None
+    return jsonify(resp), 201
 
 
 @api_bp.route('/universities/import', methods=['POST'])

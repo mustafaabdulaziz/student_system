@@ -21,6 +21,7 @@ import {
   ApplicationStatus
 } from './types';
 import { PeriodManager } from './components/PeriodManager';
+import { ApplicationsDashboard } from './components/ApplicationsDashboard';
 
 const INITIAL_STATE: AppState = {
   users: [],
@@ -39,6 +40,7 @@ const PATH_TO_PAGE: Record<string, string> = {
   '/programs': 'programs',
   '/students': 'students',
   '/applications': 'applications',
+  '/applications-dashboard': 'applications-dashboard',
   '/periods': 'periods',
   '/users': 'users',
   '/account': 'account'
@@ -50,6 +52,7 @@ const PAGE_TO_PATH: Record<string, string> = {
   programs: '/programs',
   students: '/students',
   applications: '/applications',
+  'applications-dashboard': '/applications-dashboard',
   periods: '/periods',
   users: '/users',
   account: '/account'
@@ -122,7 +125,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (state.currentUser && state.currentUser.role !== UserRole.ADMIN && (activePage === 'users' || activePage === 'periods')) {
+    if (state.currentUser && state.currentUser.role !== UserRole.ADMIN && (activePage === 'users' || activePage === 'periods' || activePage === 'applications-dashboard')) {
       setActivePage('dashboard');
       if (typeof window !== 'undefined') {
         window.history.replaceState({ page: 'dashboard' }, '', '/dashboard');
@@ -647,6 +650,16 @@ export default function App() {
         return <StudentManager students={state.students} applications={state.applications} programs={state.programs} universities={state.universities} users={state.users} onAddStudent={addStudent} onEditStudent={updateStudent} onCreateApplicationForStudent={openCreateApplicationForStudent} onViewApplication={openApplicationDetails} currentUser={state.currentUser} />;
       case 'applications':
         return <ApplicationManager applications={state.applications} students={state.students} programs={state.programs} universities={state.universities} periods={state.periods} users={state.users} onAddApplication={addApplication} onUpdateStatus={updateAppStatus} onUpdateApplication={updateApplication} initialStudentId={prefillStudentIdForApp} clearInitialStudent={() => setPrefillStudentIdForApp(null)} targetApplicationId={targetApplicationId} clearTargetApplication={() => setTargetApplicationId(null)} currentUser={state.currentUser} />;
+      case 'applications-dashboard':
+        return (
+          <ApplicationsDashboard
+            applications={state.applications}
+            students={state.students}
+            programs={state.programs}
+            universities={state.universities}
+            users={state.users}
+          />
+        );
       case 'periods':
         if (state.currentUser?.role !== UserRole.ADMIN) {
           return (
