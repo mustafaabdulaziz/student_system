@@ -99,6 +99,15 @@ class Period(db.Model):
     active = db.Column(db.Boolean, default=True, nullable=False)
 
 
+class NewsItem(db.Model):
+    __tablename__ = 'news'
+    id = db.Column(db.String, primary_key=True)
+    title = db.Column(db.String, nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.String, nullable=False)
+    created_by = db.Column(db.String, db.ForeignKey('users.id'), nullable=False)
+
+
 class Notification(db.Model):
     __tablename__ = 'notifications'
     id = db.Column(db.String, primary_key=True)
@@ -108,4 +117,4 @@ class Notification(db.Model):
     link = db.Column(db.String, nullable=True)
     is_read = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.String, nullable=False)
-    type = db.Column(db.String, nullable=False) # 'MESSAGE', 'STATUS'
+    type = db.Column(db.String, nullable=False)  # 'MESSAGE', 'STATUS', 'NEWS'

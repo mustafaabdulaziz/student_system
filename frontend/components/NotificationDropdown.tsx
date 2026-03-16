@@ -79,9 +79,12 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ curr
         markAsRead(notification.id);
         setIsOpen(false);
 
-        // Navigate to the application if link exists
+        // Navigate based on link or type
         if (notification.link && onNavigate) {
-            // Extract app ID from link like "/applications/APP123"
+            if (notification.link === '/news' || notification.type === 'NEWS') {
+                onNavigate('news');
+                return;
+            }
             const match = notification.link.match(/\/applications\/(.+)/);
             if (match) {
                 onNavigate('applications', match[1]);

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { Layout } from './components/Layout';
 import { useTranslation } from './hooks/useTranslation';
 import { Dashboard } from './components/Dashboard';
@@ -23,6 +23,8 @@ import {
 import { PeriodManager } from './components/PeriodManager';
 import { ApplicationsDashboard } from './components/ApplicationsDashboard';
 
+const NewsAndUpdates = lazy(() => import('./components/NewsAndUpdates').then(m => ({ default: m.NewsAndUpdates })));
+
 const INITIAL_STATE: AppState = {
   users: [],
   universities: [],
@@ -43,6 +45,7 @@ const PATH_TO_PAGE: Record<string, string> = {
   '/applications-dashboard': 'applications-dashboard',
   '/periods': 'periods',
   '/users': 'users',
+  '/news': 'news',
   '/account': 'account'
 };
 
@@ -55,6 +58,7 @@ const PAGE_TO_PATH: Record<string, string> = {
   'applications-dashboard': '/applications-dashboard',
   periods: '/periods',
   users: '/users',
+  news: '/news',
   account: '/account'
 };
 
@@ -659,6 +663,12 @@ export default function App() {
             universities={state.universities}
             users={state.users}
           />
+        );
+      case 'news':
+        return (
+          <Suspense fallback={<div className="p-6 text-gray-500">{state.currentUser ? t.loading : ''}</div>}>
+            <NewsAndUpdates currentUser={state.currentUser} />
+          </Suspense>
         );
       case 'periods':
         if (state.currentUser?.role !== UserRole.ADMIN) {

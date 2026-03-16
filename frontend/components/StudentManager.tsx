@@ -849,19 +849,17 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                           <div className="flex items-center justify-end gap-2 flex-nowrap">
                             <button
                               onClick={() => setSelectedStudentForDetails(student)}
-                              className="inline-flex items-center gap-1 text-gray-600 hover:text-blue-600 hover:bg-gray-100 rounded-lg px-2 py-1.5 text-sm"
+                              className="inline-flex items-center justify-center text-gray-600 hover:text-blue-600 hover:bg-gray-100 rounded-lg p-2"
                               title={t.viewDetails}
                             >
-                              <Eye size={16} />
-                              <span>{t.viewDetails}</span>
+                              <Eye size={18} />
                             </button>
                             <button
                               onClick={() => openEditModal(student)}
-                              className="inline-flex items-center gap-1 text-gray-600 hover:text-blue-600 hover:bg-gray-100 rounded-lg px-2 py-1.5 text-sm"
+                              className="inline-flex items-center justify-center text-gray-600 hover:text-blue-600 hover:bg-gray-100 rounded-lg p-2"
                               title={t.edit}
                             >
-                              <Pencil size={16} />
-                              <span>{t.edit}</span>
+                              <Pencil size={18} />
                             </button>
                             <button
                               onClick={() => onCreateApplicationForStudent?.(student.id)}

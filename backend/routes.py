@@ -1,6 +1,6 @@
 
 from flask import Blueprint, request, jsonify, session, current_app, send_from_directory, url_for
-from models import db, Student, University, Program, Application, User, Notification, Period
+from models import db, Student, University, Program, Application, User, Notification, Period, NewsItem
 import os
 import uuid
 from datetime import datetime
@@ -952,6 +952,73 @@ def update_application(app_id):
         'saleAmount': application.sale_amount,
         'currency': application.currency or 'USD'
     }), 200
+
+
+# News and Updates (Haberler ve Güncellemeler)
+@api_bp.route('/news', methods=['GET'])
+def get_news():
+    items = NewsItem.query.order_by(NewsItem.created_at.desc()).all()
+    out = []
+    for n in items:
+        creator = User.query.get(n.created_by)
+        out.append({
+            'id': n.id,
+            'title': n.title,
+            'content': n.content,
+            'createdAt': n.created_at,
+            'createdBy': n.created_by,
+            'createdByName': creator.name if creator else None
+        })
+    return jsonify(out)
+
+
+@api_bp.route('/news', methods=['POST'])
+def post_news():
+    data = request.json or {}
+    title = (data.get('title') or '').strip()
+    content = (data.get('content') or '').strip()
+    created_by = data.get('createdBy') or data.get('created_by')
+    if not title or not content:
+        return jsonify({'message': 'title and content required'}), 400
+    if not created_by:
+        return jsonify({'message': 'createdBy required'}), 400
+    creator = User.query.get(created_by)
+    if not creator:
+        return jsonify({'message': 'User not found'}), 404
+    role = (creator.role or '').upper()
+    if role not in ('ADMIN', 'USER'):
+        return jsonify({'message': 'Only admin or user role can create news'}), 403
+    news = NewsItem(
+        id=str(uuid.uuid4()),
+        title=title,
+        content=content,
+        created_at=datetime.utcnow().isoformat(),
+        created_by=created_by
+    )
+    db.session.add(news)
+    db.session.commit()
+    # Notify all users except the creator
+    all_users = User.query.filter(User.id != created_by).all()
+    for u in all_users:
+        n = Notification(
+            id=str(uuid.uuid4()),
+            user_id=u.id,
+            title=data.get('notificationTitle') or title,
+            message=(content[:80] + '...') if len(content) > 80 else content,
+            link='/news',
+            created_at=datetime.utcnow().isoformat(),
+            type='NEWS'
+        )
+        db.session.add(n)
+    db.session.commit()
+    return jsonify({
+        'id': news.id,
+        'title': news.title,
+        'content': news.content,
+        'createdAt': news.created_at,
+        'createdBy': news.created_by,
+        'createdByName': creator.name
+    }), 201
 
 
 # Notifications

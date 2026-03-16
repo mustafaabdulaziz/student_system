@@ -77,6 +77,15 @@ export interface Translations {
     totalsByFilter: string;
     totalCost: string;
 
+    // News and Updates
+    newsAndUpdates: string;
+    newsAndUpdatesSubtitle: string;
+    addNews: string;
+    newsTitle: string;
+    newsContent: string;
+    noNews: string;
+    createdBy: string;
+
     // Universities
     universitiesTitle: string;
     addUniversity: string;
@@ -355,6 +364,13 @@ export const translations: Record<Language, Translations> = {
         others: 'أخرى',
         totalsByFilter: 'المجاميع حسب الفلتر',
         totalCost: 'إجمالي التكلفة',
+        newsAndUpdates: 'الأخبار والتحديثات',
+        newsAndUpdatesSubtitle: 'آخر الأخبار والإعلانات من الإدارة',
+        addNews: 'إضافة خبر أو تحديث',
+        newsTitle: 'العنوان',
+        newsContent: 'المحتوى',
+        noNews: 'لا توجد أخبار بعد',
+        createdBy: 'نشر بواسطة',
 
         // Universities
         universitiesTitle: 'إدارة الجامعات',
@@ -633,6 +649,13 @@ export const translations: Record<Language, Translations> = {
         others: 'Others',
         totalsByFilter: 'Totals (filtered)',
         totalCost: 'Total cost',
+        newsAndUpdates: 'News and Updates',
+        newsAndUpdatesSubtitle: 'Latest news and announcements from the administration',
+        addNews: 'Add news or update',
+        newsTitle: 'Title',
+        newsContent: 'Content',
+        noNews: 'No news yet',
+        createdBy: 'Posted by',
 
         // Universities
         universitiesTitle: 'University Management',
@@ -911,6 +934,13 @@ export const translations: Record<Language, Translations> = {
         others: 'Diğerleri',
         totalsByFilter: 'Toplamlar (filtreye göre)',
         totalCost: 'Toplam maliyet',
+        newsAndUpdates: 'Haberler ve Güncellemeler',
+        newsAndUpdatesSubtitle: 'Yönetimden son haberler ve duyurular',
+        addNews: 'Haber veya güncelleme ekle',
+        newsTitle: 'Başlık',
+        newsContent: 'İçerik',
+        noNews: 'Henüz haber yok',
+        createdBy: 'Yayınlayan',
 
         // Universities
         universitiesTitle: 'Üniversite Yönetimi',

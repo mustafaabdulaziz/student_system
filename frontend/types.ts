@@ -121,6 +121,15 @@ export interface Period {
   active?: boolean;
 }
 
+export interface NewsItem {
+  id: string;
+  title: string;
+  content: string;
+  createdAt: string;
+  createdBy: string;
+  createdByName?: string | null;
+}
+
 // Helper types for state management
 export interface AppState {
   users: User[];

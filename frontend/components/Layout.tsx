@@ -11,7 +11,8 @@ import {
   UserCircle,
   UserCog,
   CalendarRange,
-  BarChart2
+  BarChart2,
+  Newspaper
 } from 'lucide-react';
 import { User, UserRole } from '../types';
 import { NotificationDropdown } from './NotificationDropdown';
@@ -61,6 +62,7 @@ export const Layout: React.FC<LayoutProps> = ({
           { id: 'users' as const, label: t.usersTitle, icon: UserCog }
         ]
       : []),
+    { id: 'news', label: t.newsAndUpdates, icon: Newspaper },
     { id: 'account', label: t.account, icon: UserCircle }
   ];
 
@@ -114,14 +116,14 @@ export const Layout: React.FC<LayoutProps> = ({
                   onNavigate(item.id);
                   setSidebarOpen(false);
                 }}
-                className={`w-full flex items-center gap-2 px-4 py-3 rounded-lg transition-colors duration-200
+                className={`w-full flex items-center gap-1.5 px-3 py-3 rounded-lg transition-colors duration-200
                   ${activePage === item.id
                     ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
                     : 'text-slate-300 hover:bg-slate-800 hover:text-white'}
                 `}
               >
-                <item.icon size={20} className="flex-shrink-0" />
-                <span className="font-medium">{item.label}</span>
+                <item.icon size={20} className="flex-shrink-0 w-5 h-5" />
+                <span className="font-medium text-left">{item.label}</span>
               </button>
             ))}
           </nav>
