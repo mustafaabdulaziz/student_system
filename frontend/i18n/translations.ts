@@ -53,6 +53,38 @@ export interface Translations {
     rejectedApplications: string;
     recentApplications: string;
     viewDetails: string;
+    fromDate: string;
+    toDate: string;
+    applyFilter: string;
+    clearFilter: string;
+    applicationsDashboard: string;
+    yesterday: string;
+    last7Days: string;
+    thisWeek: string;
+    lastWeek: string;
+    thisMonth: string;
+    lastMonth: string;
+    thisYear: string;
+    selectedCountLabel: string;
+    noOptions: string;
+    byResponsible: string;
+    byAgent: string;
+    byUniversity: string;
+    byProgram: string;
+    byCountry: string;
+    byStatus: string;
+    others: string;
+    totalsByFilter: string;
+    totalCost: string;
+
+    // News and Updates
+    newsAndUpdates: string;
+    newsAndUpdatesSubtitle: string;
+    addNews: string;
+    newsTitle: string;
+    newsContent: string;
+    noNews: string;
+    createdBy: string;
 
     // Universities
     universitiesTitle: string;
@@ -180,6 +212,14 @@ export interface Translations {
     messages: string;
     noMessages: string;
     typeMessage: string;
+    responsible: string;
+    cost: string;
+    commission: string;
+    saleAmount: string;
+    profit: string;
+    currency: string;
+    editApplication: string;
+    selectResponsible: string;
 
     // Users
     usersTitle: string;
@@ -193,6 +233,7 @@ export interface Translations {
     noUsers: string;
     admin: string;
     agent: string;
+    selectAgent: string;
     hostAgent: string;
     user: string;
     changePassword: string;
@@ -216,6 +257,7 @@ export interface Translations {
     notificationsTitle: string;
     noNotifications: string;
     markAsRead: string;
+    markAllAsRead: string;
     newMessage: string;
     statusUpdate: string;
     statusUpdateMessage: string;
@@ -299,6 +341,36 @@ export const translations: Record<Language, Translations> = {
         rejectedApplications: 'طلبات مرفوضة',
         recentApplications: 'الطلبات الأخيرة',
         viewDetails: 'عرض التفاصيل',
+        fromDate: 'من تاريخ',
+        toDate: 'إلى تاريخ',
+        applyFilter: 'تطبيق',
+        clearFilter: 'مسح الفلتر',
+        applicationsDashboard: 'لوحة البطبات',
+        yesterday: 'أمس',
+        last7Days: 'آخر 7 أيام',
+        thisWeek: 'هذا الأسبوع',
+        lastWeek: 'الأسبوع الماضي',
+        thisMonth: 'هذا الشهر',
+        lastMonth: 'الشهر الماضي',
+        thisYear: 'هذه السنة',
+        selectedCountLabel: 'محدد',
+        noOptions: 'لا خيارات',
+        byResponsible: 'حسب المسؤول',
+        byAgent: 'حسب الوكيل',
+        byUniversity: 'حسب الجامعة',
+        byProgram: 'حسب البرنامج',
+        byCountry: 'حسب الدولة',
+        byStatus: 'حسب الحالة',
+        others: 'أخرى',
+        totalsByFilter: 'المجاميع حسب الفلتر',
+        totalCost: 'إجمالي التكلفة',
+        newsAndUpdates: 'الأخبار والتحديثات',
+        newsAndUpdatesSubtitle: 'آخر الأخبار والإعلانات من الإدارة',
+        addNews: 'إضافة خبر أو تحديث',
+        newsTitle: 'العنوان',
+        newsContent: 'المحتوى',
+        noNews: 'لا توجد أخبار بعد',
+        createdBy: 'نشر بواسطة',
 
         // Universities
         universitiesTitle: 'إدارة الجامعات',
@@ -426,6 +498,14 @@ export const translations: Record<Language, Translations> = {
         messages: 'الرسائل',
         noMessages: 'لا توجد رسائل',
         typeMessage: 'اكتب رسالة...',
+        responsible: 'المسؤول',
+        cost: 'التكلفة',
+        commission: 'العمولة',
+        saleAmount: 'مبلغ البيع',
+        profit: 'الربح',
+        currency: 'العملة',
+        editApplication: 'تعديل الطلب',
+        selectResponsible: 'اختر المسؤول',
 
         // Users
         usersTitle: 'إدارة المستخدمين',
@@ -439,6 +519,7 @@ export const translations: Record<Language, Translations> = {
         noUsers: 'لا يوجد مستخدمون',
         admin: 'مدير',
         agent: 'وكيل',
+        selectAgent: 'اختر الوكيل',
         hostAgent: 'الوكيل المضيف',
         user: 'مستخدم',
         changePassword: 'تغيير كلمة المرور',
@@ -462,6 +543,7 @@ export const translations: Record<Language, Translations> = {
         notificationsTitle: 'الإشعارات',
         noNotifications: 'لا توجد إشعارات',
         markAsRead: 'تعليم كمقروء',
+        markAllAsRead: 'تجاهل الكل',
         newMessage: 'رسالة جديدة',
         statusUpdate: 'تحديث الحالة',
         statusUpdateMessage: 'تم تغيير حالة طلبك #{id} إلى {status}',
@@ -544,6 +626,36 @@ export const translations: Record<Language, Translations> = {
         rejectedApplications: 'Rejected Applications',
         recentApplications: 'Recent Applications',
         viewDetails: 'View Details',
+        fromDate: 'From date',
+        toDate: 'To date',
+        applyFilter: 'Apply',
+        clearFilter: 'Clear filter',
+        applicationsDashboard: 'Applications Dashboard',
+        yesterday: 'Yesterday',
+        last7Days: 'Last 7 days',
+        thisWeek: 'This week',
+        lastWeek: 'Last week',
+        thisMonth: 'This month',
+        lastMonth: 'Last month',
+        thisYear: 'This year',
+        selectedCountLabel: 'selected',
+        noOptions: 'No options',
+        byResponsible: 'By responsible',
+        byAgent: 'By agent',
+        byUniversity: 'By university',
+        byProgram: 'By program',
+        byCountry: 'By country',
+        byStatus: 'By status',
+        others: 'Others',
+        totalsByFilter: 'Totals (filtered)',
+        totalCost: 'Total cost',
+        newsAndUpdates: 'News and Updates',
+        newsAndUpdatesSubtitle: 'Latest news and announcements from the administration',
+        addNews: 'Add news or update',
+        newsTitle: 'Title',
+        newsContent: 'Content',
+        noNews: 'No news yet',
+        createdBy: 'Posted by',
 
         // Universities
         universitiesTitle: 'University Management',
@@ -671,6 +783,14 @@ export const translations: Record<Language, Translations> = {
         messages: 'Messages',
         noMessages: 'No messages',
         typeMessage: 'Type a message...',
+        responsible: 'Responsible',
+        cost: 'Cost',
+        commission: 'Commission',
+        saleAmount: 'Sale amount',
+        profit: 'Profit',
+        currency: 'Currency',
+        editApplication: 'Edit application',
+        selectResponsible: 'Select responsible',
 
         // Users
         usersTitle: 'User Management',
@@ -684,6 +804,7 @@ export const translations: Record<Language, Translations> = {
         noUsers: 'No users found',
         admin: 'Admin',
         agent: 'Agent',
+        selectAgent: 'Select agent',
         hostAgent: 'Host Agent',
         user: 'User',
         changePassword: 'Change Password',
@@ -707,6 +828,7 @@ export const translations: Record<Language, Translations> = {
         notificationsTitle: 'Notifications',
         noNotifications: 'No notifications',
         markAsRead: 'Mark as Read',
+        markAllAsRead: 'Ignore all',
         newMessage: 'New Message',
         statusUpdate: 'Status Update',
         statusUpdateMessage: 'Your application #{id} status changed to {status}',
@@ -789,6 +911,36 @@ export const translations: Record<Language, Translations> = {
         rejectedApplications: 'Reddedilen Başvurular',
         recentApplications: 'Son Başvurular',
         viewDetails: 'Detayları Görüntüle',
+        fromDate: 'Başlangıç tarihi',
+        toDate: 'Bitiş tarihi',
+        applyFilter: 'Uygula',
+        clearFilter: 'Filtreyi temizle',
+        applicationsDashboard: 'Başvuru Panosu',
+        yesterday: 'Dün',
+        last7Days: 'Son 7 gün',
+        thisWeek: 'Bu hafta',
+        lastWeek: 'Geçen hafta',
+        thisMonth: 'Bu ay',
+        lastMonth: 'Geçen ay',
+        thisYear: 'Bu yıl',
+        selectedCountLabel: 'seçildi',
+        noOptions: 'Seçenek yok',
+        byResponsible: 'Sorumluya göre',
+        byAgent: 'Temsilciye göre',
+        byUniversity: 'Üniversiteye göre',
+        byProgram: 'Bölüme göre',
+        byCountry: 'Ülkeye göre',
+        byStatus: 'Duruma göre',
+        others: 'Diğerleri',
+        totalsByFilter: 'Toplamlar (filtreye göre)',
+        totalCost: 'Toplam maliyet',
+        newsAndUpdates: 'Haberler ve Güncellemeler',
+        newsAndUpdatesSubtitle: 'Yönetimden son haberler ve duyurular',
+        addNews: 'Haber veya güncelleme ekle',
+        newsTitle: 'Başlık',
+        newsContent: 'İçerik',
+        noNews: 'Henüz haber yok',
+        createdBy: 'Yayınlayan',
 
         // Universities
         universitiesTitle: 'Üniversite Yönetimi',
@@ -916,6 +1068,14 @@ export const translations: Record<Language, Translations> = {
         messages: 'Mesajlar',
         noMessages: 'Mesaj yok',
         typeMessage: 'Mesaj yazın...',
+        responsible: 'Sorumlu',
+        cost: 'Maliyet',
+        commission: 'Komisyon',
+        saleAmount: 'Satış tutarı',
+        profit: 'Kâr',
+        currency: 'Para birimi',
+        editApplication: 'Başvuruyu düzenle',
+        selectResponsible: 'Sorumlu seçin',
 
         // Users
         usersTitle: 'Kullanıcı Yönetimi',
@@ -929,6 +1089,7 @@ export const translations: Record<Language, Translations> = {
         noUsers: 'Kullanıcı bulunamadı',
         admin: 'Yönetici',
         agent: 'Temsilci',
+        selectAgent: 'Temsilci seçin',
         hostAgent: 'Sorumlu Temsilci',
         user: 'Kullanıcı',
         changePassword: 'Şifre Değiştir',
@@ -952,6 +1113,7 @@ export const translations: Record<Language, Translations> = {
         notificationsTitle: 'Bildirimler',
         noNotifications: 'Bildirim yok',
         markAsRead: 'Okundu Olarak İşaretle',
+        markAllAsRead: 'Tümünü okundu işaretle',
         newMessage: 'Yeni Mesaj',
         statusUpdate: 'Durum Güncellemesi',
         statusUpdateMessage: '#{id} numaralı başvurunuzun durumu {status} olarak güncellendi',

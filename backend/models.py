@@ -28,6 +28,7 @@ class Student(db.Model):
     dob = db.Column(db.String, nullable=False)
     residence_country = db.Column(db.String, nullable=False)
     user_id = db.Column(db.String, db.ForeignKey('users.id'), nullable=True)  # Added to link student to agent
+    created_at = db.Column(db.String, nullable=True)
 
 class University(db.Model):
     __tablename__ = 'universities'
@@ -69,8 +70,14 @@ class Application(db.Model):
     semester = db.Column(db.String, nullable=False)
     created_at = db.Column(db.String, nullable=False)
     files = db.Column(db.ARRAY(db.String))
-    user_id = db.Column(db.String, db.ForeignKey('users.id'), nullable=True)  # Added to link application to agent
-    user = db.relationship('User', backref='applications')
+    user_id = db.Column(db.String, db.ForeignKey('users.id'), nullable=True)  # Agent
+    user = db.relationship('User', backref='applications', foreign_keys=[user_id])
+    responsible_id = db.Column(db.String, db.ForeignKey('users.id'), nullable=True)  # Admin or User responsible
+    responsible = db.relationship('User', foreign_keys=[responsible_id])
+    cost = db.Column(db.Float, nullable=True)
+    commission = db.Column(db.Float, nullable=True)
+    sale_amount = db.Column(db.Float, nullable=True)
+    currency = db.Column(db.String, nullable=True, default='USD')
 
 
 
@@ -78,7 +85,8 @@ class ApplicationMessage(db.Model):
     __tablename__ = 'application_messages'
     id = db.Column(db.String, primary_key=True)
     application_id = db.Column(db.String, db.ForeignKey('applications.id'), nullable=False)
-    sender = db.Column(db.String, nullable=False)  # 'ADMIN' or 'USER'
+    sender = db.Column(db.String, nullable=False)  # 'ADMIN', 'USER', 'AGENT'
+    sender_user_id = db.Column(db.String, db.ForeignKey('users.id'), nullable=True)  # who sent (for display name)
     message = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.String, nullable=False)
 
@@ -91,6 +99,15 @@ class Period(db.Model):
     active = db.Column(db.Boolean, default=True, nullable=False)
 
 
+class NewsItem(db.Model):
+    __tablename__ = 'news'
+    id = db.Column(db.String, primary_key=True)
+    title = db.Column(db.String, nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.String, nullable=False)
+    created_by = db.Column(db.String, db.ForeignKey('users.id'), nullable=False)
+
+
 class Notification(db.Model):
     __tablename__ = 'notifications'
     id = db.Column(db.String, primary_key=True)
@@ -100,4 +117,4 @@ class Notification(db.Model):
     link = db.Column(db.String, nullable=True)
     is_read = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.String, nullable=False)
-    type = db.Column(db.String, nullable=False) # 'MESSAGE', 'STATUS'
+    type = db.Column(db.String, nullable=False)  # 'MESSAGE', 'STATUS', 'NEWS'

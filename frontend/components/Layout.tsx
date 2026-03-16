@@ -10,7 +10,9 @@ import {
   X,
   UserCircle,
   UserCog,
-  CalendarRange
+  CalendarRange,
+  BarChart2,
+  Newspaper
 } from 'lucide-react';
 import { User, UserRole } from '../types';
 import { NotificationDropdown } from './NotificationDropdown';
@@ -47,6 +49,9 @@ export const Layout: React.FC<LayoutProps> = ({
 
   const navItems = [
     { id: 'dashboard', label: t.dashboard, icon: LayoutDashboard },
+    ...(currentUser?.role === UserRole.ADMIN
+      ? [{ id: 'applications-dashboard' as const, label: t.applicationsDashboard, icon: BarChart2 }]
+      : []),
     { id: 'universities', label: t.universities, icon: School },
     { id: 'programs', label: t.programs, icon: BookOpen },
     { id: 'students', label: t.students, icon: Users },
@@ -57,6 +62,7 @@ export const Layout: React.FC<LayoutProps> = ({
           { id: 'users' as const, label: t.usersTitle, icon: UserCog }
         ]
       : []),
+    { id: 'news', label: t.newsAndUpdates, icon: Newspaper },
     { id: 'account', label: t.account, icon: UserCircle }
   ];
 
@@ -83,12 +89,23 @@ export const Layout: React.FC<LayoutProps> = ({
         <div className="h-full flex flex-col min-h-0">
           <div className="p-6 border-b border-slate-800 flex-shrink-0">
             <div className="flex items-center justify-between">
-              <h1 className="text-2xl font-bold text-blue-400">{t.appName}</h1>
+              <h1 className="text-2xl font-bold">
+                {(() => {
+                  const parts = (t.appName || '').split(/\s+/);
+                  const first = parts[0] || '';
+                  const rest = parts.slice(1).join(' ') || '';
+                  return (
+                    <>
+                      <span className="text-red-500">{first}</span>
+                      {rest && <span className="text-blue-400"> {rest}</span>}
+                    </>
+                  );
+                })()}
+              </h1>
               <button onClick={() => setSidebarOpen(false)} className="lg:hidden text-gray-400 hover:text-white">
                 <X size={24} />
               </button>
             </div>
-            <img src="/images/logo.png" alt="" className="mt-3 h-10 w-auto object-contain object-left rtl:object-right" />
           </div>
 
           <nav className="layout-sidebar-nav flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 py-6 space-y-2">
@@ -99,14 +116,14 @@ export const Layout: React.FC<LayoutProps> = ({
                   onNavigate(item.id);
                   setSidebarOpen(false);
                 }}
-                className={`w-full flex items-center gap-2 px-4 py-3 rounded-lg transition-colors duration-200
+                className={`w-full flex items-center gap-1.5 px-3 py-3 rounded-lg transition-colors duration-200
                   ${activePage === item.id
                     ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
                     : 'text-slate-300 hover:bg-slate-800 hover:text-white'}
                 `}
               >
-                <item.icon size={20} className="flex-shrink-0" />
-                <span className="font-medium">{item.label}</span>
+                <item.icon size={20} className="flex-shrink-0 w-5 h-5" />
+                <span className="font-medium text-left">{item.label}</span>
               </button>
             ))}
           </nav>

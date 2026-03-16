@@ -113,23 +113,23 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-gray-500 border-b border-gray-200">
+            <thead className="bg-gray-50 text-gray-900 font-bold border-b border-gray-200">
               <tr>
-                <th className="px-6 py-4 font-medium text-left">{t.userName}</th>
-                <th className="px-6 py-4 font-medium text-left">{t.email}</th>
-                <th className="px-6 py-4 font-medium text-left">{t.userRole}</th>
-                <th className="px-6 py-4 font-medium text-left">{t.phone}</th>
-                <th className="px-6 py-4 font-medium text-left">{t.active}</th>
-                <th className="px-6 py-4 font-medium text-center">{t.edit}</th>
+                <th className="px-6 py-4 font-bold text-left">{t.userName}</th>
+                <th className="px-6 py-4 font-bold text-left">{t.email}</th>
+                <th className="px-6 py-4 font-bold text-left">{t.userRole}</th>
+                <th className="px-6 py-4 font-bold text-left">{t.phone}</th>
+                <th className="px-6 py-4 font-bold text-left">{t.active}</th>
+                <th className="px-6 py-4 font-bold text-center">{t.edit}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {users.map(user => (
                 <tr key={user.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 font-medium text-gray-900">{user.name}</td>
-                  <td className="px-6 py-4 text-gray-600">{user.email}</td>
-                  <td className="px-6 py-4 text-blue-600">{translateRole(user.role)}</td>
-                  <td className="px-6 py-4 text-gray-600">{user.countryCode ? `${user.countryCode} ${user.phone || ''}` : (user.phone || '—')}</td>
+                  <td className="px-6 py-4 text-gray-900">{user.email}</td>
+                  <td className="px-6 py-4 text-gray-900">{translateRole(user.role)}</td>
+                  <td className="px-6 py-4 text-gray-900">{user.countryCode ? `${user.countryCode} ${user.phone || ''}` : (user.phone || '—')}</td>
                   <td className="px-6 py-4">
                     {user.id !== currentUser.id && (
                       <button
