@@ -44,8 +44,11 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
       </div>
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-8">
         <div className="text-center mb-8">
-          <img src="/images/logo.png" alt={t.appName} className="h-14 mx-auto mb-2 object-contain" />
-          <p className="text-gray-500">{t.appName}</p>
+          <div className="text-3xl font-extrabold tracking-tight mb-1">
+            <span className="text-red-500">Nokta</span>
+            <span className="text-blue-500"> CRM</span>
+          </div>
+          <p className="text-gray-500 text-sm">{t.appName}</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">

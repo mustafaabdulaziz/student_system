@@ -145,6 +145,7 @@ export interface Translations {
     programDescription: string;
     selectUniversity: string;
     noPrograms: string;
+    printResult: string;
     searchProgramNamePlaceholder: string;
     searchNameInArabicPlaceholder: string;
     filterAll: string;
@@ -431,6 +432,7 @@ export const translations: Record<Language, Translations> = {
         programDescription: 'الوصف',
         selectUniversity: 'اختر الجامعة',
         noPrograms: 'لا توجد برامج',
+        printResult: 'طباعة النتائج (PDF)',
         searchProgramNamePlaceholder: 'بحث باسم البرنامج...',
         searchNameInArabicPlaceholder: 'بحث بالاسم بالعربية...',
         filterAll: 'الكل',
@@ -716,6 +718,7 @@ export const translations: Record<Language, Translations> = {
         programDescription: 'Description',
         selectUniversity: 'Select University',
         noPrograms: 'No programs found',
+        printResult: 'Print result (PDF)',
         searchProgramNamePlaceholder: 'Search by program name...',
         searchNameInArabicPlaceholder: 'Search by name in Arabic...',
         filterAll: 'All',
@@ -1001,6 +1004,7 @@ export const translations: Record<Language, Translations> = {
         programDescription: 'Açıklama',
         selectUniversity: 'Üniversite Seç',
         noPrograms: 'Program bulunamadı',
+        printResult: 'Sonucu yazdır (PDF)',
         searchProgramNamePlaceholder: 'Program adıyla ara...',
         searchNameInArabicPlaceholder: 'Arapça adla ara...',
         filterAll: 'Tümü',
