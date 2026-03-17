@@ -201,8 +201,12 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
         await onEditStudent?.(payload);
         closeFormModal();
       } else {
-        await onAddStudent({ ...payload, id: payload.id } as Student);
-        closeFormModal();
+        const newId = await onAddStudent({ ...payload, id: payload.id } as Student);
+        if (newId) {
+          closeFormModal();
+          setViewMode('tree');
+          setSelectedStudentForDetails({ ...payload, id: newId });
+        }
       }
     } catch (error) {
       alert(isEdit ? (t.errorUpdate || 'Update failed') : t.errorAdd);

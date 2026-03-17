@@ -1,7 +1,10 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { jsPDF } from 'jspdf';
+import { autoTable } from 'jspdf-autotable';
+import notoSansRegularUrl from '../assets/fonts/NotoSans-Regular.ttf?url';
 import { Program, University, User, UserRole, PROGRAM_CATEGORIES, Period } from '../types';
 import { COUNTRIES } from '../constants/countries';
-import { Plus, BookOpen, Clock, DollarSign, Calendar, Trash2, Pencil, Search, Filter, X, ChevronDown, ChevronUp, Eye, ArrowLeft } from 'lucide-react';
+import { Plus, BookOpen, Clock, DollarSign, Calendar, Trash2, Pencil, Search, Filter, X, ChevronDown, ChevronUp, Eye, ArrowLeft, Printer } from 'lucide-react';
 import { useTranslation } from '../hooks/useTranslation';
 
 interface MultiSelectOption {
@@ -150,6 +153,29 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
     });
   }, [programs, searchProgramName, searchNameInArabic, filterCategories, filterUniversityIds, filterDegrees, filterLanguages]);
 
+  let notoSansVfsPromise: Promise<void> | null = null;
+  const ensurePdfFont = async (doc: jsPDF) => {
+    // Load and embed TTF only once per page lifecycle
+    if (!notoSansVfsPromise) {
+      notoSansVfsPromise = (async () => {
+        const res = await fetch(notoSansRegularUrl);
+        const buf = await res.arrayBuffer();
+        const bytes = new Uint8Array(buf);
+        let binary = '';
+        const chunkSize = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+          binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+        }
+        const base64 = btoa(binary);
+        // jsPDF VFS expects base64 TTF
+        doc.addFileToVFS('NotoSans-Regular.ttf', base64);
+        doc.addFont('NotoSans-Regular.ttf', 'NotoSans', 'normal');
+      })();
+    }
+    await notoSansVfsPromise;
+    doc.setFont('NotoSans', 'normal');
+  };
+
   const sortedPrograms = useMemo(() => {
     if (!sortBy) return filteredPrograms;
     const dir = sortDir === 'asc' ? 1 : -1;
@@ -173,6 +199,45 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
     setSortBy(prev => (prev === key ? prev : key));
     setSortDir(prev => (sortBy === key ? (prev === 'asc' ? 'desc' : 'asc') : 'asc'));
   };
+
+  const handlePrintPDF = async () => {
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    await ensurePdfFont(doc);
+    doc.setFontSize(14);
+    doc.text(t.programsTitle, 14, 12);
+    doc.setFontSize(9);
+    doc.text(new Date().toLocaleDateString(undefined, { dateStyle: 'long' }), 14, 18);
+    const head = [
+      t.programName,
+      t.universities,
+      t.programDegree,
+      t.programLanguage,
+      t.programFee,
+      t.deposit,
+      t.cashPrice,
+      t.programPeriod
+    ];
+    const body = sortedPrograms.map(p => [
+      p.name,
+      getUniversityName(p.universityId),
+      translateDegree(p.degree),
+      p.language,
+      p.currency ? `${p.currency} ${(p.fee ?? 0).toLocaleString()}` : `${(p.fee ?? 0).toLocaleString()}`,
+      p.deposit != null ? (p.currency ? `${p.currency} ${p.deposit.toLocaleString()}` : String(p.deposit)) : '—',
+      p.cashPrice != null ? (p.currency ? `${p.currency} ${p.cashPrice.toLocaleString()}` : String(p.cashPrice)) : '—',
+      getPeriodName(p.periodId)
+    ]);
+    autoTable(doc, {
+      head: [head],
+      body,
+      startY: 22,
+      styles: { font: 'NotoSans', fontStyle: 'normal', fontSize: 8, cellPadding: 2 },
+      headStyles: { font: 'NotoSans', fontStyle: 'normal', fillColor: [59, 130, 246], textColor: 255 },
+      margin: { left: 14, right: 14 }
+    });
+    doc.save(`programlar-${new Date().toISOString().slice(0, 10)}.pdf`);
+  };
+
   const SortTh = ({ colKey, label, className = '' }: { colKey: string; label: string; className?: string }) => (
     <th className={`px-6 py-4 font-bold cursor-pointer select-none hover:bg-gray-100 transition-colors ${className}`} onClick={() => toggleSort(colKey)}>
       <span className="inline-flex items-center gap-1">
@@ -619,15 +684,25 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
           <h2 className="text-2xl font-bold text-gray-800">{t.programsTitle}</h2>
           <p className="text-gray-500">{t.programsTitle}</p>
         </div>
-        {isAdmin && (
+        <div className="flex items-center gap-2">
           <button
-            onClick={openAddModal}
-            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+            type="button"
+            onClick={handlePrintPDF}
+            className="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors"
           >
-            <Plus size={20} />
-            <span>{t.addProgram}</span>
+            <Printer size={20} />
+            <span>{t.printResult}</span>
           </button>
-        )}
+          {isAdmin && (
+            <button
+              onClick={openAddModal}
+              className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <Plus size={20} />
+              <span>{t.addProgram}</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Search & Filters */}
