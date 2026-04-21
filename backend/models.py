@@ -29,6 +29,7 @@ class Student(db.Model):
     residence_country = db.Column(db.String, nullable=False)
     user_id = db.Column(db.String, db.ForeignKey('users.id'), nullable=True)  # Added to link student to agent
     created_at = db.Column(db.String, nullable=True)
+    updated_at = db.Column(db.String, nullable=True)
 
 class University(db.Model):
     __tablename__ = 'universities'
@@ -59,6 +60,7 @@ class Program(db.Model):
     currency = db.Column(db.String, nullable=False, default='USD')
     country = db.Column(db.String, nullable=True)
     description = db.Column(db.Text)
+    is_open = db.Column(db.Boolean, nullable=False, default=True)
 
 class Application(db.Model):
     __tablename__ = 'applications'
@@ -69,6 +71,7 @@ class Application(db.Model):
     status = db.Column(db.String, nullable=False)
     semester = db.Column(db.String, nullable=False)
     created_at = db.Column(db.String, nullable=False)
+    updated_at = db.Column(db.String, nullable=True)
     files = db.Column(db.ARRAY(db.String))
     user_id = db.Column(db.String, db.ForeignKey('users.id'), nullable=True)  # Agent
     user = db.relationship('User', backref='applications', foreign_keys=[user_id])

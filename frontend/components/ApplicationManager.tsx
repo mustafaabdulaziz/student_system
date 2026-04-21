@@ -2,12 +2,13 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Application, Student, Program, University, ApplicationStatus, User, Period, APPLICATION_CURRENCIES } from '../types';
 import {
   Plus, Filter, FileText, CheckCircle, XCircle, AlertCircle,
-  MessageSquare, ArrowRight, User as UserIcon, GraduationCap,
+  MessageSquare, User as UserIcon, GraduationCap,
   Clock, Send, Upload, Paperclip, ChevronLeft, MapPin, Trash2, Mail, Phone, FileEdit,
-  List, LayoutGrid, Search, X, ChevronDown, ChevronUp
+  List, LayoutGrid, Search, X, ChevronDown, ChevronUp, ChevronRight
 } from 'lucide-react';
 import { useTranslation } from '../hooks/useTranslation';
 import { useLanguage } from '../contexts/LanguageContext';
+import { matchesCreatedAtRange } from '../utils/createdAtRangeFilter';
 
 function MultiSelectFilter({
   selected,
@@ -136,7 +137,13 @@ interface ApplicationManagerProps {
   users?: User[];
   onAddApplication: (app: Application, files?: FileList | null) => Promise<string | null> | void;
   onUpdateStatus: (id: string, status: ApplicationStatus) => void;
-  onUpdateApplication?: (id: string, payload: { status?: ApplicationStatus; responsibleId?: string | null; cost?: number | null; commission?: number | null; saleAmount?: number | null }) => void | Promise<void>;
+  onUpdateApplication?: (id: string, payload: { status?: ApplicationStatus; responsibleId?: string | null; cost?: number | null; commission?: number | null; saleAmount?: number | null; currency?: string }) => void | Promise<void>;
+  onSyncApplicationTimestamps?: (payload: {
+    applicationId: string;
+    applicationUpdatedAt: string;
+    studentId?: string;
+    studentUpdatedAt?: string | null;
+  }) => void;
   initialStudentId?: string | null;
   clearInitialStudent?: () => void;
   targetApplicationId?: string | null;
@@ -146,6 +153,7 @@ interface ApplicationManagerProps {
 
 export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   applications, students, programs, universities, periods = [], users = [], onAddApplication, onUpdateStatus, onUpdateApplication,
+  onSyncApplicationTimestamps,
   initialStudentId, clearInitialStudent, targetApplicationId, clearTargetApplication, currentUser
 }) => {
   const { t, translateStatus, translateDegree } = useTranslation();
@@ -161,22 +169,18 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const [filterUniversities, setFilterUniversities] = useState<string[]>([]);
   const [filterStatuses, setFilterStatuses] = useState<string[]>([]);
   const [filterDegrees, setFilterDegrees] = useState<string[]>([]);
+  const [filterAppCreatedFrom, setFilterAppCreatedFrom] = useState('');
+  const [filterAppCreatedTo, setFilterAppCreatedTo] = useState('');
+  const [expandedAppIds, setExpandedAppIds] = useState<Set<string>>(() => new Set());
   const [sortBy, setSortBy] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
-  const hasSetDefaultStatusRef = useRef(false);
+  const [treePage, setTreePage] = useState(1);
+  const [kanbanPage, setKanbanPage] = useState(1);
+  const [columnsOpen, setColumnsOpen] = useState(false);
+  const columnsRef = useRef<HTMLDivElement>(null);
+  const applicationColumnKeys = useMemo(() => ['number', 'status', 'agent', 'responsible', 'student', 'program', 'createdAt', 'updatedAt'], []);
+  const [visibleTreeColumns, setVisibleTreeColumns] = useState<string[]>(applicationColumnKeys);
 
-  // Default status filter on first load: Admin/User = Missing Documents + Under Review; Agent = + Draft
-  useEffect(() => {
-    if (hasSetDefaultStatusRef.current || !currentUser) return;
-    const role = (currentUser.role ?? '').toString().toUpperCase();
-    if (role === 'ADMIN' || role === 'USER') {
-      hasSetDefaultStatusRef.current = true;
-      setFilterStatuses([ApplicationStatus.MISSING_DOCS, ApplicationStatus.UNDER_REVIEW]);
-    } else if (role === 'AGENT') {
-      hasSetDefaultStatusRef.current = true;
-      setFilterStatuses([ApplicationStatus.MISSING_DOCS, ApplicationStatus.UNDER_REVIEW, ApplicationStatus.DRAFT]);
-    }
-  }, [currentUser]);
   const [messages, setMessages] = React.useState<Array<{ id: string; sender: string; message: string; createdAt: string; senderName?: string | null }>>([]);
   const [newMessage, setNewMessage] = React.useState('');
   const [detailFiles, setDetailFiles] = React.useState<Array<{ url: string; name: string; filename?: string }>>([]);
@@ -192,6 +196,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const [detailCommission, setDetailCommission] = useState<string>('');
   const [detailSaleAmount, setDetailSaleAmount] = useState<string>('');
   const [detailEditMode, setDetailEditMode] = useState(false);
+  const [detailLeftTab, setDetailLeftTab] = useState<'general' | 'files'>('general');
   const [editFormAgentId, setEditFormAgentId] = useState('');
   const [editFormResponsibleId, setEditFormResponsibleId] = useState('');
   const [detailCurrency, setDetailCurrency] = useState<string>('USD');
@@ -215,44 +220,63 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   // Derived filters: first by period (active only), then by degree
   const availablePrograms = useMemo(() => {
     return programs.filter(p =>
+      p.isOpen !== false &&
       (!filterPeriod || p.periodId === filterPeriod) &&
       (!filterDegree || p.degree === filterDegree)
     );
   }, [programs, filterPeriod, filterDegree]);
   const uniqueDegrees = useMemo(() => Array.from(new Set(availablePrograms.map(p => p.degree))), [availablePrograms]);
 
-  const uniqueNames = useMemo(() => Array.from(new Set(availablePrograms.map(p => p.name))), [availablePrograms]);
+  const createAvailableUnis = useMemo(() => {
+    const byId = new Map<string, { id: string; name: string }>();
+    availablePrograms.forEach(p => {
+      const uni = universities.find(u => u.id === p.universityId);
+      if (uni && !byId.has(uni.id)) byId.set(uni.id, { id: uni.id, name: uni.name });
+    });
+    return Array.from(byId.values());
+  }, [availablePrograms, universities]);
 
-  const availableLanguages = useMemo(() => {
-    return availablePrograms
-      .filter(p => !filterName || p.name === filterName)
-      .map(p => p.language)
-      .filter((v, i, a) => a.indexOf(v) === i);
-  }, [availablePrograms, filterName]);
+  const createAvailableDegrees = useMemo(() => {
+    return Array.from(new Set(
+      availablePrograms
+        .filter(p => !filterUni || p.universityId === filterUni)
+        .map(p => p.degree)
+    ));
+  }, [availablePrograms, filterUni]);
 
-  const availableUnis = useMemo(() => {
-    return availablePrograms
-      .filter(p =>
-        (!filterName || p.name === filterName) &&
-        (!filterLang || p.language === filterLang)
-      )
-      .map(p => {
-        const uni = universities.find(u => u.id === p.universityId);
-        return uni ? { id: uni.id, name: uni.name } : null;
-      })
-      .filter(Boolean) as { id: string, name: string }[];
-  }, [availablePrograms, filterName, filterLang, universities]);
+  const createAvailableLanguages = useMemo(() => {
+    return Array.from(new Set(
+      availablePrograms
+        .filter(p =>
+          (!filterUni || p.universityId === filterUni) &&
+          (!filterDegree || p.degree === filterDegree)
+        )
+        .map(p => p.language)
+    ));
+  }, [availablePrograms, filterUni, filterDegree]);
+
+  const createAvailableProgramNames = useMemo(() => {
+    return Array.from(new Set(
+      availablePrograms
+        .filter(p =>
+          (!filterUni || p.universityId === filterUni) &&
+          (!filterDegree || p.degree === filterDegree) &&
+          (!filterLang || p.language === filterLang)
+        )
+        .map(p => p.name)
+    ));
+  }, [availablePrograms, filterUni, filterDegree, filterLang]);
 
   const finalProgramId = useMemo(() => {
-    if (!filterUni || !filterName || !filterLang || !filterDegree) return null;
+    if (!filterUni || !filterDegree || !filterLang || !filterName) return null;
     return programs.find(p =>
       (!filterPeriod || p.periodId === filterPeriod) &&
+      p.universityId === filterUni &&
       p.degree === filterDegree &&
-      p.name === filterName &&
       p.language === filterLang &&
-      p.universityId === filterUni
+      p.name === filterName
     )?.id;
-  }, [filterPeriod, filterDegree, filterName, filterLang, filterUni, programs]);
+  }, [filterPeriod, filterUni, filterDegree, filterLang, filterName, programs]);
 
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -309,6 +333,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
       setDetailCurrency(app.currency && APPLICATION_CURRENCIES.includes(app.currency as any) ? app.currency : 'USD');
     }
     setDetailEditMode(false);
+    setDetailLeftTab('general');
   }, [selectedAppId, applications]);
 
   // Load messages when opening a detail view
@@ -347,6 +372,11 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
 
   const getAgentName = (app: Application) => app.agentName || (app.userId && users.find(u => u.id === app.userId)?.name) || '—';
 
+  const getResponsibleLabel = (app: Application) =>
+    (app.responsibleName && app.responsibleName.trim()) ||
+    (app.responsibleId ? users.find(u => u.id === app.responsibleId)?.name : '') ||
+    '—';
+
   const uniqueAgents = useMemo(() => {
     const names = new Set<string>();
     applications.forEach(app => {
@@ -370,17 +400,18 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
       const matchUniversity = filterUniversities.length === 0 || (p?.universityId && filterUniversities.includes(p.universityId));
       const matchStatus = filterStatuses.length === 0 || filterStatuses.includes(app.status);
       const matchDegree = filterDegrees.length === 0 || (p?.degree && filterDegrees.includes(p.degree));
-      return matchNumber && matchName && matchAgent && matchUniversity && matchStatus && matchDegree;
+      const matchCreated = matchesCreatedAtRange(app.createdAt, filterAppCreatedFrom, filterAppCreatedTo);
+      return matchNumber && matchName && matchAgent && matchUniversity && matchStatus && matchDegree && matchCreated;
     });
     return list;
-  }, [applications, students, programs, universities, users, searchApplicationNumber, searchStudentName, filterAgents, filterUniversities, filterStatuses, filterDegrees]);
+  }, [applications, students, programs, universities, users, searchApplicationNumber, searchStudentName, filterAgents, filterUniversities, filterStatuses, filterDegrees, filterAppCreatedFrom, filterAppCreatedTo]);
 
   const sortedApplications = useMemo(() => {
     const list = [...filteredApplications];
     if (!sortBy) {
       list.sort((a, b) => {
-        const tA = new Date(a.createdAt || 0).getTime();
-        const tB = new Date(b.createdAt || 0).getTime();
+        const tA = new Date(a.updatedAt || a.createdAt || 0).getTime();
+        const tB = new Date(b.updatedAt || b.createdAt || 0).getTime();
         return tB - tA;
       });
       return list;
@@ -393,20 +424,117 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
       switch (sortBy) {
         case 'number': va = (a.id || '').toLowerCase(); vb = (b.id || '').toLowerCase(); return dir * (va as string).localeCompare(vb as string);
         case 'agent': va = getAgentName(a).toLowerCase(); vb = getAgentName(b).toLowerCase(); return dir * (va as string).localeCompare(vb as string);
+        case 'responsible': va = getResponsibleLabel(a).toLowerCase(); vb = getResponsibleLabel(b).toLowerCase(); return dir * (va as string).localeCompare(vb as string);
         case 'student': va = `${sA?.firstName || ''} ${sA?.lastName || ''}`.trim().toLowerCase(); vb = `${sB?.firstName || ''} ${sB?.lastName || ''}`.trim().toLowerCase(); return dir * (va as string).localeCompare(vb as string);
         case 'program': va = (pA?.name || '').toLowerCase(); vb = (pB?.name || '').toLowerCase(); return dir * (va as string).localeCompare(vb as string);
         case 'createdAt': va = new Date(a.createdAt || 0).getTime(); vb = new Date(b.createdAt || 0).getTime(); return dir * ((va as number) - (vb as number));
+        case 'updatedAt': va = new Date(a.updatedAt || a.createdAt || 0).getTime(); vb = new Date(b.updatedAt || b.createdAt || 0).getTime(); return dir * ((va as number) - (vb as number));
         case 'status': va = (a.status || '').toLowerCase(); vb = (b.status || '').toLowerCase(); return dir * (va as string).localeCompare(vb as string);
         default: return 0;
       }
     });
     return list;
-  }, [filteredApplications, sortBy, sortDir]);
+  }, [filteredApplications, sortBy, sortDir, users]);
+
+  const TREE_PAGE_SIZE = 80;
+  const totalTreePages = Math.max(1, Math.ceil(sortedApplications.length / TREE_PAGE_SIZE));
+  const pagedApplications = useMemo(() => {
+    const start = (treePage - 1) * TREE_PAGE_SIZE;
+    return sortedApplications.slice(start, start + TREE_PAGE_SIZE);
+  }, [sortedApplications, treePage]);
+  const treeFrom = sortedApplications.length === 0 ? 0 : ((treePage - 1) * TREE_PAGE_SIZE) + 1;
+  const treeTo = Math.min(treePage * TREE_PAGE_SIZE, sortedApplications.length);
+  const KANBAN_PAGE_SIZE = 80;
+  const totalKanbanPages = Math.max(1, Math.ceil(sortedApplications.length / KANBAN_PAGE_SIZE));
+  const pagedKanbanApplications = useMemo(() => {
+    const start = (kanbanPage - 1) * KANBAN_PAGE_SIZE;
+    return sortedApplications.slice(start, start + KANBAN_PAGE_SIZE);
+  }, [sortedApplications, kanbanPage]);
+  const kanbanFrom = sortedApplications.length === 0 ? 0 : ((kanbanPage - 1) * KANBAN_PAGE_SIZE) + 1;
+  const kanbanTo = Math.min(kanbanPage * KANBAN_PAGE_SIZE, sortedApplications.length);
 
   const toggleSort = (key: string) => {
     setSortBy(prev => (prev === key ? prev : key));
     setSortDir(prev => (sortBy === key ? (prev === 'asc' ? 'desc' : 'asc') : 'asc'));
   };
+
+  useEffect(() => {
+    if (treePage > totalTreePages) setTreePage(totalTreePages);
+  }, [treePage, totalTreePages]);
+
+  useEffect(() => {
+    if (kanbanPage > totalKanbanPages) setKanbanPage(totalKanbanPages);
+  }, [kanbanPage, totalKanbanPages]);
+
+  useEffect(() => {
+    setTreePage(1);
+    setKanbanPage(1);
+  }, [searchApplicationNumber, searchStudentName, filterAgents, filterUniversities, filterStatuses, filterDegrees, filterAppCreatedFrom, filterAppCreatedTo, sortBy, sortDir, listViewMode]);
+  const applicationColumnOptions = [
+    { key: 'number', label: t.number },
+    { key: 'status', label: t.applicationStatus },
+    { key: 'agent', label: t.agent },
+    { key: 'responsible', label: t.responsible },
+    { key: 'student', label: t.studentInfo },
+    { key: 'program', label: t.program },
+    { key: 'createdAt', label: t.createdAt },
+    { key: 'updatedAt', label: t.lastUpdatedAt }
+  ];
+  const storageKey = `tree-columns:applications:${currentUser?.id || 'guest'}`;
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return;
+      const valid = parsed.filter((k: string) => applicationColumnKeys.includes(k));
+      if (valid.length > 0) setVisibleTreeColumns(valid);
+    } catch {
+      // ignore corrupted localStorage values
+    }
+  }, [storageKey, applicationColumnKeys]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(storageKey, JSON.stringify(visibleTreeColumns));
+  }, [storageKey, visibleTreeColumns]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (columnsRef.current && !columnsRef.current.contains(e.target as Node)) {
+        setColumnsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    const hiddenByConfig = sortBy && applicationColumnKeys.includes(sortBy) && !visibleTreeColumns.includes(sortBy);
+    const hiddenByRole = sortBy === 'responsible' && !isAdminOrUser;
+    if (hiddenByConfig || hiddenByRole) {
+      setSortBy(null);
+      setSortDir('asc');
+    }
+  }, [sortBy, visibleTreeColumns, isAdminOrUser, applicationColumnKeys]);
+
+  const toggleTreeColumn = (key: string) => {
+    setVisibleTreeColumns(prev => {
+      if (prev.includes(key)) {
+        if (prev.length === 1) return prev;
+        return prev.filter(k => k !== key);
+      }
+      return [...prev, key];
+    });
+  };
+
+  useEffect(() => {
+    const allowed = isAdminOrUser ? applicationColumnKeys : applicationColumnKeys.filter(k => k !== 'responsible');
+    const hasVisibleAllowed = visibleTreeColumns.some(k => allowed.includes(k));
+    if (!hasVisibleAllowed) setVisibleTreeColumns(allowed);
+  }, [isAdminOrUser, applicationColumnKeys, visibleTreeColumns]);
   const SortTh = ({ colKey, label, className = '' }: { colKey: string; label: string; className?: string }) => (
     <th style={{ fontWeight: 700 }} className={`px-6 py-5 text-gray-900 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100/80 transition-colors ${className}`} onClick={() => toggleSort(colKey)}>
       <span style={{ fontWeight: 700 }} className="inline-flex items-center gap-1 text-gray-900">
@@ -537,29 +665,29 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
               </select>
             </div>
             <div className="space-y-1">
+              <label className="text-xs font-bold text-blue-400 uppercase tracking-wider px-1">{t.universities}</label>
+              <select
+                className="w-full p-2.5 border border-blue-100 rounded-lg bg-white focus:ring-2 focus:ring-blue-400 outline-none disabled:opacity-50"
+                value={filterUni}
+                onChange={e => { setFilterUni(e.target.value); setFilterDegree(''); setFilterLang(''); setFilterName(''); }}
+                disabled={!filterPeriod}
+                required
+              >
+                <option value="">{t.selectUniversity}</option>
+                {createAvailableUnis.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1">
               <label className="text-xs font-bold text-blue-400 uppercase tracking-wider px-1">{t.programDegree}</label>
               <select
                 className="w-full p-2.5 border border-blue-100 rounded-lg bg-white focus:ring-2 focus:ring-blue-400 outline-none disabled:opacity-50"
                 value={filterDegree}
-                onChange={e => { setFilterDegree(e.target.value); setFilterName(''); setFilterLang(''); setFilterUni(''); }}
-                disabled={!filterPeriod}
+                onChange={e => { setFilterDegree(e.target.value); setFilterLang(''); setFilterName(''); }}
+                disabled={!filterUni}
                 required
               >
                 <option value="">{t.selectDegree}</option>
-                {uniqueDegrees.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-blue-400 uppercase tracking-wider px-1">{t.programName}</label>
-              <select
-                className="w-full p-2.5 border border-blue-100 rounded-lg bg-white focus:ring-2 focus:ring-blue-400 outline-none disabled:opacity-50"
-                value={filterName}
-                onChange={e => { setFilterName(e.target.value); setFilterLang(''); setFilterUni(''); }}
-                disabled={!filterDegree}
-                required
-              >
-                <option value="">{t.selectProgram}</option>
-                {uniqueNames.map(n => <option key={n} value={n}>{n}</option>)}
+                {createAvailableDegrees.map(d => <option key={d} value={d}>{d}</option>)}
               </select>
             </div>
             <div className="space-y-1">
@@ -567,25 +695,25 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
               <select
                 className="w-full p-2.5 border border-blue-100 rounded-lg bg-white focus:ring-2 focus:ring-blue-400 outline-none disabled:opacity-50"
                 value={filterLang}
-                onChange={e => { setFilterLang(e.target.value); setFilterUni(''); }}
-                disabled={!filterName}
+                onChange={e => { setFilterLang(e.target.value); setFilterName(''); }}
+                disabled={!filterDegree}
                 required
               >
                 <option value="">{t.selectLanguage}</option>
-                {availableLanguages.map(l => <option key={l} value={l}>{l}</option>)}
+                {createAvailableLanguages.map(l => <option key={l} value={l}>{l}</option>)}
               </select>
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-bold text-blue-400 uppercase tracking-wider px-1">{t.universities}</label>
+              <label className="text-xs font-bold text-blue-400 uppercase tracking-wider px-1">{t.programName}</label>
               <select
                 className="w-full p-2.5 border border-blue-100 rounded-lg bg-white focus:ring-2 focus:ring-blue-400 outline-none disabled:opacity-50"
-                value={filterUni}
-                onChange={e => setFilterUni(e.target.value)}
+                value={filterName}
+                onChange={e => setFilterName(e.target.value)}
                 disabled={!filterLang}
                 required
               >
-                <option value="">{t.selectUniversity}</option>
-                {availableUnis.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                <option value="">{t.selectProgram}</option>
+                {createAvailableProgramNames.map(n => <option key={n} value={n}>{n}</option>)}
               </select>
             </div>
           </div>
@@ -631,6 +759,14 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
             senderName: senderName
           }]);
           setNewMessage('');
+          if (data.updatedAt && onSyncApplicationTimestamps) {
+            onSyncApplicationTimestamps({
+              applicationId: selectedAppId,
+              applicationUpdatedAt: data.updatedAt,
+              studentId: data.studentId,
+              studentUpdatedAt: data.studentUpdatedAt ?? undefined
+            });
+          }
         } else { alert(data.message || 'فشل إرسال الرسالة'); }
       } catch { alert('خطأ في الاتصال'); }
     };
@@ -650,17 +786,17 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     return (
       <div className="max-w-6xl mx-auto space-y-6 animate-in slide-in-from-bottom duration-500">
         {/* Header Actions */}
-        <div className="grid grid-cols-3 items-center bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
-          <div className="flex justify-start">
+        <div className="bg-white px-4 py-2 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between gap-3">
+          <div className="flex items-center">
             <button onClick={() => setView('list')} className="flex items-center gap-2 text-gray-500 hover:text-blue-600 transition-colors font-bold">
               <ChevronLeft size={20} />
               <span>{t.back}</span>
             </button>
           </div>
-          <div className="flex justify-center">
-            <span className="font-mono font-bold text-gray-800 text-lg">#{app.id}</span>
+          <div className="flex-1 flex justify-start pl-4">
+            <span className="font-mono font-bold text-gray-800 text-xl">#{app.id}</span>
           </div>
-          <div className="flex justify-end items-center gap-3">
+          <div className="flex items-center justify-end gap-3">
             {(isAdminOrUser || isAdmin) && onUpdateApplication && (
               detailEditMode ? (
                 <>
@@ -675,7 +811,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                       setDetailCurrency(app.currency && APPLICATION_CURRENCIES.includes(app.currency as any) ? app.currency : 'USD');
                       setDetailEditMode(false);
                     }}
-                    className="px-4 py-2 rounded-xl font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors text-sm"
+                    className="px-4 py-2 rounded-xl font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors text-sm whitespace-nowrap"
                   >
                     {t.cancel}
                   </button>
@@ -693,7 +829,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                       });
                       setDetailEditMode(false);
                     }}
-                    className="px-4 py-2 rounded-xl font-bold text-white bg-blue-600 hover:bg-blue-700 transition-colors text-sm flex items-center gap-2"
+                    className="px-4 py-2 rounded-xl font-bold text-white bg-blue-600 hover:bg-blue-700 transition-colors text-sm flex items-center gap-2 whitespace-nowrap"
                   >
                     {t.save}
                   </button>
@@ -702,16 +838,21 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                 <button
                   type="button"
                   onClick={() => setDetailEditMode(true)}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 transition-colors"
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 transition-colors whitespace-nowrap"
                 >
                   <FileEdit size={16} />
                   {t.editApplication}
                 </button>
               )
             )}
-            <span className="text-xs bg-gray-100 px-3 py-1.5 rounded-full text-gray-600 font-medium">
-              {app.createdAt ? new Date(app.createdAt).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
-            </span>
+            <div className="flex items-center gap-2 whitespace-nowrap">
+              <span className="text-xs bg-gray-100 px-3 py-1.5 rounded-full text-gray-600 font-medium" title={t.createdAt}>
+                {t.createdAt}: {app.createdAt ? new Date(app.createdAt).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+              </span>
+              <span className="text-xs bg-blue-50 px-3 py-1.5 rounded-full text-blue-800 font-medium" title={t.lastUpdatedAt}>
+                {t.lastUpdatedAt}: {(app.updatedAt || app.createdAt) ? new Date(app.updatedAt || app.createdAt).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+              </span>
+            </div>
           </div>
         </div>
 
@@ -770,225 +911,266 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
           </div>
         )}
 
-        {/* 2. Top Info Cards: Student & Program (and Agent if Admin) */}
-        <div className={`grid grid-cols-1 gap-6 ${isAdminOrUser ? 'lg:grid-cols-3 md:grid-cols-2' : 'md:grid-cols-2'}`}>
-          {/* Student Card */}
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
-            <div className="flex items-start gap-4 mb-4">
-              <div className="bg-blue-50 p-4 rounded-xl text-blue-600 shrink-0">
-                <UserIcon size={24} />
-              </div>
-              <div className="min-w-0">
-                <h3 className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-1">{t.studentInfo}</h3>
-                <p className="text-xl font-bold text-gray-800 leading-tight">{student?.firstName} {student?.lastName}</p>
-              </div>
+        {/* 2. Main Body: left info/files, right chat */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          <div className="lg:col-span-5 flex flex-col gap-6">
+            <div className="bg-white rounded-2xl p-1 border border-gray-100 shadow-sm grid grid-cols-2 gap-1">
+              <button
+                type="button"
+                onClick={() => setDetailLeftTab('general')}
+                className={`px-3 py-2 rounded-xl text-sm font-medium transition-colors ${detailLeftTab === 'general' ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-50'}`}
+              >
+                {t.generalInfo}
+              </button>
+              <button
+                type="button"
+                onClick={() => setDetailLeftTab('files')}
+                className={`px-3 py-2 rounded-xl text-sm font-medium transition-colors ${detailLeftTab === 'files' ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-50'}`}
+              >
+                {`${t.uploadFiles} (${detailFiles.length})`}
+              </button>
             </div>
-            <div className="flex flex-col gap-3 text-sm">
-              <div className="flex items-center gap-2 text-gray-600 min-w-0">
-                <Mail size={16} className="text-gray-400 shrink-0" />
-                <span className="min-w-0 truncate" title={student?.email || undefined}>{student?.email || '—'}</span>
-              </div>
-              <div className="flex items-center gap-2 text-gray-600 min-w-0">
-                <Phone size={16} className="text-gray-400 shrink-0" />
-                <span className="min-w-0 truncate" title={student?.phone || undefined}>{student?.phone || '—'}</span>
-              </div>
-              <div className="flex items-center gap-2 text-gray-600 min-w-0">
-                <FileText size={16} className="text-gray-400 shrink-0" />
-                <span className="font-mono min-w-0 truncate">{student?.passportNumber || '—'}</span>
-              </div>
-              <div className="flex items-center gap-2 text-gray-600 min-w-0">
-                <MapPin size={16} className="text-gray-400 shrink-0" />
-                <span>{t.nationality}: {student?.nationality || '—'}</span>
-              </div>
-              <div className="flex items-center gap-2 text-gray-600 min-w-0">
-                <MapPin size={16} className="text-gray-400 shrink-0" />
-                <span>{t.residenceCountry}: {student?.residenceCountry || '—'}</span>
-              </div>
-            </div>
-          </div>
 
-          {/* Program Card */}
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
-            <div className="flex items-start gap-4 mb-4">
-              <div className="bg-purple-50 p-4 rounded-xl text-purple-600 shrink-0">
-                <GraduationCap size={24} />
-              </div>
-              <div className="min-w-0">
-                <h3 className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-1">{t.programsTitle}</h3>
-                <p className="text-xl font-bold text-gray-800 leading-tight">{program?.name}</p>
-              </div>
-            </div>
-            <div className="space-y-2 text-sm">
-              {(getPeriod(app.periodId || program?.periodId)?.name) && (
-                <div className="flex items-center gap-2 text-gray-600">
-                  <span className="text-gray-500">{t.period}:</span>
-                  <span className="font-medium text-gray-800">{getPeriod(app.periodId || program?.periodId)?.name}</span>
-                </div>
-              )}
-              <div className="flex items-center gap-2 text-gray-600">
-                <GraduationCap size={16} className="text-purple-400 shrink-0" />
-                <span className="text-blue-600 font-semibold">{university?.name || '—'}</span>
-              </div>
-              <div className="flex flex-wrap gap-x-4 gap-y-1">
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-purple-50 text-purple-700 font-medium">{translateDegree(program?.degree || '')}</span>
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-700 font-medium">{program?.language || '—'}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Sorumlu Temsilci card (Admin/User): Temsilci (agent) + Sorumlu (responsible), both editable in edit mode */}
-          {isAdminOrUser && (
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-orange-100 hover:shadow-md transition-shadow">
-              <div className="flex items-start gap-4 mb-4">
-                <div className="bg-orange-50 p-4 rounded-xl text-orange-600 shrink-0">
-                  <UserIcon size={24} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-orange-400 text-xs font-bold uppercase tracking-wider mb-3">{t.hostAgent}</h3>
-                  <div className="space-y-3">
-                    <div>
-                      <p className="text-xs font-medium text-gray-500 mb-1">{t.agent}</p>
-                      {detailEditMode && onUpdateApplication ? (
-                        <select
-                          value={editFormAgentId}
-                          onChange={(e) => setEditFormAgentId(e.target.value)}
-                          className="w-full max-w-xs p-2.5 border border-gray-200 rounded-xl text-gray-800 font-medium focus:ring-2 focus:ring-blue-500 outline-none bg-white"
-                        >
-                          <option value="">{t.selectAgent}</option>
-                          {agentUsers.map(u => (
-                            <option key={u.id} value={u.id}>{u.name} {u.email ? `(${u.email})` : ''}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <p className="text-lg font-bold text-gray-800 leading-tight">{getAgentName(app)}</p>
-                      )}
-                      {!detailEditMode && (app.agentPhone || (app.userId && users.find(u => u.id === app.userId)?.phone)) && (
-                        <p className="text-sm text-orange-600 font-mono mt-0.5">
-                          {app.agentCountryCode || (app.userId && users.find(u => u.id === app.userId)?.countryCode) || ''}{' '}
-                          {app.agentPhone || (app.userId && users.find(u => u.id === app.userId)?.phone)}
-                        </p>
-                      )}
+            {detailLeftTab === 'general' ? (
+              <>
+                {/* Program Card */}
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
+                  <div className="flex items-start gap-4 mb-4">
+                    <div className="bg-purple-50 p-4 rounded-xl text-purple-600 shrink-0">
+                      <GraduationCap size={24} />
                     </div>
-                    <div>
-                      <p className="text-xs font-medium text-gray-500 mb-1">{t.responsible}</p>
-                      {detailEditMode && onUpdateApplication ? (
-                        <select
-                          value={editFormResponsibleId}
-                          onChange={(e) => setEditFormResponsibleId(e.target.value)}
-                          className="w-full max-w-xs p-2.5 border border-gray-200 rounded-xl text-gray-800 font-medium focus:ring-2 focus:ring-blue-500 outline-none bg-white"
-                        >
-                          <option value="">{t.selectResponsible}</option>
-                          {responsibleUsers.map(u => (
-                            <option key={u.id} value={u.id}>{u.name}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <p className="text-lg font-bold text-gray-800 leading-tight">{app.responsibleName || '—'}</p>
-                      )}
+                    <div className="min-w-0">
+                      <h3 className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-1">{t.programsTitle}</h3>
+                      <p className="text-xl font-bold text-gray-800 leading-tight">{program?.name}</p>
+                    </div>
+                  </div>
+                  <div className="space-y-2 text-sm">
+                    {(getPeriod(app.periodId || program?.periodId)?.name) && (
+                      <div className="flex items-center gap-2 text-gray-600">
+                        <span className="text-gray-500">{t.period}:</span>
+                        <span className="font-medium text-gray-800">{getPeriod(app.periodId || program?.periodId)?.name}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 text-gray-600 min-w-0">
+                      <GraduationCap size={16} className="text-purple-400 shrink-0" />
+                      <span className="text-blue-600 font-semibold">{university?.name || '—'}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-purple-50 text-purple-700 font-medium">{translateDegree(program?.degree || '')}</span>
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-700 font-medium">{program?.language || '—'}</span>
                     </div>
                   </div>
                 </div>
-              </div>
-            </div>
-          )}
 
-          {/* Financial block (Admin only) – full width, single row: cost, commission, sale amount, currency, profit */}
-          {isAdmin && (
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow col-span-1 md:col-span-2 lg:col-span-3 w-full">
-              <h3 className="text-gray-500 text-xs font-bold uppercase tracking-wider mb-3">{t.cost} / {t.commission} / {t.saleAmount}</h3>
-              <div className="grid grid-cols-5 gap-4 text-sm w-full">
-                {detailEditMode ? (
-                  <>
-                    <div className="min-w-0 flex flex-col gap-1">
-                      <label className="text-gray-500 text-xs font-medium">{t.cost}</label>
-                      <input
-                        type="number"
-                        step="any"
-                        value={detailCost}
-                        onChange={(e) => setDetailCost(e.target.value)}
-                        className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                      />
+                {/* Student Card */}
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
+                  <div className="flex items-start gap-4 mb-4">
+                    <div className="bg-blue-50 p-4 rounded-xl text-blue-600 shrink-0">
+                      <UserIcon size={24} />
                     </div>
-                    <div className="min-w-0 flex flex-col gap-1">
-                      <label className="text-gray-500 text-xs font-medium">{t.commission}</label>
-                      <input
-                        type="number"
-                        step="any"
-                        value={detailCommission}
-                        onChange={(e) => setDetailCommission(e.target.value)}
-                        className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                      />
+                    <div className="min-w-0">
+                      <h3 className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-1">{t.studentInfo}</h3>
+                      <p className="text-xl font-bold text-gray-800 leading-tight">{student?.firstName} {student?.lastName}</p>
                     </div>
-                    <div className="min-w-0 flex flex-col gap-1">
-                      <label className="text-gray-500 text-xs font-medium">{t.saleAmount}</label>
-                      <input
-                        type="number"
-                        step="any"
-                        value={detailSaleAmount}
-                        onChange={(e) => setDetailSaleAmount(e.target.value)}
-                        className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                      />
+                  </div>
+                  <div className="flex flex-col gap-3 text-sm">
+                    <div className="flex items-center gap-2 text-gray-600">
+                      <Mail size={16} className="text-gray-400 shrink-0" />
+                      <span className="min-w-0 truncate" title={student?.email || undefined}>{student?.email || '—'}</span>
                     </div>
-                    <div className="min-w-0 flex flex-col gap-1">
-                      <label className="text-gray-500 text-xs font-medium">{t.currency}</label>
-                      <select
-                        value={detailCurrency}
-                        onChange={(e) => setDetailCurrency(e.target.value)}
-                        className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium"
-                      >
-                        {APPLICATION_CURRENCIES.map(c => (
-                          <option key={c} value={c}>{c}</option>
-                        ))}
-                      </select>
+                    <div className="flex items-center gap-2 text-gray-600">
+                      <Phone size={16} className="text-gray-400 shrink-0" />
+                      <span className="min-w-0 truncate" title={student?.phone || undefined}>{student?.phone || '—'}</span>
                     </div>
-                    <div className="min-w-0 flex flex-col gap-1 justify-end">
-                      <span className="text-gray-500 text-xs font-medium">{t.profit}</span>
-                      <p className="font-medium text-gray-900 pt-2">
-                        {(app.saleAmount != null && (app.cost != null || app.commission != null))
-                          ? (Number(app.saleAmount) - (Number(app.cost) || 0) - (Number(app.commission) || 0))
-                          : '—'}
-                        <span className="ml-1 text-gray-600 text-sm">{app.currency || 'USD'}</span>
-                      </p>
+                    <div className="flex items-center gap-2 text-gray-600">
+                      <FileText size={16} className="text-gray-400 shrink-0" />
+                      <span className="font-mono min-w-0 truncate">{student?.passportNumber || '—'}</span>
                     </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="min-w-0 py-1">
-                      <p className="text-gray-500 text-xs font-medium">{t.cost}</p>
-                      <p className="font-medium text-gray-900 mt-0.5">{app.cost != null ? Number(app.cost) : '—'} <span className="text-gray-600">{app.currency || 'USD'}</span></p>
+                    <div className="flex items-center gap-2 text-gray-600">
+                      <MapPin size={16} className="text-gray-400 shrink-0" />
+                      <span>{t.nationality}: {student?.nationality || '—'}</span>
                     </div>
-                    <div className="min-w-0 py-1">
-                      <p className="text-gray-500 text-xs font-medium">{t.commission}</p>
-                      <p className="font-medium text-gray-900 mt-0.5">{app.commission != null ? Number(app.commission) : '—'} <span className="text-gray-600">{app.currency || 'USD'}</span></p>
+                    <div className="flex items-center gap-2 text-gray-600">
+                      <MapPin size={16} className="text-gray-400 shrink-0" />
+                      <span>{t.residenceCountry}: {student?.residenceCountry || '—'}</span>
                     </div>
-                    <div className="min-w-0 py-1">
-                      <p className="text-gray-500 text-xs font-medium">{t.saleAmount}</p>
-                      <p className="font-medium text-gray-900 mt-0.5">{app.saleAmount != null ? Number(app.saleAmount) : '—'} <span className="text-gray-600">{app.currency || 'USD'}</span></p>
+                  </div>
+                </div>
+
+                {/* Responsible/Agent card */}
+                {isAdminOrUser && (
+                  <div className="bg-white p-6 rounded-2xl shadow-sm border border-orange-100 hover:shadow-md transition-shadow">
+                    <div className="flex items-start gap-4 mb-4">
+                      <div className="bg-orange-50 p-4 rounded-xl text-orange-600 shrink-0">
+                        <UserIcon size={24} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-orange-400 text-xs font-bold uppercase tracking-wider mb-3">{t.hostAgent}</h3>
+                        <div className="space-y-3">
+                          <div>
+                            <p className="text-xs font-medium text-gray-500 mb-1">{t.agent}</p>
+                            {detailEditMode && onUpdateApplication ? (
+                              <select
+                                value={editFormAgentId}
+                                onChange={(e) => setEditFormAgentId(e.target.value)}
+                                className="w-full max-w-xs p-2.5 border border-gray-200 rounded-xl text-gray-800 font-medium focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                              >
+                                <option value="">{t.selectAgent}</option>
+                                {agentUsers.map(u => (
+                                  <option key={u.id} value={u.id}>{u.name} {u.email ? `(${u.email})` : ''}</option>
+                                ))}
+                              </select>
+                            ) : (
+                              <p className="text-lg font-bold text-gray-800 leading-tight">{getAgentName(app)}</p>
+                            )}
+                            {!detailEditMode && (app.agentPhone || (app.userId && users.find(u => u.id === app.userId)?.phone)) && (
+                              <p className="text-sm text-orange-600 font-mono mt-0.5">
+                                {app.agentCountryCode || (app.userId && users.find(u => u.id === app.userId)?.countryCode) || ''}{' '}
+                                {app.agentPhone || (app.userId && users.find(u => u.id === app.userId)?.phone)}
+                              </p>
+                            )}
+                          </div>
+                          <div>
+                            <p className="text-xs font-medium text-gray-500 mb-1">{t.responsible}</p>
+                            {detailEditMode && onUpdateApplication ? (
+                              <select
+                                value={editFormResponsibleId}
+                                onChange={(e) => setEditFormResponsibleId(e.target.value)}
+                                className="w-full max-w-xs p-2.5 border border-gray-200 rounded-xl text-gray-800 font-medium focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                              >
+                                <option value="">{t.selectResponsible}</option>
+                                {responsibleUsers.map(u => (
+                                  <option key={u.id} value={u.id}>{u.name}</option>
+                                ))}
+                              </select>
+                            ) : (
+                              <p className="text-lg font-bold text-gray-800 leading-tight">{app.responsibleName || '—'}</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                    <div className="min-w-0 py-1">
-                      <p className="text-gray-500 text-xs font-medium">{t.currency}</p>
-                      <p className="font-medium text-gray-900 mt-0.5">{app.currency || 'USD'}</p>
-                    </div>
-                    <div className="min-w-0 py-1">
-                      <p className="text-gray-500 text-xs font-medium">{t.profit}</p>
-                      <p className="font-medium text-gray-900 mt-0.5">
-                        {(app.saleAmount != null && (app.cost != null || app.commission != null))
-                          ? (Number(app.saleAmount) - (Number(app.cost) || 0) - (Number(app.commission) || 0))
-                          : '—'}
-                        <span className="ml-1 text-gray-600">{app.currency || 'USD'}</span>
-                      </p>
-                    </div>
-                  </>
+                  </div>
                 )}
-              </div>
-            </div>
-          )}
-        </div>
+              </>
+            ) : (
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                <div className="flex items-center gap-2 mb-4">
+                  <Paperclip size={18} className="text-gray-400" />
+                  <h4 className="font-bold text-gray-800 text-sm">{t.uploadFiles} ({detailFiles.length})</h4>
+                </div>
 
-        {/* 3. Main Body: Chat (Wider) and Sidebar */}
-        <div className="flex flex-col lg:flex-row gap-6">
-          {/* CHAT SECTION (70%) */}
-          <div className="flex-1 flex flex-col bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden h-[600px]">
+                {detailFiles.length > 0 ? (
+                  <div className="space-y-2 mb-4">
+                    {detailFiles.map((f, i) => (
+                      <div key={i} className="flex items-center gap-2 p-3 bg-gray-50 rounded-xl hover:bg-blue-50 transition-all group">
+                        <a
+                          href={f.url} target="_blank" rel="noreferrer"
+                          className="flex-1 flex items-center gap-3 min-w-0"
+                        >
+                          <div className="w-8 h-8 rounded-lg bg-white border border-gray-200 flex items-center justify-center text-gray-400 group-hover:text-blue-500 group-hover:border-blue-100 shrink-0">
+                            <FileText size={16} />
+                          </div>
+                          <div className="flex-1 min-w-0 pr-2 text-right">
+                            <p className="text-[11px] font-bold text-gray-700 truncate" dir="ltr">{f.name}</p>
+                            <span className="text-[9px] text-gray-400 uppercase">View File</span>
+                          </div>
+                        </a>
+                        {f.filename && (
+                          <button
+                            onClick={async (e) => {
+                              e.preventDefault();
+                              if (!window.confirm(t.confirmDelete)) return;
+                              try {
+                                const r = await fetch(`/api/applications/${selectedAppId}/files/${f.filename}`, { method: 'DELETE' });
+                                let delData: { message?: string; updatedAt?: string; studentId?: string; studentUpdatedAt?: string | null } = {};
+                                try { delData = await r.json(); } catch { /* empty body */ }
+                                if (r.ok) {
+                                  setDetailFiles(prev => prev.filter(file => file.filename !== f.filename));
+                                  if (delData.updatedAt && onSyncApplicationTimestamps) {
+                                    onSyncApplicationTimestamps({
+                                      applicationId: selectedAppId!,
+                                      applicationUpdatedAt: delData.updatedAt,
+                                      studentId: delData.studentId,
+                                      studentUpdatedAt: delData.studentUpdatedAt ?? undefined
+                                    });
+                                  }
+                                } else {
+                                  alert(delData.message || t.errorDelete);
+                                }
+                              } catch (err) {
+                                alert(t.errorConnection);
+                              }
+                            }}
+                            className="w-8 h-8 rounded-lg bg-red-50 border border-red-100 flex items-center justify-center text-red-500 hover:bg-red-500 hover:text-white transition-all shrink-0"
+                            title={t.delete}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-8 text-center border-2 border-dashed border-gray-100 rounded-2xl mb-4">
+                    <FileText className="mx-auto opacity-10 mb-2" size={32} />
+                    <p className="text-xs text-gray-400">{t.noAttachments}</p>
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <input
+                    type="file" id="attach-files-det" multiple accept=".pdf,.jpg,.jpeg,.png"
+                    className="hidden" onChange={e => setAttachFiles(e.target.files)}
+                  />
+                  <label
+                    htmlFor="attach-files-det"
+                    className="flex flex-col items-center justify-center border border-dashed border-gray-200 rounded-xl p-3 cursor-pointer hover:border-blue-300 hover:bg-blue-50/20 transition-all"
+                  >
+                    <span className="text-[11px] font-bold text-blue-600">
+                      {attachFiles && attachFiles.length > 0
+                        ? `${attachFiles.length} ${t.filesSelected}`
+                        : t.attachAdditionalFiles
+                      }
+                    </span>
+                  </label>
+                  <button
+                    onClick={async () => {
+                      if (!attachFiles || !selectedAppId) return;
+                      const fd = new FormData();
+                      Array.from(attachFiles as FileList).forEach(f => fd.append('files', f));
+                      if (currentUser?.id) fd.append('user_id', currentUser.id);
+                      try {
+                        const r = await fetch(`/api/applications/${selectedAppId}/files`, { method: 'POST', body: fd });
+                        const data = await r.json();
+                        if (r.ok) {
+                          setDetailFiles(data.files.map((x: any) => ({ url: x.url, name: x.name || x.url.split('/').pop(), filename: x.filename })));
+                          setAttachFiles(null);
+                          const inp = document.getElementById('attach-files-det') as HTMLInputElement;
+                          if (inp) inp.value = '';
+                          if (data.updatedAt && onSyncApplicationTimestamps) {
+                            onSyncApplicationTimestamps({
+                              applicationId: selectedAppId,
+                              applicationUpdatedAt: data.updatedAt,
+                              studentId: data.studentId,
+                              studentUpdatedAt: data.studentUpdatedAt ?? undefined
+                            });
+                          }
+                        } else { alert(data.message || t.uploadFailed); }
+                      } catch { alert(t.errorConnection); }
+                    }}
+                    disabled={!attachFiles}
+                    className="w-full py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-30 disabled:grayscale"
+                  >
+                    <span className="flex items-center justify-center gap-2"><Upload size={14} /> {t.uploadNow}</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Chat on right */}
+          <div className="lg:col-span-7 flex flex-col bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden h-[700px]">
             <div className="p-4 border-b border-gray-50 bg-gray-50/50 flex justify-between items-center">
               <div className="flex items-center gap-2">
                 <MessageSquare className="text-blue-600" size={20} />
@@ -1082,110 +1264,100 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
               </div>
             </div>
           </div>
+        </div>
 
-          {/* SIDEBAR: Files & Status Actions (30%) */}
-          <div className="w-full lg:w-[320px] space-y-6">
-            {/* 1. Files Area */}
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-              <div className="flex items-center gap-2 mb-4">
-                <Paperclip size={18} className="text-gray-400" />
-                <h4 className="font-bold text-gray-800 text-sm">{t.files}</h4>
-              </div>
-
-              {detailFiles.length > 0 ? (
-                <div className="space-y-2 mb-4">
-                  {detailFiles.map((f, i) => (
-                    <div key={i} className="flex items-center gap-2 p-3 bg-gray-50 rounded-xl hover:bg-blue-50 transition-all group">
-                      <a
-                        href={f.url} target="_blank" rel="noreferrer"
-                        className="flex-1 flex items-center gap-3 min-w-0"
-                      >
-                        <div className="w-8 h-8 rounded-lg bg-white border border-gray-200 flex items-center justify-center text-gray-400 group-hover:text-blue-500 group-hover:border-blue-100 shrink-0">
-                          <FileText size={16} />
-                        </div>
-                        <div className="flex-1 min-w-0 pr-2 text-right">
-                          <p className="text-[11px] font-bold text-gray-700 truncate" dir="ltr">{f.name}</p>
-                          <span className="text-[9px] text-gray-400 uppercase">View File</span>
-                        </div>
-                      </a>
-                      {f.filename && (
-                        <button
-                          onClick={async (e) => {
-                            e.preventDefault();
-                            if (!window.confirm(t.confirmDelete)) return;
-                            try {
-                              const r = await fetch(`/api/applications/${selectedAppId}/files/${f.filename}`, { method: 'DELETE' });
-                              if (r.ok) {
-                                setDetailFiles(prev => prev.filter(file => file.filename !== f.filename));
-                              } else {
-                                const data = await r.json();
-                                alert(data.message || t.errorDelete);
-                              }
-                            } catch (err) {
-                              alert(t.errorConnection);
-                            }
-                          }}
-                          className="w-8 h-8 rounded-lg bg-red-50 border border-red-100 flex items-center justify-center text-red-500 hover:bg-red-500 hover:text-white transition-all shrink-0"
-                          title={t.delete}
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
+        {/* 3. Financial block at bottom */}
+        {isAdmin && (
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
+            <h3 className="text-gray-500 text-xs font-bold uppercase tracking-wider mb-3">{t.cost} / {t.commission} / {t.saleAmount}</h3>
+            <div className="grid grid-cols-5 gap-4 text-sm w-full">
+              {detailEditMode ? (
+                <>
+                  <div className="min-w-0 flex flex-col gap-1">
+                    <label className="text-gray-500 text-xs font-medium">{t.cost}</label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={detailCost}
+                      onChange={(e) => setDetailCost(e.target.value)}
+                      className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                    />
+                  </div>
+                  <div className="min-w-0 flex flex-col gap-1">
+                    <label className="text-gray-500 text-xs font-medium">{t.commission}</label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={detailCommission}
+                      onChange={(e) => setDetailCommission(e.target.value)}
+                      className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                    />
+                  </div>
+                  <div className="min-w-0 flex flex-col gap-1">
+                    <label className="text-gray-500 text-xs font-medium">{t.saleAmount}</label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={detailSaleAmount}
+                      onChange={(e) => setDetailSaleAmount(e.target.value)}
+                      className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                    />
+                  </div>
+                  <div className="min-w-0 flex flex-col gap-1">
+                    <label className="text-gray-500 text-xs font-medium">{t.currency}</label>
+                    <select
+                      value={detailCurrency}
+                      onChange={(e) => setDetailCurrency(e.target.value)}
+                      className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium"
+                    >
+                      {APPLICATION_CURRENCIES.map(c => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="min-w-0 flex flex-col gap-1 justify-end">
+                    <span className="text-gray-500 text-xs font-medium">{t.profit}</span>
+                    <p className="font-medium text-gray-900 pt-2">
+                      {(app.saleAmount != null && (app.cost != null || app.commission != null))
+                        ? (Number(app.saleAmount) - (Number(app.cost) || 0) - (Number(app.commission) || 0))
+                        : '—'}
+                      <span className="ml-1 text-gray-600 text-sm">{app.currency || 'USD'}</span>
+                    </p>
+                  </div>
+                </>
               ) : (
-                <div className="py-8 text-center border-2 border-dashed border-gray-100 rounded-2xl mb-4">
-                  <FileText className="mx-auto opacity-10 mb-2" size={32} />
-                  <p className="text-xs text-gray-400">{t.noAttachments}</p>
-                </div>
+                <>
+                  <div className="min-w-0 py-1">
+                    <p className="text-gray-500 text-xs font-medium">{t.cost}</p>
+                    <p className="font-medium text-gray-900 mt-0.5">{app.cost != null ? Number(app.cost) : '—'} <span className="text-gray-600">{app.currency || 'USD'}</span></p>
+                  </div>
+                  <div className="min-w-0 py-1">
+                    <p className="text-gray-500 text-xs font-medium">{t.commission}</p>
+                    <p className="font-medium text-gray-900 mt-0.5">{app.commission != null ? Number(app.commission) : '—'} <span className="text-gray-600">{app.currency || 'USD'}</span></p>
+                  </div>
+                  <div className="min-w-0 py-1">
+                    <p className="text-gray-500 text-xs font-medium">{t.saleAmount}</p>
+                    <p className="font-medium text-gray-900 mt-0.5">{app.saleAmount != null ? Number(app.saleAmount) : '—'} <span className="text-gray-600">{app.currency || 'USD'}</span></p>
+                  </div>
+                  <div className="min-w-0 py-1">
+                    <p className="text-gray-500 text-xs font-medium">{t.currency}</p>
+                    <p className="font-medium text-gray-900 mt-0.5">{app.currency || 'USD'}</p>
+                  </div>
+                  <div className="min-w-0 py-1">
+                    <p className="text-gray-500 text-xs font-medium">{t.profit}</p>
+                    <p className="font-medium text-gray-900 mt-0.5">
+                      {(app.saleAmount != null && (app.cost != null || app.commission != null))
+                        ? (Number(app.saleAmount) - (Number(app.cost) || 0) - (Number(app.commission) || 0))
+                        : '—'}
+                      <span className="ml-1 text-gray-600">{app.currency || 'USD'}</span>
+                    </p>
+                  </div>
+                </>
               )}
-
-              {/* Upload Subsection */}
-              <div className="space-y-2">
-                <input
-                  type="file" id="attach-files-det" multiple accept=".pdf,.jpg,.jpeg,.png"
-                  className="hidden" onChange={e => setAttachFiles(e.target.files)}
-                />
-                <label
-                  htmlFor="attach-files-det"
-                  className="flex flex-col items-center justify-center border border-dashed border-gray-200 rounded-xl p-3 cursor-pointer hover:border-blue-300 hover:bg-blue-50/20 transition-all"
-                >
-                  <span className="text-[11px] font-bold text-blue-600">
-                    {attachFiles && attachFiles.length > 0
-                      ? `${attachFiles.length} ${t.filesSelected}`
-                      : t.attachAdditionalFiles
-                    }
-                  </span>
-                </label>
-                <button
-                  onClick={async () => {
-                    if (!attachFiles || !selectedAppId) return;
-                    const fd = new FormData();
-                    Array.from(attachFiles as FileList).forEach(f => fd.append('files', f));
-                    try {
-                      const r = await fetch(`/api/applications/${selectedAppId}/files`, { method: 'POST', body: fd });
-                      const data = await r.json();
-                      if (r.ok) {
-                        setDetailFiles(data.files.map((x: any) => ({ url: x.url, name: x.name || x.url.split('/').pop(), filename: x.filename })));
-                        setAttachFiles(null);
-                        const inp = document.getElementById('attach-files-det') as HTMLInputElement;
-                        if (inp) inp.value = '';
-                      } else { alert(data.message || t.uploadFailed); }
-                    } catch { alert(t.errorConnection); }
-                  }}
-                  disabled={!attachFiles}
-                  className="w-full py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-30 disabled:grayscale"
-                >
-                  <span className="flex items-center justify-center gap-2"><Upload size={14} /> {t.uploadNow}</span>
-                </button>
-              </div>
             </div>
-
-            {/* Sidebar reserved for files and chat summary if needed */}
-          </div >
-        </div >
-      </div >
+          </div>
+        )}
+      </div>
     );
   };
 
@@ -1220,10 +1392,10 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                   <Filter size={18} className="text-purple-500" />
                   <span className="text-sm font-medium">{t.filter}</span>
                 </div>
-                {(searchApplicationNumber || searchStudentName || filterAgents.length > 0 || filterUniversities.length > 0 || filterStatuses.length > 0 || filterDegrees.length > 0) && (
+                {(searchApplicationNumber || searchStudentName || filterAgents.length > 0 || filterUniversities.length > 0 || filterStatuses.length > 0 || filterDegrees.length > 0 || filterAppCreatedFrom || filterAppCreatedTo) && (
                   <button
                     type="button"
-                    onClick={() => { setSearchApplicationNumber(''); setSearchStudentName(''); setFilterAgents([]); setFilterUniversities([]); setFilterStatuses([]); setFilterDegrees([]); }}
+                    onClick={() => { setSearchApplicationNumber(''); setSearchStudentName(''); setFilterAgents([]); setFilterUniversities([]); setFilterStatuses([]); setFilterDegrees([]); setFilterAppCreatedFrom(''); setFilterAppCreatedTo(''); }}
                     className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors"
                   >
                     <X size={14} />
@@ -1232,6 +1404,31 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                 )}
               </div>
               <div className="flex rounded-lg border border-gray-200 p-0.5 bg-gray-50">
+                <div className="relative mr-2" ref={columnsRef}>
+                  <button
+                    type="button"
+                    onClick={() => setColumnsOpen(prev => !prev)}
+                    className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors rounded-md text-gray-600 hover:bg-gray-100"
+                  >
+                    <Filter size={16} />
+                    <span className="hidden sm:inline">{t.columns}</span>
+                  </button>
+                  {columnsOpen && (
+                    <div className="absolute right-0 mt-2 w-56 bg-white border border-gray-200 rounded-xl shadow-lg p-2 z-30">
+                      {applicationColumnOptions.filter(col => isAdminOrUser || col.key !== 'responsible').map(col => (
+                        <label key={col.key} className="flex items-center gap-2 px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-50 rounded-md cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={visibleTreeColumns.includes(col.key)}
+                            onChange={() => toggleTreeColumn(col.key)}
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span>{col.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <button
                   type="button"
                   onClick={() => setListViewMode('tree')}
@@ -1306,67 +1503,171 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                 searchPlaceholder={t.search}
               />
             </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full mt-3">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">{t.filterCreatedFrom}</label>
+                <input
+                  type="date"
+                  value={filterAppCreatedFrom}
+                  onChange={e => setFilterAppCreatedFrom(e.target.value)}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">{t.filterCreatedTo}</label>
+                <input
+                  type="date"
+                  value={filterAppCreatedTo}
+                  onChange={e => setFilterAppCreatedTo(e.target.value)}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                />
+              </div>
+            </div>
           </div>
 
           {listViewMode === 'tree' && (
             <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden mt-4 overflow-x-auto">
+              <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-end gap-2 text-sm text-gray-600">
+                <span>{treeFrom}-{treeTo} / {sortedApplications.length}</span>
+                <button
+                  type="button"
+                  onClick={() => setTreePage(p => Math.max(1, p - 1))}
+                  disabled={treePage <= 1}
+                  className="inline-flex items-center justify-center w-8 h-8 rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTreePage(p => Math.min(totalTreePages, p + 1))}
+                  disabled={treePage >= totalTreePages}
+                  className="inline-flex items-center justify-center w-8 h-8 rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
               <table className="w-full text-right text-sm">
                 <thead style={{ fontWeight: 700 }} className="bg-gray-50/50 text-gray-900 border-b border-gray-100">
                   <tr>
-                    <SortTh colKey="number" label={t.number} />
-                    <SortTh colKey="agent" label={t.agent} />
-                    <SortTh colKey="student" label={t.studentInfo} />
-                    <SortTh colKey="program" label={t.programsTitle} />
-                    <SortTh colKey="createdAt" label={t.createdAt} />
-                    <SortTh colKey="status" label={t.applicationStatus} className="text-center" />
+                    {visibleTreeColumns.includes('number') && <SortTh colKey="number" label={t.number} />}
+                    {visibleTreeColumns.includes('status') && <SortTh colKey="status" label={t.applicationStatus} className="text-center" />}
+                    {visibleTreeColumns.includes('agent') && <SortTh colKey="agent" label={t.agent} />}
+                    {isAdminOrUser && visibleTreeColumns.includes('responsible') && <SortTh colKey="responsible" label={t.responsible} />}
+                    {visibleTreeColumns.includes('student') && <SortTh colKey="student" label={t.studentInfo} />}
+                    {visibleTreeColumns.includes('program') && <SortTh colKey="program" label={t.program} />}
+                    {visibleTreeColumns.includes('createdAt') && <SortTh colKey="createdAt" label={t.createdAt} />}
+                    {visibleTreeColumns.includes('updatedAt') && <SortTh colKey="updatedAt" label={t.lastUpdatedAt} />}
                     <th className="px-6 py-5"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {sortedApplications.map((app) => {
+                  {pagedApplications.map((app) => {
                     const s = getStudent(app.studentId);
                     const p = getProgram(app.programId);
+                    const uni = p ? getUni(p.universityId) : null;
+                    const period = getPeriod(app.periodId || p?.periodId);
+                    const isExpanded = expandedAppIds.has(app.id);
+                    const treeColSpan =
+                      (visibleTreeColumns.includes('number') ? 1 : 0) +
+                      (visibleTreeColumns.includes('status') ? 1 : 0) +
+                      (visibleTreeColumns.includes('agent') ? 1 : 0) +
+                      (isAdminOrUser && visibleTreeColumns.includes('responsible') ? 1 : 0) +
+                      (visibleTreeColumns.includes('student') ? 1 : 0) +
+                      (visibleTreeColumns.includes('program') ? 1 : 0) +
+                      (visibleTreeColumns.includes('createdAt') ? 1 : 0) +
+                      (visibleTreeColumns.includes('updatedAt') ? 1 : 0) +
+                      1; // expand toggle column
                     return (
-                      <tr
-                        key={app.id}
-                        className="hover:bg-blue-50/30 cursor-pointer transition-colors group"
-                        onClick={() => { setSelectedAppId(app.id); setView('detail'); }}
-                      >
-                        <td className="px-6 py-4">
-                          <span className="font-mono font-bold text-gray-900 group-hover:text-blue-600 transition-colors">#{app.id}</span>
-                        </td>
-                        <td className="px-6 py-4 text-gray-900">{getAgentName(app)}</td>
-                        <td className="px-6 py-4 font-bold text-gray-900">{s?.firstName} {s?.lastName}</td>
-                        <td className="px-6 py-4">
-                          <div>
-                            <span className="font-bold text-gray-900">{p?.name}</span>
-                            {(getPeriod(app.periodId || p?.periodId)?.name) && (
-                              <span className="text-gray-900 text-xs block mt-0.5">{getPeriod(app.periodId || p?.periodId)?.name}</span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-gray-900 font-medium">
-                          {app.createdAt ? new Date(app.createdAt).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex justify-center">
-                            <span className={`px-4 py-1.5 rounded-full text-xs font-bold ring-1
-                              ${app.status === ApplicationStatus.ACCEPTED ? 'bg-green-50 text-green-700 ring-green-100' :
-                                app.status === ApplicationStatus.REJECTED ? 'bg-red-50 text-red-700 ring-red-100' :
-                                  app.status === ApplicationStatus.MISSING_DOCS ? 'bg-orange-50 text-orange-700 ring-orange-100' :
-                                    app.status === ApplicationStatus.DRAFT ? 'bg-gray-50 text-gray-700 ring-gray-200' :
-                                      'bg-blue-50 text-blue-700 ring-blue-100'}`}>
-                              {translateStatus(app.status)}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-left">
-                          <div className="w-10 h-10 rounded-xl bg-gray-50 flex items-center justify-center text-gray-400 group-hover:bg-blue-600 group-hover:text-white transition-all">
-                            <ArrowRight size={18} />
-                          </div>
-                        </td>
-                      </tr>
-                    )
+                      <React.Fragment key={app.id}>
+                        <tr
+                          className="hover:bg-blue-50/30 cursor-pointer transition-colors group"
+                          onClick={() => { setSelectedAppId(app.id); setView('detail'); }}
+                        >
+                          {visibleTreeColumns.includes('number') && (
+                            <td className="px-6 py-4">
+                              <span className="font-mono font-bold text-gray-900 group-hover:text-blue-600 transition-colors">#{app.id}</span>
+                            </td>
+                          )}
+                          {visibleTreeColumns.includes('status') && (
+                            <td className="px-6 py-4">
+                              <div className="flex justify-center">
+                                <span className={`px-4 py-1.5 rounded-full text-xs font-bold ring-1
+                                  ${app.status === ApplicationStatus.ACCEPTED ? 'bg-green-50 text-green-700 ring-green-100' :
+                                    app.status === ApplicationStatus.REJECTED ? 'bg-red-50 text-red-700 ring-red-100' :
+                                      app.status === ApplicationStatus.MISSING_DOCS ? 'bg-orange-50 text-orange-700 ring-orange-100' :
+                                        app.status === ApplicationStatus.DRAFT ? 'bg-gray-50 text-gray-700 ring-gray-200' :
+                                          'bg-blue-50 text-blue-700 ring-blue-100'}`}>
+                                  {translateStatus(app.status)}
+                                </span>
+                              </div>
+                            </td>
+                          )}
+                          {visibleTreeColumns.includes('agent') && <td className="px-6 py-4 text-gray-900">{getAgentName(app)}</td>}
+                          {isAdminOrUser && visibleTreeColumns.includes('responsible') && (
+                            <td className="px-6 py-4 text-gray-900">{getResponsibleLabel(app)}</td>
+                          )}
+                          {visibleTreeColumns.includes('student') && <td className="px-6 py-4 font-bold text-gray-900">{s?.firstName} {s?.lastName}</td>}
+                          {visibleTreeColumns.includes('program') && (
+                            <td className="px-6 py-4">
+                              <span className="font-bold text-gray-900">{p?.name || '—'}</span>
+                            </td>
+                          )}
+                          {visibleTreeColumns.includes('createdAt') && (
+                            <td className="px-6 py-4 text-gray-900 font-medium">
+                              {app.createdAt ? new Date(app.createdAt).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+                            </td>
+                          )}
+                          {visibleTreeColumns.includes('updatedAt') && (
+                            <td className="px-6 py-4 text-gray-900 font-medium">
+                              {(app.updatedAt || app.createdAt) ? new Date(app.updatedAt || app.createdAt).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+                            </td>
+                          )}
+                          <td className="px-6 py-4 text-left" onClick={e => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setExpandedAppIds(prev => {
+                                  const next = new Set(prev);
+                                  if (next.has(app.id)) next.delete(app.id);
+                                  else next.add(app.id);
+                                  return next;
+                                });
+                              }}
+                              className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all border ${isExpanded ? 'bg-blue-600 text-white border-blue-600' : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100'}`}
+                              aria-expanded={isExpanded}
+                            >
+                              <ChevronDown size={18} className={`transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
+                            </button>
+                          </td>
+                        </tr>
+                        {isExpanded && (
+                          <tr className="bg-slate-50/90 border-b border-gray-100">
+                            <td colSpan={treeColSpan} className="px-6 py-4 text-left align-top">
+                              <div
+                                dir="ltr"
+                                className="grid grid-cols-1 sm:grid-cols-3 gap-6 sm:gap-8 text-sm text-gray-700 w-full justify-items-start"
+                              >
+                                <div className="text-left min-w-0">
+                                  <span className="block text-xs font-semibold text-gray-500 mb-1">{t.universityName}</span>
+                                  <span className="font-medium text-gray-900 break-words">{uni?.name || '—'}</span>
+                                </div>
+                                <div className="text-left min-w-0">
+                                  <span className="block text-xs font-semibold text-gray-500 mb-1">{t.period}</span>
+                                  <span className="font-medium text-gray-900 break-words">{period?.name || '—'}</span>
+                                </div>
+                                <div className="text-left min-w-0">
+                                  <span className="block text-xs font-semibold text-gray-500 mb-1">{t.program}</span>
+                                  <span className="font-medium text-gray-900 break-words">{p?.name || '—'}</span>
+                                  {p?.degree && (
+                                    <span className="block text-xs text-gray-500 mt-1">{translateDegree(p.degree)}</span>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
                   })}
                 </tbody>
               </table>
@@ -1380,42 +1681,72 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
           )}
 
           {listViewMode === 'kanban' && (
-            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {sortedApplications.length === 0 ? (
-                <div className="col-span-full py-20 text-center">
-                  <FileText size={48} className="mx-auto text-gray-100 mb-4" />
-                  <p className="text-gray-400 font-medium">{t.noApplicationsInSystem}</p>
-                </div>
-              ) : (
-                sortedApplications.map((app) => {
-                  const s = getStudent(app.studentId);
-                  const p = getProgram(app.programId);
-                  return (
-                    <button
-                      key={app.id}
-                      type="button"
-                      onClick={() => { setSelectedAppId(app.id); setView('detail'); }}
-                      className="w-full text-left p-4 bg-white rounded-xl shadow-sm border border-gray-100 hover:shadow-md hover:border-blue-200 transition-all"
-                    >
-                      <p className="font-bold text-gray-800 text-sm truncate">{s?.firstName} {s?.lastName}</p>
-                      <p className="text-xs text-gray-500 truncate mt-0.5">{p?.name}</p>
-                      {getPeriod(app.periodId || p?.periodId)?.name && (
-                        <p className="text-[10px] text-gray-400">{getPeriod(app.periodId || p?.periodId)?.name}</p>
-                      )}
-                      <p className="text-[10px] text-gray-400 mt-2">{new Date(app.createdAt).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' })}</p>
-                      <span className={`inline-block mt-2 px-2 py-0.5 rounded-full text-[10px] font-medium
-                        ${app.status === ApplicationStatus.ACCEPTED ? 'bg-green-50 text-green-700' :
-                          app.status === ApplicationStatus.REJECTED ? 'bg-red-50 text-red-700' :
-                            app.status === ApplicationStatus.MISSING_DOCS ? 'bg-orange-50 text-orange-700' :
-                              app.status === ApplicationStatus.DRAFT ? 'bg-gray-100 text-gray-600' :
-                                'bg-blue-50 text-blue-700'}`}>
-                        {translateStatus(app.status)}
-                      </span>
-                    </button>
-                  );
-                })
-              )}
-            </div>
+            <>
+              <div className="mt-2 mb-3 flex items-center justify-end gap-2 text-sm text-gray-600">
+                <span>{kanbanFrom}-{kanbanTo} / {sortedApplications.length}</span>
+                <button
+                  type="button"
+                  onClick={() => setKanbanPage(p => Math.max(1, p - 1))}
+                  disabled={kanbanPage <= 1}
+                  className="inline-flex items-center justify-center w-8 h-8 rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setKanbanPage(p => Math.min(totalKanbanPages, p + 1))}
+                  disabled={kanbanPage >= totalKanbanPages}
+                  className="inline-flex items-center justify-center w-8 h-8 rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {sortedApplications.length === 0 ? (
+                  <div className="col-span-full py-20 text-center">
+                    <FileText size={48} className="mx-auto text-gray-100 mb-4" />
+                    <p className="text-gray-400 font-medium">{t.noApplicationsInSystem}</p>
+                  </div>
+                ) : (
+                  pagedKanbanApplications.map((app) => {
+                    const s = getStudent(app.studentId);
+                    const p = getProgram(app.programId);
+                    return (
+                      <button
+                        key={app.id}
+                        type="button"
+                        onClick={() => { setSelectedAppId(app.id); setView('detail'); }}
+                        className="w-full text-left p-4 bg-white rounded-xl shadow-sm border border-gray-100 hover:shadow-md hover:border-blue-200 transition-all"
+                      >
+                        <p className="font-bold text-gray-800 text-sm truncate">{s?.firstName} {s?.lastName}</p>
+                        <p className="text-xs text-gray-500 truncate mt-0.5">{p?.name}</p>
+                        {isAdminOrUser && (
+                          <p className="text-[10px] text-gray-500 mt-1 truncate">
+                            <span className="font-semibold text-gray-600">{t.responsible}:</span> {getResponsibleLabel(app)}
+                          </p>
+                        )}
+                        {getPeriod(app.periodId || p?.periodId)?.name && (
+                          <p className="text-[10px] text-gray-400">{getPeriod(app.periodId || p?.periodId)?.name}</p>
+                        )}
+                        <p className="text-[10px] text-gray-400 mt-2">
+                          {t.createdAt}: {app.createdAt ? new Date(app.createdAt).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+                          <br />
+                          {t.lastUpdatedAt}: {(app.updatedAt || app.createdAt) ? new Date(app.updatedAt || app.createdAt).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+                        </p>
+                        <span className={`inline-block mt-2 px-2 py-0.5 rounded-full text-[10px] font-medium
+                          ${app.status === ApplicationStatus.ACCEPTED ? 'bg-green-50 text-green-700' :
+                            app.status === ApplicationStatus.REJECTED ? 'bg-red-50 text-red-700' :
+                              app.status === ApplicationStatus.MISSING_DOCS ? 'bg-orange-50 text-orange-700' :
+                                app.status === ApplicationStatus.DRAFT ? 'bg-gray-100 text-gray-600' :
+                                  'bg-blue-50 text-blue-700'}`}>
+                          {translateStatus(app.status)}
+                        </span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </>
           )}
         </div>
       )}

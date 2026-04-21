@@ -62,6 +62,8 @@ export interface Program {
   currency?: string;
   country?: string;
   description?: string;
+  /** Program intake / listing availability (false = closed) */
+  isOpen?: boolean;
 }
 
 export interface Student {
@@ -80,6 +82,7 @@ export interface Student {
   residenceCountry: string;
   userId?: string; // Agent who owns this student (for ADMIN/USER display)
   createdAt?: string;
+  updatedAt?: string;
 }
 
 export enum ApplicationStatus {
@@ -98,6 +101,7 @@ export interface Application {
   status: ApplicationStatus;
   semester: string;
   createdAt: string;
+  updatedAt?: string;
   files: string[]; // URLs or fake paths
   userId?: string;
   agentPhone?: string;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, Suspense, lazy } from 'react';
+import React, { useState, useEffect, useCallback, Suspense, lazy } from 'react';
 import { Layout } from './components/Layout';
 import { useTranslation } from './hooks/useTranslation';
 import { Dashboard } from './components/Dashboard';
@@ -77,6 +77,7 @@ export default function App() {
   const [activePage, setActivePage] = useState('dashboard');
   const [prefillStudentIdForApp, setPrefillStudentIdForApp] = useState<string | null>(null);
   const [targetApplicationId, setTargetApplicationId] = useState<string | null>(null);
+  const [targetStudentId, setTargetStudentId] = useState<string | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
 
   const navigateTo = (page: string) => {
@@ -162,6 +163,11 @@ export default function App() {
   const openApplicationDetails = (appId: string) => {
     setTargetApplicationId(appId);
     navigateTo('applications');
+  };
+
+  const openStudentDetails = (studentId: string) => {
+    setTargetStudentId(studentId);
+    navigateTo('students');
   };
 
   // State Updates
@@ -294,7 +300,8 @@ export default function App() {
           ...stud,
           id: data.id,
           userId: userIdToSend || undefined,
-          ...(data.createdAt && { createdAt: data.createdAt })
+          ...(data.createdAt && { createdAt: data.createdAt }),
+          ...(data.updatedAt && { updatedAt: data.updatedAt })
         };
         setState(prev => ({ ...prev, students: [...prev.students, newStudent] }));
         return data.id;
@@ -307,7 +314,7 @@ export default function App() {
     return null;
   };
 
-  const updateStudent = async (student: Student) => {
+  const updateStudent = async (student: Student): Promise<Student | undefined> => {
     try {
       const res = await fetch(`/api/students/${student.id}`, {
         method: 'PUT',
@@ -316,16 +323,19 @@ export default function App() {
       });
       const data = await res.json();
       if (res.ok) {
+        const merged: Student = { ...student, ...(data.updatedAt ? { updatedAt: data.updatedAt } : {}) };
         setState(prev => ({
           ...prev,
-          students: prev.students.map(s => s.id === student.id ? student : s)
+          students: prev.students.map(s => s.id === student.id ? merged : s)
         }));
+        return merged;
       } else {
         alert(data.message || 'Failed to update student');
       }
     } catch (err) {
       alert('Connection error');
     }
+    return undefined;
   };
 
   const addApplication = async (app: Application, files?: FileList | null): Promise<string | null> => {
@@ -362,6 +372,7 @@ export default function App() {
           id: data.id,
           files: savedFiles,
           createdAt: data.createdAt != null ? data.createdAt : app.createdAt,
+          updatedAt: data.updatedAt != null ? data.updatedAt : (data.createdAt != null ? data.createdAt : app.createdAt),
           ...(agentId && { userId: agentId }),
           ...(agentUser && {
             agentName: agentUser.name,
@@ -376,7 +387,10 @@ export default function App() {
         };
         setState(prev => ({
           ...prev,
-          applications: [...prev.applications, newApp]
+          applications: [...prev.applications, newApp],
+          students: data.studentId && data.studentUpdatedAt
+            ? prev.students.map(s => s.id === data.studentId ? { ...s, updatedAt: data.studentUpdatedAt } : s)
+            : prev.students
         }));
         return data.id;
       }
@@ -399,7 +413,10 @@ export default function App() {
       if (res.ok) {
         setState(prev => ({
           ...prev,
-          applications: prev.applications.map(a => a.id === id ? { ...a, status } : a)
+          applications: prev.applications.map(a => a.id === id ? { ...a, status, ...(data.updatedAt ? { updatedAt: data.updatedAt } : {}) } : a),
+          students: data.studentId && data.studentUpdatedAt
+            ? prev.students.map(s => s.id === data.studentId ? { ...s, updatedAt: data.studentUpdatedAt } : s)
+            : prev.students
         }));
       } else {
         alert(data.message || 'فشل تحديث الحالة');
@@ -435,8 +452,12 @@ export default function App() {
             ...(payload.cost !== undefined && { cost: payload.cost ?? undefined }),
             ...(payload.commission !== undefined && { commission: payload.commission ?? undefined }),
             ...(payload.saleAmount !== undefined && { saleAmount: payload.saleAmount ?? undefined }),
-            ...(payload.currency !== undefined && { currency: payload.currency })
-          } : a)
+            ...(payload.currency !== undefined && { currency: payload.currency }),
+            ...(data.updatedAt ? { updatedAt: data.updatedAt } : {})
+          } : a),
+          students: data.studentId && data.studentUpdatedAt
+            ? prev.students.map(s => s.id === data.studentId ? { ...s, updatedAt: data.studentUpdatedAt } : s)
+            : prev.students
         }));
       } else {
         alert(data.message || 'Update failed');
@@ -445,6 +466,23 @@ export default function App() {
       alert('Connection error');
     }
   };
+
+  const onSyncApplicationTimestamps = useCallback((payload: {
+    applicationId: string;
+    applicationUpdatedAt: string;
+    studentId?: string;
+    studentUpdatedAt?: string | null;
+  }) => {
+    setState(prev => ({
+      ...prev,
+      applications: prev.applications.map(a =>
+        a.id === payload.applicationId ? { ...a, updatedAt: payload.applicationUpdatedAt } : a
+      ),
+      students: payload.studentId && payload.studentUpdatedAt
+        ? prev.students.map(s => s.id === payload.studentId ? { ...s, updatedAt: payload.studentUpdatedAt as string } : s)
+        : prev.students
+    }));
+  }, []);
 
   const addPeriod = async (period: Omit<Period, 'id'>) => {
     try {
@@ -644,6 +682,8 @@ export default function App() {
             applications={state.applications}
             programs={state.programs}
             universitiesCount={state.universities.length}
+            onOpenApplication={openApplicationDetails}
+            onOpenStudent={openStudentDetails}
           />
         );
       case 'universities':
@@ -651,9 +691,9 @@ export default function App() {
       case 'programs':
         return <ProgramManager programs={state.programs} universities={state.universities} periods={state.periods} onAddProgram={addProgram} onEditProgram={editProgram} onDeleteProgram={deleteProgram} currentUser={state.currentUser} />;
       case 'students':
-        return <StudentManager students={state.students} applications={state.applications} programs={state.programs} universities={state.universities} users={state.users} onAddStudent={addStudent} onEditStudent={updateStudent} onCreateApplicationForStudent={openCreateApplicationForStudent} onViewApplication={openApplicationDetails} currentUser={state.currentUser} />;
+        return <StudentManager students={state.students} applications={state.applications} programs={state.programs} universities={state.universities} periods={state.periods} users={state.users} onAddStudent={addStudent} onEditStudent={updateStudent} onCreateApplicationForStudent={openCreateApplicationForStudent} onAddApplicationForStudent={(app) => addApplication(app)} onViewApplication={openApplicationDetails} currentUser={state.currentUser} targetStudentId={targetStudentId} clearTargetStudent={() => setTargetStudentId(null)} />;
       case 'applications':
-        return <ApplicationManager applications={state.applications} students={state.students} programs={state.programs} universities={state.universities} periods={state.periods} users={state.users} onAddApplication={addApplication} onUpdateStatus={updateAppStatus} onUpdateApplication={updateApplication} initialStudentId={prefillStudentIdForApp} clearInitialStudent={() => setPrefillStudentIdForApp(null)} targetApplicationId={targetApplicationId} clearTargetApplication={() => setTargetApplicationId(null)} currentUser={state.currentUser} />;
+        return <ApplicationManager applications={state.applications} students={state.students} programs={state.programs} universities={state.universities} periods={state.periods} users={state.users} onAddApplication={addApplication} onUpdateStatus={updateAppStatus} onUpdateApplication={updateApplication} onSyncApplicationTimestamps={onSyncApplicationTimestamps} initialStudentId={prefillStudentIdForApp} clearInitialStudent={() => setPrefillStudentIdForApp(null)} targetApplicationId={targetApplicationId} clearTargetApplication={() => setTargetApplicationId(null)} currentUser={state.currentUser} />;
       case 'applications-dashboard':
         return (
           <ApplicationsDashboard
@@ -678,6 +718,8 @@ export default function App() {
               applications={state.applications}
               programs={state.programs}
               universitiesCount={state.universities.length}
+              onOpenApplication={openApplicationDetails}
+              onOpenStudent={openStudentDetails}
             />
           );
         }
@@ -717,6 +759,8 @@ export default function App() {
               applications={state.applications}
               programs={state.programs}
               universitiesCount={state.universities.length}
+              onOpenApplication={openApplicationDetails}
+              onOpenStudent={openStudentDetails}
             />
           );
         }
@@ -737,6 +781,8 @@ export default function App() {
             applications={state.applications}
             programs={state.programs}
             universitiesCount={state.universities.length}
+            onOpenApplication={openApplicationDetails}
+            onOpenStudent={openStudentDetails}
           />
         );
     }

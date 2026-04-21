@@ -82,6 +82,13 @@ if __name__ == '__main__':
                         conn.commit()
                     except Exception:
                         pass
+            try:
+                prog_cols_open = [c['name'] for c in inspector.get_columns('programs')]
+                if 'is_open' not in prog_cols_open:
+                    conn.execute(text('ALTER TABLE programs ADD COLUMN is_open BOOLEAN NOT NULL DEFAULT TRUE'))
+                    conn.commit()
+            except Exception as e:
+                print('programs is_open column check:', e)
             # Ensure periods table has active column (add only if missing; never drop data)
             try:
                 if 'periods' in inspector.get_table_names():
@@ -116,6 +123,33 @@ if __name__ == '__main__':
                         conn.commit()
             except Exception as e:
                 print('Students created_at column check:', e)
+            # students.updated_at, applications.updated_at
+            try:
+                if 'students' in inspector.get_table_names():
+                    sc = [c['name'] for c in inspector.get_columns('students')]
+                    if 'updated_at' not in sc:
+                        conn.execute(text('ALTER TABLE students ADD COLUMN updated_at VARCHAR'))
+                        conn.commit()
+                    try:
+                        conn.execute(text('UPDATE students SET updated_at = created_at WHERE updated_at IS NULL AND created_at IS NOT NULL'))
+                        conn.commit()
+                    except Exception:
+                        pass
+            except Exception as e:
+                print('Students updated_at column check:', e)
+            try:
+                if 'applications' in inspector.get_table_names():
+                    ac = [c['name'] for c in inspector.get_columns('applications')]
+                    if 'updated_at' not in ac:
+                        conn.execute(text('ALTER TABLE applications ADD COLUMN updated_at VARCHAR'))
+                        conn.commit()
+                    try:
+                        conn.execute(text('UPDATE applications SET updated_at = created_at WHERE updated_at IS NULL OR updated_at = \'\''))
+                        conn.commit()
+                    except Exception:
+                        pass
+            except Exception as e:
+                print('Applications updated_at column check:', e)
             # Ensure application_messages has sender_user_id (who sent the message)
             try:
                 if 'application_messages' in inspector.get_table_names():

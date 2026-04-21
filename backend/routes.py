@@ -11,6 +11,44 @@ api_bp = Blueprint('api', __name__)
 # Uploads at project root: student_system/uploads (when backend is in student_system/backend)
 UPLOADS_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'uploads'))
 
+
+def _iso_timestamp():
+    return datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+
+
+def _normalize_ts_z(ts):
+    """Normalize stored ISO-ish string to API format ending with Z."""
+    if not ts:
+        return None
+    if isinstance(ts, str) and ts.endswith('Z'):
+        return ts
+    if isinstance(ts, str) and 'T' in ts:
+        return ts + 'Z' if not ts.endswith('Z') else ts
+    if isinstance(ts, str):
+        return ts + 'T00:00:00.000Z'
+    return ts
+
+
+def _application_updated_at_for_api(application):
+    raw = getattr(application, 'updated_at', None) or application.created_at
+    return _normalize_ts_z(raw) or _iso_timestamp()
+
+
+def _student_updated_at_for_api(student):
+    raw = getattr(student, 'updated_at', None) or getattr(student, 'created_at', None)
+    return _normalize_ts_z(raw)
+
+
+def _touch_application_and_student(application):
+    """Bump application.updated_at and the parent student's updated_at."""
+    if not application:
+        return
+    now = _iso_timestamp()
+    application.updated_at = now
+    st = Student.query.get(application.student_id)
+    if st:
+        st.updated_at = now
+
 # إضافة مستخدم جديد (خاص بالمسؤول)
 @api_bp.route('/users', methods=['POST'])
 def add_user():
@@ -176,7 +214,8 @@ def get_students():
         'dob': s.dob,
         'residenceCountry': s.residence_country,
         'userId': getattr(s, 'user_id', None),
-        'createdAt': getattr(s, 'created_at', None)
+        'createdAt': getattr(s, 'created_at', None),
+        'updatedAt': _student_updated_at_for_api(s) or _normalize_ts_z(getattr(s, 'created_at', None))
     } for s in students])
 
 @api_bp.route('/students', methods=['POST'])
@@ -186,7 +225,7 @@ def add_student():
     user_id = data.get('user_id')
     if user_role == 'agent' and not user_id:
         return jsonify({'message': 'Agent user_id required'}), 400
-    created_at = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+    created_at = _iso_timestamp()
     student = Student(
         id=str(uuid.uuid4()),
         first_name=data['firstName'],
@@ -195,14 +234,15 @@ def add_student():
         father_name=data['fatherName'],
         mother_name=data['motherName'],
         gender=data['gender'],
-        phone=data['phone'],
-        email=data['email'],
+        phone=data.get('phone') or '',
+        email=data.get('email') or '',
         nationality=data['nationality'],
         degree_target=data['degreeTarget'],
         dob=data['dob'],
         residence_country=data['residenceCountry'],
         user_id=user_id,
-        created_at=created_at
+        created_at=created_at,
+        updated_at=created_at
     )
     db.session.add(student)
     db.session.commit()
@@ -223,7 +263,7 @@ def add_student():
                 db.session.add(n)
             db.session.commit()
     print(f"Created student {student.id} user_id={user_id}")
-    return jsonify({'message': 'Student added', 'id': student.id, 'createdAt': created_at}), 201
+    return jsonify({'message': 'Student added', 'id': student.id, 'createdAt': created_at, 'updatedAt': created_at}), 201
 
 
 @api_bp.route('/students/<student_id>', methods=['PUT'])
@@ -244,8 +284,9 @@ def update_student(student_id):
     student.degree_target = data.get('degreeTarget', student.degree_target)
     student.dob = data.get('dob', student.dob)
     student.residence_country = data.get('residenceCountry', student.residence_country)
+    student.updated_at = _iso_timestamp()
     db.session.commit()
-    return jsonify({'message': 'Student updated'})
+    return jsonify({'message': 'Student updated', 'updatedAt': student.updated_at})
 
 
 # Universities
@@ -302,7 +343,8 @@ def get_programs():
         'cashPrice': getattr(p, 'cash_price', None),
         'currency': getattr(p, 'currency', 'USD'),
         'country': getattr(p, 'country', None),
-        'description': p.description
+        'description': p.description,
+        'isOpen': bool(getattr(p, 'is_open', True))
     } for p in programs])
 
 @api_bp.route('/programs', methods=['POST'])
@@ -337,7 +379,8 @@ def add_program():
         cash_price=data.get('cashPrice'),
         currency=data.get('currency') or 'USD',
         country=data.get('country') or None,
-        description=data.get('description') or ''
+        description=data.get('description') or '',
+        is_open=True if data.get('isOpen') is None else bool(data.get('isOpen'))
     )
     try:
         db.session.add(program)
@@ -392,6 +435,8 @@ def update_program(prog_id):
         program.country = data['country'] or None
     if 'description' in data:
         program.description = data['description']
+    if 'isOpen' in data:
+        program.is_open = bool(data['isOpen'])
     
     db.session.commit()
     return jsonify({'message': 'تم تحديث البرنامج', 'id': program.id}), 200
@@ -513,6 +558,7 @@ def get_applications():
         'status': a.status,
         'semester': a.semester,
         'createdAt': _normalize_created_at(a.created_at),
+        'updatedAt': _application_updated_at_for_api(a),
         'files': _file_urls(a.files),
         'userId': a.user_id,
         'agentPhone': a.user.phone if a.user else None,
@@ -568,6 +614,7 @@ def add_application():
         status=status,
         semester=semester,
         created_at=created_at,
+        updated_at=created_at,
         files=saved_files,
         user_id=user_id,
         responsible_id=responsible_id,
@@ -577,6 +624,9 @@ def add_application():
         currency=currency
     )
     db.session.add(application)
+    stu = Student.query.get(student_id)
+    if stu:
+        stu.updated_at = created_at
     db.session.commit()
     # 7. Notify admin and users when an agent adds an application
     if user_id:
@@ -599,7 +649,10 @@ def add_application():
         'message': 'Application added',
         'id': application.id,
         'files': file_urls,
-        'createdAt': application.created_at
+        'createdAt': application.created_at,
+        'updatedAt': application.updated_at or application.created_at,
+        'studentId': student_id,
+        'studentUpdatedAt': stu.updated_at if stu else None
     }), 201
 
 
@@ -645,16 +698,23 @@ def add_application_v2():
         status=status,
         semester=semester,
         created_at=created_at,
+        updated_at=created_at,
         files=saved_files
     )
     db.session.add(application)
+    stu = Student.query.get(student_id)
+    if stu:
+        stu.updated_at = created_at
     db.session.commit()
     file_urls = [url_for('api.upload_file', filename=f, _external=False) for f in saved_files]
     return jsonify({
         'message': 'Application added',
         'id': application.id,
         'files': file_urls,
-        'createdAt': application.created_at
+        'createdAt': application.created_at,
+        'updatedAt': application.updated_at or application.created_at,
+        'studentId': student_id,
+        'studentUpdatedAt': _student_updated_at_for_api(stu) if stu else None
     }), 201
 
 
@@ -697,10 +757,11 @@ def post_application_message(app_id):
         created_at=datetime.utcnow().isoformat()
     )
     db.session.add(msg)
-    db.session.commit()
-
-    # Notification Logic
+    db.session.flush()
     application = Application.query.get(app_id)
+    if application:
+        _touch_application_and_student(application)
+    # Notification Logic
     if application:
         if sender == 'ADMIN':
             # Notify Application Owner (User/Agent)
@@ -730,9 +791,16 @@ def post_application_message(app_id):
                     type="MESSAGE"
                 )
                 db.session.add(n)
-        db.session.commit()
+    db.session.commit()
 
-    resp = {'message': 'Message added', 'id': msg.id}
+    st_after = Student.query.get(application.student_id) if application else None
+    resp = {
+        'message': 'Message added',
+        'id': msg.id,
+        'updatedAt': _application_updated_at_for_api(application) if application else None,
+        'studentId': application.student_id if application else None,
+        'studentUpdatedAt': _student_updated_at_for_api(st_after) if st_after else None
+    }
     if sender_user_id:
         u = User.query.get(sender_user_id)
         resp['senderName'] = u.name if u else None
@@ -836,7 +904,31 @@ def application_files(app_id):
         saved.append(filename)
 
     application.files = (application.files or []) + saved
+    _touch_application_and_student(application)
     db.session.commit()
+
+    # Notify admin, managers (USER), and responsible when an agent uploads files
+    uploader_id = (request.form.get('user_id') or request.form.get('userId') or '').strip() or None
+    if saved and uploader_id:
+        uploader = User.query.get(uploader_id)
+        if uploader and (uploader.role or '').lower() == 'agent':
+            notify_ids = {u.id for u in User.query.filter(User.role.in_(['ADMIN', 'USER'])).all()}
+            if getattr(application, 'responsible_id', None):
+                notify_ids.add(application.responsible_id)
+            notify_ids.discard(uploader_id)
+            for uid in notify_ids:
+                n = Notification(
+                    id=str(uuid.uuid4()),
+                    user_id=uid,
+                    title='Application files uploaded',
+                    message=f"Agent {uploader.name} uploaded file(s) to application #{application.id}.",
+                    link=f"/applications/{application.id}",
+                    created_at=datetime.utcnow().isoformat(),
+                    type='STATUS'
+                )
+                db.session.add(n)
+            db.session.commit()
+
     files_info = [
         {
             'name': f.split('_', 1)[1] if '_' in f else f,
@@ -844,7 +936,14 @@ def application_files(app_id):
             'url': url_for('api.upload_file', filename=f, _external=False)
         } for f in application.files
     ]
-    return jsonify({'message': 'Files added', 'files': files_info}), 201
+    stu = Student.query.get(application.student_id)
+    return jsonify({
+        'message': 'Files added',
+        'files': files_info,
+        'updatedAt': _application_updated_at_for_api(application),
+        'studentId': application.student_id,
+        'studentUpdatedAt': _student_updated_at_for_api(stu)
+    }), 201
 
 @api_bp.route('/applications/<app_id>/files/<path:filename>', methods=['DELETE'])
 def delete_application_file(app_id, filename):
@@ -860,6 +959,7 @@ def delete_application_file(app_id, filename):
     # SQLAlchemy requires assigning a new reference or mutating the mutable list properly if using JSON
     # It's safer to assign a new list of the remaining items.
     application.files = list(current_files)
+    _touch_application_and_student(application)
     db.session.commit()
 
     upload_folder = UPLOADS_DIR
@@ -870,7 +970,13 @@ def delete_application_file(app_id, filename):
         except Exception as e:
             pass # ignore if file already missing or locked
 
-    return jsonify({'message': 'File deleted successfully'}), 200
+    stu = Student.query.get(application.student_id)
+    return jsonify({
+        'message': 'File deleted successfully',
+        'updatedAt': _application_updated_at_for_api(application),
+        'studentId': application.student_id,
+        'studentUpdatedAt': _student_updated_at_for_api(stu)
+    }), 200
 
 # Update application status
 @api_bp.route('/applications/<app_id>/status', methods=['PUT'])
@@ -885,8 +991,8 @@ def update_application_status(app_id):
         return jsonify({'message': 'Application not found'}), 404
         
     application.status = new_status
-    db.session.commit()
-    
+    _touch_application_and_student(application)
+
     # 5. Notify agent (application owner) when status changes
     if application.user_id:
         notification = Notification(
@@ -915,8 +1021,15 @@ def update_application_status(app_id):
             )
             db.session.add(n)
     db.session.commit()
-        
-    return jsonify({'message': 'Status updated', 'status': application.status}), 200
+
+    stu = Student.query.get(application.student_id)
+    return jsonify({
+        'message': 'Status updated',
+        'status': application.status,
+        'updatedAt': _application_updated_at_for_api(application),
+        'studentId': application.student_id,
+        'studentUpdatedAt': _student_updated_at_for_api(stu)
+    }), 200
 
 
 @api_bp.route('/applications/<app_id>', methods=['PUT'])
@@ -940,7 +1053,9 @@ def update_application(app_id):
         application.sale_amount = data['saleAmount'] if data.get('saleAmount') not in (None, '') else None
     if 'currency' in data and data.get('currency') in ('USD', 'TRY', 'EUR'):
         application.currency = data['currency']
+    _touch_application_and_student(application)
     db.session.commit()
+    stu = Student.query.get(application.student_id)
     return jsonify({
         'message': 'Application updated',
         'id': application.id,
@@ -950,7 +1065,10 @@ def update_application(app_id):
         'cost': application.cost,
         'commission': application.commission,
         'saleAmount': application.sale_amount,
-        'currency': application.currency or 'USD'
+        'currency': application.currency or 'USD',
+        'updatedAt': _application_updated_at_for_api(application),
+        'studentId': application.student_id,
+        'studentUpdatedAt': _student_updated_at_for_api(stu)
     }), 200
 
 

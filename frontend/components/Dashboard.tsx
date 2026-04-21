@@ -8,6 +8,8 @@ interface DashboardProps {
   applications: Application[];
   programs: Program[];
   universitiesCount: number;
+  onOpenApplication?: (applicationId: string) => void;
+  onOpenStudent?: (studentId: string) => void;
 }
 
 function dateOnly(iso: string | undefined): string {
@@ -19,7 +21,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
   students,
   applications,
   programs,
-  universitiesCount
+  universitiesCount,
+  onOpenApplication,
+  onOpenStudent
 }) => {
   const { t, translateStatus } = useTranslation();
   const [fromDate, setFromDate] = useState('');
@@ -132,7 +136,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Recent Applications */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden lg:order-1">
           <div className="p-6 border-b border-gray-100 flex justify-between items-center">
             <h3 className="font-bold text-lg text-gray-800">{t.recentApplications}</h3>
           </div>
@@ -141,16 +145,40 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <thead className="bg-gray-50 text-gray-500">
                 <tr>
                   <th className="px-6 py-3 font-medium">{t.applicationDetails}</th>
-                  <th className="px-6 py-3 font-medium">{t.selectStudent}</th>
-                  <th className="px-6 py-3 font-medium">{t.selectProgram}</th>
+                  <th className="px-6 py-3 font-medium">{t.dashboardStudentColumn}</th>
+                  <th className="px-6 py-3 font-medium">{t.program}</th>
                   <th className="px-6 py-3 font-medium">{t.applicationStatus}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filteredApplications.slice(-5).reverse().map((app) => (
                   <tr key={app.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 font-mono text-xs">{app.id.substring(0, 8)}...</td>
-                    <td className="px-6 py-4">{getStudentName(app.studentId)}</td>
+                    <td className="px-6 py-4 font-mono text-xs">
+                      {onOpenApplication ? (
+                        <button
+                          type="button"
+                          onClick={() => onOpenApplication(app.id)}
+                          className="text-blue-600 hover:text-blue-800 hover:underline text-left font-mono"
+                        >
+                          {app.id.substring(0, 8)}...
+                        </button>
+                      ) : (
+                        <>{app.id.substring(0, 8)}...</>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      {onOpenStudent ? (
+                        <button
+                          type="button"
+                          onClick={() => onOpenStudent(app.studentId)}
+                          className="text-blue-600 hover:text-blue-800 hover:underline font-medium text-left"
+                        >
+                          {getStudentName(app.studentId)}
+                        </button>
+                      ) : (
+                        getStudentName(app.studentId)
+                      )}
+                    </td>
                     <td className="px-6 py-4 text-gray-600">{getProgramName(app.programId)}</td>
                     <td className="px-6 py-4">
                       <span className={`px-2 py-1 rounded-full text-xs font-medium 
@@ -173,30 +201,40 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
 
         {/* Recent Students */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden lg:order-2">
           <div className="p-6 border-b border-gray-100 flex justify-between items-center">
             <h3 className="font-bold text-lg text-gray-800">{t.students}</h3>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-right text-sm">
+            <table className="w-full text-left text-sm">
               <thead className="bg-gray-50 text-gray-500">
                 <tr>
                   <th className="px-6 py-3 font-medium">{t.userName}</th>
                   <th className="px-6 py-3 font-medium">{t.nationality}</th>
-                  <th className="px-6 py-3 font-medium">{t.dateOfBirth}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filteredStudents.slice(-5).reverse().map((student) => (
                   <tr key={student.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 font-medium">{student.firstName} {student.lastName}</td>
+                    <td className="px-6 py-4 font-medium">
+                      {onOpenStudent ? (
+                        <button
+                          type="button"
+                          onClick={() => onOpenStudent(student.id)}
+                          className="text-blue-600 hover:text-blue-800 hover:underline text-left font-medium"
+                        >
+                          {student.firstName} {student.lastName}
+                        </button>
+                      ) : (
+                        <>{student.firstName} {student.lastName}</>
+                      )}
+                    </td>
                     <td className="px-6 py-4 text-gray-600">{student.nationality}</td>
-                    <td className="px-6 py-4 text-gray-400 text-xs">{t.recentApplications}</td>
                   </tr>
                 ))}
                 {filteredStudents.length === 0 && (
                   <tr>
-                    <td colSpan={3} className="px-6 py-8 text-center text-gray-400">{t.noStudents}</td>
+                    <td colSpan={2} className="px-6 py-8 text-center text-gray-400">{t.noStudents}</td>
                   </tr>
                 )}
               </tbody>
