@@ -204,6 +204,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const agentUsers = useMemo(() => users.filter(u => (u.role || '').toString().toLowerCase() === 'agent'), [users]);
   const responsibleUsers = useMemo(() => users.filter(u => { const r = (u.role || '').toString().toUpperCase(); return r === 'ADMIN' || r === 'USER'; }), [users]);
   const isAdminOrUser = currentUser && ((currentUser.role || '').toString().toUpperCase() === 'ADMIN' || (currentUser.role || '').toString().toUpperCase() === 'USER');
+  const canSeeAgentColumn = !!isAdminOrUser;
   const isAdmin = currentUser && (currentUser.role || '').toString().toUpperCase() === 'ADMIN';
   const isAgent = currentUser && (currentUser.role || '').toString().toLowerCase() === 'agent';
 
@@ -513,12 +514,12 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
 
   useEffect(() => {
     const hiddenByConfig = sortBy && applicationColumnKeys.includes(sortBy) && !visibleTreeColumns.includes(sortBy);
-    const hiddenByRole = sortBy === 'responsible' && !isAdminOrUser;
+    const hiddenByRole = (sortBy === 'responsible' || sortBy === 'agent') && !canSeeAgentColumn;
     if (hiddenByConfig || hiddenByRole) {
       setSortBy(null);
       setSortDir('asc');
     }
-  }, [sortBy, visibleTreeColumns, isAdminOrUser, applicationColumnKeys]);
+  }, [sortBy, visibleTreeColumns, canSeeAgentColumn, applicationColumnKeys]);
 
   const toggleTreeColumn = (key: string) => {
     setVisibleTreeColumns(prev => {
@@ -531,10 +532,14 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   };
 
   useEffect(() => {
-    const allowed = isAdminOrUser ? applicationColumnKeys : applicationColumnKeys.filter(k => k !== 'responsible');
-    const hasVisibleAllowed = visibleTreeColumns.some(k => allowed.includes(k));
-    if (!hasVisibleAllowed) setVisibleTreeColumns(allowed);
-  }, [isAdminOrUser, applicationColumnKeys, visibleTreeColumns]);
+    const allowed = canSeeAgentColumn ? applicationColumnKeys : applicationColumnKeys.filter(k => k !== 'agent' && k !== 'responsible');
+    const normalized = visibleTreeColumns.filter(k => allowed.includes(k));
+    if (normalized.length !== visibleTreeColumns.length) {
+      setVisibleTreeColumns(normalized.length > 0 ? normalized : allowed);
+      return;
+    }
+    if (normalized.length === 0) setVisibleTreeColumns(allowed);
+  }, [canSeeAgentColumn, applicationColumnKeys, visibleTreeColumns]);
   const SortTh = ({ colKey, label, className = '' }: { colKey: string; label: string; className?: string }) => (
     <th style={{ fontWeight: 700 }} className={`px-6 py-5 text-gray-900 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100/80 transition-colors ${className}`} onClick={() => toggleSort(colKey)}>
       <span style={{ fontWeight: 700 }} className="inline-flex items-center gap-1 text-gray-900">
@@ -1415,7 +1420,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                   </button>
                   {columnsOpen && (
                     <div className="absolute right-0 mt-2 w-56 bg-white border border-gray-200 rounded-xl shadow-lg p-2 z-30">
-                      {applicationColumnOptions.filter(col => isAdminOrUser || col.key !== 'responsible').map(col => (
+                      {applicationColumnOptions.filter(col => canSeeAgentColumn || (col.key !== 'agent' && col.key !== 'responsible')).map(col => (
                         <label key={col.key} className="flex items-center gap-2 px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-50 rounded-md cursor-pointer">
                           <input
                             type="checkbox"
@@ -1551,7 +1556,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                   <tr>
                     {visibleTreeColumns.includes('number') && <SortTh colKey="number" label={t.number} />}
                     {visibleTreeColumns.includes('status') && <SortTh colKey="status" label={t.applicationStatus} className="text-center" />}
-                    {visibleTreeColumns.includes('agent') && <SortTh colKey="agent" label={t.agent} />}
+                    {canSeeAgentColumn && visibleTreeColumns.includes('agent') && <SortTh colKey="agent" label={t.agent} />}
                     {isAdminOrUser && visibleTreeColumns.includes('responsible') && <SortTh colKey="responsible" label={t.responsible} />}
                     {visibleTreeColumns.includes('student') && <SortTh colKey="student" label={t.studentInfo} />}
                     {visibleTreeColumns.includes('program') && <SortTh colKey="program" label={t.program} />}
@@ -1570,7 +1575,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                     const treeColSpan =
                       (visibleTreeColumns.includes('number') ? 1 : 0) +
                       (visibleTreeColumns.includes('status') ? 1 : 0) +
-                      (visibleTreeColumns.includes('agent') ? 1 : 0) +
+                      (canSeeAgentColumn && visibleTreeColumns.includes('agent') ? 1 : 0) +
                       (isAdminOrUser && visibleTreeColumns.includes('responsible') ? 1 : 0) +
                       (visibleTreeColumns.includes('student') ? 1 : 0) +
                       (visibleTreeColumns.includes('program') ? 1 : 0) +
@@ -1602,7 +1607,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                               </div>
                             </td>
                           )}
-                          {visibleTreeColumns.includes('agent') && <td className="px-6 py-4 text-gray-900">{getAgentName(app)}</td>}
+                          {canSeeAgentColumn && visibleTreeColumns.includes('agent') && <td className="px-6 py-4 text-gray-900">{getAgentName(app)}</td>}
                           {isAdminOrUser && visibleTreeColumns.includes('responsible') && (
                             <td className="px-6 py-4 text-gray-900">{getResponsibleLabel(app)}</td>
                           )}

@@ -631,24 +631,52 @@ export default function App() {
     if (!state.currentUser) return;
     const fetchAll = async () => {
       try {
-        // إعداد روابط الطلبات حسب نوع المستخدم
-        let studentsUrl = '/api/students';
-        let applicationsUrl = '/api/applications';
-        if (state.currentUser.role === UserRole.AGENT) {
-          studentsUrl += `?role=agent&user_id=${state.currentUser.id}`;
-          applicationsUrl += `?role=agent&user_id=${state.currentUser.id}`;
-        }
-        const endpoints = [
-          '/api/universities',
-          '/api/programs',
-          studentsUrl,
-          applicationsUrl,
-          '/api/periods'
+        const buildBaseUrl = (base: string) => {
+          const params = new URLSearchParams();
+          if (state.currentUser?.role === UserRole.AGENT && state.currentUser.id) {
+            params.set('role', 'agent');
+            params.set('user_id', state.currentUser.id);
+          }
+          const query = params.toString();
+          return query ? `${base}?${query}` : base;
+        };
+
+        const fetchPaginatedAll = async (base: string, pageSize = 500) => {
+          let page = 1;
+          let totalPages = 1;
+          const items: any[] = [];
+          do {
+            const delimiter = base.includes('?') ? '&' : '?';
+            const url = `${base}${delimiter}page=${page}&pageSize=${pageSize}`;
+            const res = await fetch(url);
+            const data = await res.json();
+            if (Array.isArray(data)) {
+              return data;
+            }
+            const batch = Array.isArray(data?.items) ? data.items : [];
+            items.push(...batch);
+            const parsedTotalPages = Number(data?.totalPages);
+            totalPages = Number.isFinite(parsedTotalPages) && parsedTotalPages > 0 ? parsedTotalPages : 1;
+            page += 1;
+          } while (page <= totalPages);
+          return items;
+        };
+
+        const programsBaseUrl = '/api/programs';
+        const studentsBaseUrl = buildBaseUrl('/api/students');
+        const applicationsBaseUrl = buildBaseUrl('/api/applications');
+
+        const sharedRequests: Promise<any>[] = [
+          fetch('/api/universities').then(r => r.json()),
+          fetchPaginatedAll(programsBaseUrl),
+          fetchPaginatedAll(studentsBaseUrl),
+          fetchPaginatedAll(applicationsBaseUrl),
+          fetch('/api/periods').then(r => r.json())
         ];
         if (state.currentUser.role === UserRole.ADMIN) {
-          endpoints.push('/api/users');
+          sharedRequests.push(fetch('/api/users').then(r => r.json()));
         }
-        const responses = await Promise.all(endpoints.map(e => fetch(e).then(r => r.json())));
+        const responses = await Promise.all(sharedRequests);
         setState(prev => ({
           ...prev,
           universities: responses[0],

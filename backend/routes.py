@@ -49,6 +49,104 @@ def _touch_application_and_student(application):
     if st:
         st.updated_at = now
 
+
+def _query_int_arg(name, default_value, min_value=1, max_value=500):
+    raw = request.args.get(name)
+    if raw is None:
+        return default_value
+    try:
+        parsed = int(raw)
+    except (TypeError, ValueError):
+        return default_value
+    if parsed < min_value:
+        return min_value
+    if parsed > max_value:
+        return max_value
+    return parsed
+
+
+def _wants_pagination():
+    return request.args.get('page') is not None or request.args.get('pageSize') is not None
+
+
+def _serialize_student(s):
+    return {
+        'id': s.id,
+        'firstName': s.first_name,
+        'lastName': s.last_name,
+        'passportNumber': s.passport_number,
+        'fatherName': s.father_name,
+        'motherName': s.mother_name,
+        'gender': s.gender,
+        'phone': s.phone,
+        'email': s.email,
+        'nationality': s.nationality,
+        'degreeTarget': s.degree_target,
+        'dob': s.dob,
+        'residenceCountry': s.residence_country,
+        'userId': getattr(s, 'user_id', None),
+        'createdAt': getattr(s, 'created_at', None),
+        'updatedAt': _student_updated_at_for_api(s) or _normalize_ts_z(getattr(s, 'created_at', None))
+    }
+
+
+def _serialize_program(p):
+    return {
+        'id': p.id,
+        'universityId': p.university_id,
+        'name': p.name,
+        'nameInArabic': getattr(p, 'name_in_arabic', None),
+        'category': getattr(p, 'category', None),
+        'degree': p.degree,
+        'language': p.language,
+        'years': p.years,
+        'deadline': getattr(p, 'deadline', None),
+        'periodId': getattr(p, 'period_id', None),
+        'fee': p.fee,
+        'feeBeforeDiscount': getattr(p, 'fee_before_discount', None),
+        'deposit': getattr(p, 'deposit', None),
+        'cashPrice': getattr(p, 'cash_price', None),
+        'currency': getattr(p, 'currency', 'USD'),
+        'country': getattr(p, 'country', None),
+        'description': p.description,
+        'isOpen': bool(getattr(p, 'is_open', True))
+    }
+
+
+def _normalize_created_at(created_at):
+    if not created_at:
+        return datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+    if created_at.endswith('Z'):
+        return created_at
+    if 'T' in created_at:
+        return created_at + 'Z'
+    return created_at + 'T00:00:00.000Z'
+
+
+def _serialize_application(a, program_by_id):
+    p = program_by_id.get(a.program_id)
+    return {
+        'id': a.id,
+        'studentId': a.student_id,
+        'programId': a.program_id,
+        'periodId': getattr(a, 'period_id', None) or (p.period_id if p else None),
+        'status': a.status,
+        'semester': a.semester,
+        'createdAt': _normalize_created_at(a.created_at),
+        'updatedAt': _application_updated_at_for_api(a),
+        'files': [url_for('api.upload_file', filename=f, _external=False) for f in (a.files or [])],
+        'userId': a.user_id,
+        'agentPhone': a.user.phone if a.user else None,
+        'agentName': a.user.name if a.user else None,
+        'agentCountryCode': a.user.country_code if a.user else None,
+        'responsibleId': getattr(a, 'responsible_id', None),
+        'responsibleName': a.responsible.name if getattr(a, 'responsible', None) and a.responsible else None,
+        'cost': getattr(a, 'cost', None),
+        'commission': getattr(a, 'commission', None),
+        'saleAmount': getattr(a, 'sale_amount', None),
+        'currency': getattr(a, 'currency', None) or 'USD'
+    }
+
 # إضافة مستخدم جديد (خاص بالمسؤول)
 @api_bp.route('/users', methods=['POST'])
 def add_user():
@@ -187,10 +285,23 @@ def login():
 def get_students():
     user_role = request.args.get('role')
     user_id = request.args.get('user_id')
+    query = Student.query
     if user_role == 'agent' and user_id:
-        students = Student.query.filter_by(user_id=user_id).all()
-    else:
-        students = Student.query.all()
+        query = query.filter_by(user_id=user_id)
+    query = query.order_by(Student.created_at.desc())
+    if _wants_pagination():
+        page = _query_int_arg('page', 1, min_value=1, max_value=1000000)
+        page_size = _query_int_arg('pageSize', 80, min_value=1, max_value=500)
+        total = query.count()
+        students = query.offset((page - 1) * page_size).limit(page_size).all()
+        return jsonify({
+            'items': [_serialize_student(s) for s in students],
+            'total': total,
+            'page': page,
+            'pageSize': page_size,
+            'totalPages': max(1, (total + page_size - 1) // page_size)
+        })
+    students = query.all()
     # Debug log: show how many students returned and their user_ids
     try:
         print(f"GET /api/students called with role={user_role} user_id={user_id} -> returning {len(students)} students")
@@ -199,24 +310,7 @@ def get_students():
     except Exception:
         pass
 
-    return jsonify([{
-        'id': s.id,
-        'firstName': s.first_name,
-        'lastName': s.last_name,
-        'passportNumber': s.passport_number,
-        'fatherName': s.father_name,
-        'motherName': s.mother_name,
-        'gender': s.gender,
-        'phone': s.phone,
-        'email': s.email,
-        'nationality': s.nationality,
-        'degreeTarget': s.degree_target,
-        'dob': s.dob,
-        'residenceCountry': s.residence_country,
-        'userId': getattr(s, 'user_id', None),
-        'createdAt': getattr(s, 'created_at', None),
-        'updatedAt': _student_updated_at_for_api(s) or _normalize_ts_z(getattr(s, 'created_at', None))
-    } for s in students])
+    return jsonify([_serialize_student(s) for s in students])
 
 @api_bp.route('/students', methods=['POST'])
 def add_student():
@@ -325,27 +419,21 @@ def add_university():
 # Programs
 @api_bp.route('/programs', methods=['GET'])
 def get_programs():
-    programs = Program.query.all()
-    return jsonify([{
-        'id': p.id,
-        'universityId': p.university_id,
-        'name': p.name,
-        'nameInArabic': getattr(p, 'name_in_arabic', None),
-        'category': getattr(p, 'category', None),
-        'degree': p.degree,
-        'language': p.language,
-        'years': p.years,
-        'deadline': getattr(p, 'deadline', None),
-        'periodId': getattr(p, 'period_id', None),
-        'fee': p.fee,
-        'feeBeforeDiscount': getattr(p, 'fee_before_discount', None),
-        'deposit': getattr(p, 'deposit', None),
-        'cashPrice': getattr(p, 'cash_price', None),
-        'currency': getattr(p, 'currency', 'USD'),
-        'country': getattr(p, 'country', None),
-        'description': p.description,
-        'isOpen': bool(getattr(p, 'is_open', True))
-    } for p in programs])
+    query = Program.query.order_by(Program.name.asc())
+    if _wants_pagination():
+        page = _query_int_arg('page', 1, min_value=1, max_value=1000000)
+        page_size = _query_int_arg('pageSize', 80, min_value=1, max_value=500)
+        total = query.count()
+        programs = query.offset((page - 1) * page_size).limit(page_size).all()
+        return jsonify({
+            'items': [_serialize_program(p) for p in programs],
+            'total': total,
+            'page': page,
+            'pageSize': page_size,
+            'totalPages': max(1, (total + page_size - 1) // page_size)
+        })
+    programs = query.all()
+    return jsonify([_serialize_program(p) for p in programs])
 
 @api_bp.route('/programs', methods=['POST'])
 def add_program():
@@ -532,45 +620,28 @@ def delete_period(period_id):
 def get_applications():
     user_role = request.args.get('role')
     user_id = request.args.get('user_id')
+    query = Application.query
     if user_role == 'agent' and user_id:
-        applications = Application.query.filter_by(user_id=user_id).all()
-    else:
-        applications = Application.query.all()
-    def _file_urls(file_list):
-        if not file_list:
-            return []
-        return [url_for('api.upload_file', filename=f, _external=False) for f in file_list]
-
-    def _normalize_created_at(created_at):
-        if not created_at:
-            return datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
-        if created_at.endswith('Z'):
-            return created_at
-        if 'T' in created_at:
-            return created_at + 'Z'
-        return created_at + 'T00:00:00.000Z'
-
-    return jsonify([{
-        'id': a.id,
-        'studentId': a.student_id,
-        'programId': a.program_id,
-        'periodId': (lambda pid, prog: pid or (prog.period_id if prog else None))(getattr(a, 'period_id', None), Program.query.get(a.program_id) if a.program_id else None),
-        'status': a.status,
-        'semester': a.semester,
-        'createdAt': _normalize_created_at(a.created_at),
-        'updatedAt': _application_updated_at_for_api(a),
-        'files': _file_urls(a.files),
-        'userId': a.user_id,
-        'agentPhone': a.user.phone if a.user else None,
-        'agentName': a.user.name if a.user else None,
-        'agentCountryCode': a.user.country_code if a.user else None,
-        'responsibleId': getattr(a, 'responsible_id', None),
-        'responsibleName': a.responsible.name if getattr(a, 'responsible', None) and a.responsible else None,
-        'cost': getattr(a, 'cost', None),
-        'commission': getattr(a, 'commission', None),
-        'saleAmount': getattr(a, 'sale_amount', None),
-        'currency': getattr(a, 'currency', None) or 'USD'
-    } for a in applications])
+        query = query.filter_by(user_id=user_id)
+    query = query.order_by(Application.created_at.desc())
+    if _wants_pagination():
+        page = _query_int_arg('page', 1, min_value=1, max_value=1000000)
+        page_size = _query_int_arg('pageSize', 80, min_value=1, max_value=500)
+        total = query.count()
+        applications = query.offset((page - 1) * page_size).limit(page_size).all()
+        program_ids = [a.program_id for a in applications if a.program_id]
+        program_by_id = {p.id: p for p in Program.query.filter(Program.id.in_(program_ids)).all()} if program_ids else {}
+        return jsonify({
+            'items': [_serialize_application(a, program_by_id) for a in applications],
+            'total': total,
+            'page': page,
+            'pageSize': page_size,
+            'totalPages': max(1, (total + page_size - 1) // page_size)
+        })
+    applications = query.all()
+    program_ids = [a.program_id for a in applications if a.program_id]
+    program_by_id = {p.id: p for p in Program.query.filter(Program.id.in_(program_ids)).all()} if program_ids else {}
+    return jsonify([_serialize_application(a, program_by_id) for a in applications])
 
 
 import os
