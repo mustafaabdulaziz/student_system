@@ -1215,6 +1215,7 @@ def get_incoming_payments():
         'sequenceNumber': r.sequence_number,
         'paymentDate': r.payment_date,
         'paymentSource': r.payment_source,
+        'paymentAmount': getattr(r, 'payment_amount', None),
         'currency': getattr(r, 'currency', None) or 'USD',
         'description1': r.description_1,
         'description2': r.description_2,
@@ -1231,17 +1232,23 @@ def add_incoming_payment():
     data = request.get_json() or {}
     payment_date = (data.get('paymentDate') or '').strip()
     payment_source = (data.get('paymentSource') or '').strip()
+    payment_amount = data.get('paymentAmount')
     currency = (data.get('currency') or 'USD').strip().upper()
     if currency not in ('USD', 'TRY', 'EUR'):
         currency = 'USD'
+    try:
+        payment_amount = float(payment_amount)
+    except (TypeError, ValueError):
+        return jsonify({'message': 'paymentAmount must be a number'}), 400
     if not payment_date or not payment_source:
-        return jsonify({'message': 'paymentDate and paymentSource are required'}), 400
+        return jsonify({'message': 'paymentDate, paymentSource and paymentAmount are required'}), 400
     now = _iso_timestamp()
     record = IncomingPayment(
         id=str(uuid.uuid4()),
         sequence_number=_next_sequence(IncomingPayment),
         payment_date=payment_date,
         payment_source=payment_source,
+        payment_amount=payment_amount,
         currency=currency,
         description_1=(data.get('description1') or '').strip() or None,
         description_2=(data.get('description2') or '').strip() or None,
@@ -1272,6 +1279,11 @@ def update_incoming_payment(payment_id):
         if not value:
             return jsonify({'message': 'paymentSource cannot be empty'}), 400
         record.payment_source = value
+    if 'paymentAmount' in data:
+        try:
+            record.payment_amount = float(data.get('paymentAmount'))
+        except (TypeError, ValueError):
+            return jsonify({'message': 'paymentAmount must be a number'}), 400
     if 'currency' in data:
         value = (data.get('currency') or '').strip().upper()
         if value not in ('USD', 'TRY', 'EUR'):

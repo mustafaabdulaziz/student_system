@@ -193,6 +193,9 @@ if __name__ == '__main__':
                     if 'currency' not in incoming_cols:
                         conn.execute(text("ALTER TABLE incoming_payments ADD COLUMN currency VARCHAR NOT NULL DEFAULT 'USD'"))
                         conn.commit()
+                    if 'payment_amount' not in incoming_cols:
+                        conn.execute(text("ALTER TABLE incoming_payments ADD COLUMN payment_amount FLOAT"))
+                        conn.commit()
                 if 'outgoing_payments' in table_names:
                     outgoing_cols = [c['name'] for c in inspector.get_columns('outgoing_payments')]
                     if 'currency' not in outgoing_cols:

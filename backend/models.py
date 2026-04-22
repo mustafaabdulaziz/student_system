@@ -142,6 +142,7 @@ class IncomingPayment(db.Model):
     sequence_number = db.Column(db.Integer, nullable=False, unique=True)
     payment_date = db.Column(db.String, nullable=False)
     payment_source = db.Column(db.String, nullable=False)
+    payment_amount = db.Column(db.Float, nullable=True)
     currency = db.Column(db.String, nullable=False, default='USD')
     description_1 = db.Column(db.String, nullable=True)
     description_2 = db.Column(db.String, nullable=True)

@@ -15,6 +15,7 @@ interface IncomingPaymentRow {
   id: string;
   sequenceNumber: number;
   paymentDate: string;
+  paymentAmount: number;
   paymentSource: string;
   currency: CurrencyCode;
   description1?: string;
@@ -65,6 +66,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
 
   const [incomingForm, setIncomingForm] = useState({
     paymentDate: '',
+    paymentAmount: '',
     paymentSource: '',
     currency: 'USD' as CurrencyCode,
     description1: '',
@@ -81,7 +83,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
 
   const resetForm = () => {
     setEditingId(null);
-    setIncomingForm({ paymentDate: '', paymentSource: '', currency: 'USD', description1: '', description2: '' });
+    setIncomingForm({ paymentDate: '', paymentAmount: '', paymentSource: '', currency: 'USD', description1: '', description2: '' });
     setOutgoingForm({ paymentDate: '', paymentAmount: '', currency: 'USD', paymentType: 'Cash', paymentReason: '', description1: '' });
     setFormError('');
   };
@@ -143,6 +145,8 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
           const haystack = `${incoming.description1 || ''} ${incoming.description2 || ''}`.toLowerCase();
           if (!haystack.includes(descriptionQuery)) return false;
         }
+        if (amountMin !== null && incoming.paymentAmount < amountMin) return false;
+        if (amountMax !== null && incoming.paymentAmount > amountMax) return false;
       } else {
         const outgoing = row as OutgoingPaymentRow;
         if (paymentType && outgoing.paymentType !== paymentType) return false;
@@ -206,6 +210,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
         return {
           'Sequence No': r.sequenceNumber,
           'Odeme Tarihi': r.paymentDate,
+          'Odeme Miktari': r.paymentAmount,
           Currency: r.currency,
           'Odeme Kaynagi': r.paymentSource,
           'Aciklama 1': r.description1 || '',
@@ -241,6 +246,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
       const incoming = row as IncomingPaymentRow;
       setIncomingForm({
         paymentDate: incoming.paymentDate || '',
+        paymentAmount: String(incoming.paymentAmount ?? ''),
         paymentSource: incoming.paymentSource || '',
         currency: incoming.currency || 'USD',
         description1: incoming.description1 || '',
@@ -268,6 +274,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
         mode === 'incoming'
           ? {
               ...incomingForm,
+              paymentAmount: Number(incomingForm.paymentAmount),
               role: currentUser.role
             }
           : {
@@ -379,6 +386,22 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
           {mode === 'incoming' ? (
             <>
               <input
+                type="number"
+                step="0.01"
+                placeholder="Min Tutar"
+                value={filters.amountMin}
+                onChange={e => setFilters(prev => ({ ...prev, amountMin: e.target.value }))}
+                className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
+              />
+              <input
+                type="number"
+                step="0.01"
+                placeholder="Max Tutar"
+                value={filters.amountMax}
+                onChange={e => setFilters(prev => ({ ...prev, amountMax: e.target.value }))}
+                className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
+              />
+              <input
                 placeholder="Ödeme Kaynağı"
                 value={filters.paymentSource}
                 onChange={e => setFilters(prev => ({ ...prev, paymentSource: e.target.value }))}
@@ -453,6 +476,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
                 <th className="px-4 py-3">Ödeme Tarihi</th>
                 {mode === 'incoming' ? (
                   <>
+                    <th className="px-4 py-3">Ödeme Miktarı</th>
                     <th className="px-4 py-3">Currency</th>
                     <th className="px-4 py-3">Ödeme Kaynağı</th>
                     <th className="px-4 py-3">Açıklama 1</th>
@@ -474,7 +498,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
               {!loading && filteredRows.length === 0 && (
                 <tr>
                   <td
-                    colSpan={mode === 'incoming' ? 8 : 9}
+                    colSpan={mode === 'incoming' ? 9 : 9}
                     className="px-4 py-8 text-center text-gray-500"
                   >
                     Kayıt bulunamadı.
@@ -490,6 +514,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
                   <td className="px-4 py-3">{row.paymentDate}</td>
                   {mode === 'incoming' ? (
                     <>
+                      <td className="px-4 py-3">{(row as IncomingPaymentRow).paymentAmount}</td>
                       <td className="px-4 py-3">{(row as IncomingPaymentRow).currency}</td>
                       <td className="px-4 py-3">{(row as IncomingPaymentRow).paymentSource}</td>
                       <td className="px-4 py-3">{(row as IncomingPaymentRow).description1 || '—'}</td>
@@ -540,6 +565,17 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
                       type="date"
                       value={incomingForm.paymentDate}
                       onChange={e => setIncomingForm(prev => ({ ...prev, paymentDate: e.target.value }))}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm mb-1">Ödeme Miktarı</label>
+                    <input
+                      required
+                      type="number"
+                      step="0.01"
+                      value={incomingForm.paymentAmount}
+                      onChange={e => setIncomingForm(prev => ({ ...prev, paymentAmount: e.target.value }))}
                       className="w-full border border-gray-200 rounded-lg px-3 py-2"
                     />
                   </div>
