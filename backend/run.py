@@ -105,7 +105,33 @@ if __name__ == '__main__':
                     if 'period_id' not in app_cols:
                         conn.execute(text('ALTER TABLE applications ADD COLUMN period_id VARCHAR REFERENCES periods(id)'))
                         conn.commit()
-                    for col, typ in [('responsible_id', 'VARCHAR REFERENCES users(id)'), ('cost', 'FLOAT'), ('commission', 'FLOAT'), ('sale_amount', 'FLOAT'), ('currency', 'VARCHAR')]:
+                    for col, typ in [('responsible_id', 'VARCHAR REFERENCES users(id)')]:
+                        if col not in app_cols:
+                            try:
+                                conn.execute(text(f'ALTER TABLE applications ADD COLUMN {col} {typ}'))
+                                conn.commit()
+                            except Exception:
+                                pass
+                    finance_cols = [
+                        ('annual_payment', 'FLOAT'),
+                        ('education_vat', 'FLOAT'),
+                        ('gross_commission', 'FLOAT'),
+                        ('abroad_vat', 'FLOAT'),
+                        ('net_commission', 'FLOAT'),
+                        ('bonus_max', 'FLOAT'),
+                        ('bonus_min', 'FLOAT'),
+                        ('agency_commission', 'FLOAT'),
+                        ('agency_bonus', 'FLOAT'),
+                        ('agency_contract_amount', 'FLOAT'),
+                        ('agency_paid_contract_amount', 'FLOAT'),
+                        ('agency_paid_contract_description', 'VARCHAR'),
+                        ('agency_paid_contract_description_date', 'VARCHAR'),
+                        ('agency_paid_contract_payment_method', 'VARCHAR'),
+                        ('currency', 'VARCHAR'),
+                        ('remaining_min', 'FLOAT'),
+                        ('remaining_max', 'FLOAT'),
+                    ]
+                    for col, typ in finance_cols:
                         if col not in app_cols:
                             try:
                                 conn.execute(text(f'ALTER TABLE applications ADD COLUMN {col} {typ}'))
@@ -159,6 +185,21 @@ if __name__ == '__main__':
                         conn.commit()
             except Exception as e:
                 print('application_messages sender_user_id column check:', e)
+            # Ensure payment tables and currency columns
+            try:
+                table_names = inspector.get_table_names()
+                if 'incoming_payments' in table_names:
+                    incoming_cols = [c['name'] for c in inspector.get_columns('incoming_payments')]
+                    if 'currency' not in incoming_cols:
+                        conn.execute(text("ALTER TABLE incoming_payments ADD COLUMN currency VARCHAR NOT NULL DEFAULT 'USD'"))
+                        conn.commit()
+                if 'outgoing_payments' in table_names:
+                    outgoing_cols = [c['name'] for c in inspector.get_columns('outgoing_payments')]
+                    if 'currency' not in outgoing_cols:
+                        conn.execute(text("ALTER TABLE outgoing_payments ADD COLUMN currency VARCHAR NOT NULL DEFAULT 'USD'"))
+                        conn.commit()
+            except Exception as e:
+                print('Payments currency column check:', e)
         # إضافة أدمن افتراضي إذا لم يوجد
         try:
             exists = User.query.options(load_only(User.email)).filter_by(email='admin@admin.com').first()

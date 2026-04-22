@@ -224,6 +224,7 @@ export const ApplicationsDashboard: React.FC<ApplicationsDashboardProps> = ({
   const [filterUniversity, setFilterUniversity] = useState<string[]>([]);
   const [filterProgram, setFilterProgram] = useState<string[]>([]);
   const [filterCountry, setFilterCountry] = useState<string[]>([]);
+  const [filterCurrency, setFilterCurrency] = useState<string[]>([]);
 
 
   const applyDatePreset = (presetId: string) => {
@@ -253,6 +254,7 @@ export const ApplicationsDashboard: React.FC<ApplicationsDashboardProps> = ({
       if (filterUniversity.length > 0 && (!program || !filterUniversity.includes(program.universityId))) return false;
       if (filterProgram.length > 0 && (!program || !filterProgram.includes(program.id))) return false;
       if (filterCountry.length > 0 && (!student || !filterCountry.includes(student.nationality))) return false;
+      if (filterCurrency.length > 0 && !filterCurrency.includes((app.currency || 'USD').toUpperCase())) return false;
       return true;
     });
   }, [
@@ -265,6 +267,7 @@ export const ApplicationsDashboard: React.FC<ApplicationsDashboardProps> = ({
     filterUniversity,
     filterProgram,
     filterCountry,
+    filterCurrency,
     students,
     programs,
     universities,
@@ -350,16 +353,34 @@ export const ApplicationsDashboard: React.FC<ApplicationsDashboardProps> = ({
   }, [filteredApplications, students, t.others]);
 
   const totals = useMemo(() => {
-    let cost = 0,
-      commission = 0,
-      sale = 0;
+    let annualPayment = 0,
+      netCommission = 0,
+      bonusMax = 0,
+      bonusMin = 0,
+      agencyCommission = 0,
+      agencyBonus = 0,
+      remainingMin = 0,
+      remainingMax = 0;
     filteredApplications.forEach((app) => {
-      cost += Number(app.cost) || 0;
-      commission += Number(app.commission) || 0;
-      sale += Number(app.saleAmount) || 0;
+      annualPayment += Number(app.annualPayment) || 0;
+      netCommission += Number(app.netCommission) || 0;
+      bonusMax += Number(app.bonusMax) || 0;
+      bonusMin += Number(app.bonusMin) || 0;
+      agencyCommission += Number(app.agencyCommission) || 0;
+      agencyBonus += Number(app.agencyBonus) || 0;
+      remainingMin += Number(app.remainingMin) || 0;
+      remainingMax += Number(app.remainingMax) || 0;
     });
-    const profit = sale - cost - commission;
-    return { cost, commission, sale, profit };
+    return {
+      annualPayment,
+      netCommission,
+      bonusMax,
+      bonusMin,
+      agencyCommission,
+      agencyBonus,
+      remainingMin,
+      remainingMax
+    };
   }, [filteredApplications]);
 
   const uniqueResponsibles = useMemo(() => {
@@ -382,6 +403,13 @@ export const ApplicationsDashboard: React.FC<ApplicationsDashboardProps> = ({
     const set = new Set(students.map((s) => s.nationality).filter(Boolean));
     return Array.from(set).sort();
   }, [students]);
+  const uniqueCurrencies = useMemo(() => {
+    const set = new Set<string>(['USD', 'TRY', 'EUR']);
+    applications.forEach((app) => {
+      if (app.currency) set.add(String(app.currency).toUpperCase());
+    });
+    return Array.from(set);
+  }, [applications]);
 
   const toggleFilter = (arr: string[], set: (v: string[]) => void, value: string) => {
     if (arr.includes(value)) set(arr.filter((x) => x !== value));
@@ -479,7 +507,7 @@ export const ApplicationsDashboard: React.FC<ApplicationsDashboardProps> = ({
             />
           </div>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4 pt-4 border-t border-gray-100">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4 pt-4 border-t border-gray-100">
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">{t.universitiesTitle}</label>
             <MultiSelect
@@ -522,6 +550,18 @@ export const ApplicationsDashboard: React.FC<ApplicationsDashboardProps> = ({
               searchPlaceholder={t.search}
             />
           </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">{t.currency}</label>
+            <MultiSelect
+              options={uniqueCurrencies.map((c) => ({ value: c, label: c }))}
+              value={filterCurrency}
+              onChange={setFilterCurrency}
+              placeholder={t.filterAll}
+              selectedCountLabel={t.selectedCountLabel}
+              noOptionsLabel={t.noOptions}
+              clearTitle={t.clearFilter}
+            />
+          </div>
         </div>
       </div>
 
@@ -533,20 +573,36 @@ export const ApplicationsDashboard: React.FC<ApplicationsDashboardProps> = ({
         </h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
-            <p className="text-xs font-medium text-blue-600 uppercase">{t.totalCost}</p>
-            <p className="text-xl font-bold text-gray-900 mt-1">{totals.cost.toLocaleString()}</p>
+            <p className="text-xs font-medium text-blue-600 uppercase">Yıllık ödeme</p>
+            <p className="text-xl font-bold text-gray-900 mt-1">{totals.annualPayment.toLocaleString()}</p>
           </div>
           <div className="bg-emerald-50 rounded-xl p-4 border border-emerald-100">
-            <p className="text-xs font-medium text-emerald-600 uppercase">{t.commission}</p>
-            <p className="text-xl font-bold text-gray-900 mt-1">{totals.commission.toLocaleString()}</p>
+            <p className="text-xs font-medium text-emerald-600 uppercase">Net komisyon</p>
+            <p className="text-xl font-bold text-gray-900 mt-1">{totals.netCommission.toLocaleString()}</p>
           </div>
           <div className="bg-purple-50 rounded-xl p-4 border border-purple-100">
-            <p className="text-xs font-medium text-purple-600 uppercase">{t.saleAmount}</p>
-            <p className="text-xl font-bold text-gray-900 mt-1">{totals.sale.toLocaleString()}</p>
+            <p className="text-xs font-medium text-purple-600 uppercase">Bonus Max</p>
+            <p className="text-xl font-bold text-gray-900 mt-1">{totals.bonusMax.toLocaleString()}</p>
           </div>
           <div className="bg-amber-50 rounded-xl p-4 border border-amber-100">
-            <p className="text-xs font-medium text-amber-600 uppercase">{t.profit}</p>
-            <p className="text-xl font-bold text-gray-900 mt-1">{totals.profit.toLocaleString()}</p>
+            <p className="text-xs font-medium text-amber-600 uppercase">Bonus Min</p>
+            <p className="text-xl font-bold text-gray-900 mt-1">{totals.bonusMin.toLocaleString()}</p>
+          </div>
+          <div className="bg-cyan-50 rounded-xl p-4 border border-cyan-100">
+            <p className="text-xs font-medium text-cyan-700 uppercase">Acenta komisyon</p>
+            <p className="text-xl font-bold text-gray-900 mt-1">{totals.agencyCommission.toLocaleString()}</p>
+          </div>
+          <div className="bg-rose-50 rounded-xl p-4 border border-rose-100">
+            <p className="text-xs font-medium text-rose-700 uppercase">Acenta Bonus</p>
+            <p className="text-xl font-bold text-gray-900 mt-1">{totals.agencyBonus.toLocaleString()}</p>
+          </div>
+          <div className="bg-lime-50 rounded-xl p-4 border border-lime-100">
+            <p className="text-xs font-medium text-lime-700 uppercase">Kalan Min</p>
+            <p className="text-xl font-bold text-gray-900 mt-1">{totals.remainingMin.toLocaleString()}</p>
+          </div>
+          <div className="bg-orange-50 rounded-xl p-4 border border-orange-100">
+            <p className="text-xs font-medium text-orange-700 uppercase">Kalan Max</p>
+            <p className="text-xl font-bold text-gray-900 mt-1">{totals.remainingMax.toLocaleString()}</p>
           </div>
         </div>
         <p className="text-sm text-gray-500 mt-3">

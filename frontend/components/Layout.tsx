@@ -12,7 +12,8 @@ import {
   UserCog,
   CalendarRange,
   BarChart2,
-  Newspaper
+  Newspaper,
+  HandCoins
 } from 'lucide-react';
 import { User, UserRole } from '../types';
 import { NotificationDropdown } from './NotificationDropdown';
@@ -58,6 +59,8 @@ export const Layout: React.FC<LayoutProps> = ({
     { id: 'applications', label: t.applications, icon: FileText },
     ...(currentUser?.role === UserRole.ADMIN
       ? [
+          { id: 'incoming-payments' as const, label: 'Gelen Ödemeler', icon: HandCoins },
+          { id: 'outgoing-payments' as const, label: 'Giden Ödemeler', icon: HandCoins },
           { id: 'periods' as const, label: t.period, icon: CalendarRange },
           { id: 'users' as const, label: t.usersTitle, icon: UserCog }
         ]

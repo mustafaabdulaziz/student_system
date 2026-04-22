@@ -109,13 +109,24 @@ export interface Application {
   agentCountryCode?: string;
   responsibleId?: string;
   responsibleName?: string;
-  cost?: number;
-  commission?: number;
-  saleAmount?: number;
+  annualPayment?: number;
+  educationVat?: number;
+  grossCommission?: number;
+  abroadVat?: number;
+  netCommission?: number;
+  bonusMax?: number;
+  bonusMin?: number;
+  agencyCommission?: number;
+  agencyBonus?: number;
+  agencyContractAmount?: number;
+  agencyPaidContractAmount?: number;
+  agencyPaidContractDescription?: string;
+  agencyPaidContractDescriptionDate?: string;
+  agencyPaidContractPaymentMethod?: string;
   currency?: string;
+  remainingMin?: number;
+  remainingMax?: number;
 }
-
-export const APPLICATION_CURRENCIES = ['USD', 'TRY', 'EUR'] as const;
 
 export interface Period {
   id: string;

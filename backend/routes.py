@@ -1,6 +1,6 @@
 
 from flask import Blueprint, request, jsonify, session, current_app, send_from_directory, url_for
-from models import db, Student, University, Program, Application, User, Notification, Period, NewsItem
+from models import db, Student, University, Program, Application, User, Notification, Period, NewsItem, IncomingPayment, OutgoingPayment
 import os
 import uuid
 from datetime import datetime
@@ -141,11 +141,44 @@ def _serialize_application(a, program_by_id):
         'agentCountryCode': a.user.country_code if a.user else None,
         'responsibleId': getattr(a, 'responsible_id', None),
         'responsibleName': a.responsible.name if getattr(a, 'responsible', None) and a.responsible else None,
-        'cost': getattr(a, 'cost', None),
-        'commission': getattr(a, 'commission', None),
-        'saleAmount': getattr(a, 'sale_amount', None),
-        'currency': getattr(a, 'currency', None) or 'USD'
+        'annualPayment': getattr(a, 'annual_payment', None),
+        'educationVat': getattr(a, 'education_vat', None),
+        'grossCommission': getattr(a, 'gross_commission', None),
+        'abroadVat': getattr(a, 'abroad_vat', None),
+        'netCommission': getattr(a, 'net_commission', None),
+        'bonusMax': getattr(a, 'bonus_max', None),
+        'bonusMin': getattr(a, 'bonus_min', None),
+        'agencyCommission': getattr(a, 'agency_commission', None),
+        'agencyBonus': getattr(a, 'agency_bonus', None),
+        'agencyContractAmount': getattr(a, 'agency_contract_amount', None),
+        'agencyPaidContractAmount': getattr(a, 'agency_paid_contract_amount', None),
+        'agencyPaidContractDescription': getattr(a, 'agency_paid_contract_description', None),
+        'agencyPaidContractDescriptionDate': getattr(a, 'agency_paid_contract_description_date', None),
+        'agencyPaidContractPaymentMethod': getattr(a, 'agency_paid_contract_payment_method', None),
+        'currency': getattr(a, 'currency', None) or 'USD',
+        'remainingMin': getattr(a, 'remaining_min', None),
+        'remainingMax': getattr(a, 'remaining_max', None)
     }
+
+
+def _request_role_value():
+    if request.method == 'GET':
+        return (request.args.get('role') or '').upper()
+    if request.is_json:
+        data = request.get_json(silent=True) or {}
+        return (data.get('role') or '').upper()
+    return (request.form.get('role') or '').upper()
+
+
+def _require_admin():
+    if _request_role_value() != 'ADMIN':
+        return jsonify({'message': 'Only admin can access this endpoint'}), 403
+    return None
+
+
+def _next_sequence(model_cls):
+    max_value = db.session.query(db.func.max(model_cls.sequence_number)).scalar()
+    return int(max_value or 0) + 1
 
 # إضافة مستخدم جديد (خاص بالمسؤول)
 @api_bp.route('/users', methods=['POST'])
@@ -663,12 +696,6 @@ def add_application():
     user_role = request.form.get('role')
     user_id = request.form.get('user_id')
     responsible_id = request.form.get('responsible_id') or None
-    cost = request.form.get('cost', type=float) if request.form.get('cost') not in (None, '') else None
-    commission = request.form.get('commission', type=float) if request.form.get('commission') not in (None, '') else None
-    sale_amount = request.form.get('sale_amount', type=float) if request.form.get('sale_amount') not in (None, '') else None
-    currency = (request.form.get('currency') or 'USD').strip() or 'USD'
-    if currency not in ('USD', 'TRY', 'EUR'):
-        currency = 'USD'
     created_at = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
     saved_files = []
     upload_folder = UPLOADS_DIR
@@ -688,11 +715,7 @@ def add_application():
         updated_at=created_at,
         files=saved_files,
         user_id=user_id,
-        responsible_id=responsible_id,
-        cost=cost,
-        commission=commission,
-        sale_amount=sale_amount,
-        currency=currency
+        responsible_id=responsible_id
     )
     db.session.add(application)
     stu = Student.query.get(student_id)
@@ -1105,7 +1128,7 @@ def update_application_status(app_id):
 
 @api_bp.route('/applications/<app_id>', methods=['PUT'])
 def update_application(app_id):
-    """Update application: status, responsible_id, cost, commission, sale_amount."""
+    """Update application fields."""
     application = Application.query.get(app_id)
     if not application:
         return jsonify({'message': 'Application not found'}), 404
@@ -1116,14 +1139,39 @@ def update_application(app_id):
         application.user_id = data['userId'] or None
     if 'responsibleId' in data:
         application.responsible_id = data['responsibleId'] or None
-    if 'cost' in data:
-        application.cost = data['cost'] if data.get('cost') not in (None, '') else None
-    if 'commission' in data:
-        application.commission = data['commission'] if data.get('commission') not in (None, '') else None
-    if 'saleAmount' in data:
-        application.sale_amount = data['saleAmount'] if data.get('saleAmount') not in (None, '') else None
-    if 'currency' in data and data.get('currency') in ('USD', 'TRY', 'EUR'):
-        application.currency = data['currency']
+    numeric_map = {
+        'annualPayment': 'annual_payment',
+        'educationVat': 'education_vat',
+        'grossCommission': 'gross_commission',
+        'abroadVat': 'abroad_vat',
+        'netCommission': 'net_commission',
+        'bonusMax': 'bonus_max',
+        'bonusMin': 'bonus_min',
+        'agencyCommission': 'agency_commission',
+        'agencyBonus': 'agency_bonus',
+        'agencyContractAmount': 'agency_contract_amount',
+        'agencyPaidContractAmount': 'agency_paid_contract_amount',
+        'remainingMin': 'remaining_min',
+        'remainingMax': 'remaining_max'
+    }
+    for api_key, db_attr in numeric_map.items():
+        if api_key in data:
+            value = data.get(api_key)
+            setattr(application, db_attr, value if value not in (None, '') else None)
+
+    text_map = {
+        'agencyPaidContractDescription': 'agency_paid_contract_description',
+        'agencyPaidContractDescriptionDate': 'agency_paid_contract_description_date',
+        'agencyPaidContractPaymentMethod': 'agency_paid_contract_payment_method'
+    }
+    for api_key, db_attr in text_map.items():
+        if api_key in data:
+            value = data.get(api_key)
+            setattr(application, db_attr, (value.strip() if isinstance(value, str) else value) or None)
+    if 'currency' in data:
+        value = (data.get('currency') or '').strip().upper()
+        if value in ('USD', 'TRY', 'EUR'):
+            application.currency = value
     _touch_application_and_student(application)
     db.session.commit()
     stu = Student.query.get(application.student_id)
@@ -1133,14 +1181,233 @@ def update_application(app_id):
         'status': application.status,
         'userId': application.user_id,
         'responsibleId': application.responsible_id,
-        'cost': application.cost,
-        'commission': application.commission,
-        'saleAmount': application.sale_amount,
+        'annualPayment': application.annual_payment,
+        'educationVat': application.education_vat,
+        'grossCommission': application.gross_commission,
+        'abroadVat': application.abroad_vat,
+        'netCommission': application.net_commission,
+        'bonusMax': application.bonus_max,
+        'bonusMin': application.bonus_min,
+        'agencyCommission': application.agency_commission,
+        'agencyBonus': application.agency_bonus,
+        'agencyContractAmount': application.agency_contract_amount,
+        'agencyPaidContractAmount': application.agency_paid_contract_amount,
+        'agencyPaidContractDescription': application.agency_paid_contract_description,
+        'agencyPaidContractDescriptionDate': application.agency_paid_contract_description_date,
+        'agencyPaidContractPaymentMethod': application.agency_paid_contract_payment_method,
         'currency': application.currency or 'USD',
+        'remainingMin': application.remaining_min,
+        'remainingMax': application.remaining_max,
         'updatedAt': _application_updated_at_for_api(application),
         'studentId': application.student_id,
         'studentUpdatedAt': _student_updated_at_for_api(stu)
     }), 200
+
+
+@api_bp.route('/incoming-payments', methods=['GET'])
+def get_incoming_payments():
+    guard = _require_admin()
+    if guard:
+        return guard
+    records = IncomingPayment.query.order_by(IncomingPayment.sequence_number.desc()).all()
+    return jsonify([{
+        'id': r.id,
+        'sequenceNumber': r.sequence_number,
+        'paymentDate': r.payment_date,
+        'paymentSource': r.payment_source,
+        'currency': getattr(r, 'currency', None) or 'USD',
+        'description1': r.description_1,
+        'description2': r.description_2,
+        'createdAt': r.created_at,
+        'updatedAt': r.updated_at
+    } for r in records])
+
+
+@api_bp.route('/incoming-payments', methods=['POST'])
+def add_incoming_payment():
+    guard = _require_admin()
+    if guard:
+        return guard
+    data = request.get_json() or {}
+    payment_date = (data.get('paymentDate') or '').strip()
+    payment_source = (data.get('paymentSource') or '').strip()
+    currency = (data.get('currency') or 'USD').strip().upper()
+    if currency not in ('USD', 'TRY', 'EUR'):
+        currency = 'USD'
+    if not payment_date or not payment_source:
+        return jsonify({'message': 'paymentDate and paymentSource are required'}), 400
+    now = _iso_timestamp()
+    record = IncomingPayment(
+        id=str(uuid.uuid4()),
+        sequence_number=_next_sequence(IncomingPayment),
+        payment_date=payment_date,
+        payment_source=payment_source,
+        currency=currency,
+        description_1=(data.get('description1') or '').strip() or None,
+        description_2=(data.get('description2') or '').strip() or None,
+        created_at=now,
+        updated_at=now
+    )
+    db.session.add(record)
+    db.session.commit()
+    return jsonify({'message': 'Incoming payment added', 'id': record.id, 'sequenceNumber': record.sequence_number}), 201
+
+
+@api_bp.route('/incoming-payments/<payment_id>', methods=['PUT'])
+def update_incoming_payment(payment_id):
+    guard = _require_admin()
+    if guard:
+        return guard
+    record = IncomingPayment.query.get(payment_id)
+    if not record:
+        return jsonify({'message': 'Incoming payment not found'}), 404
+    data = request.get_json() or {}
+    if 'paymentDate' in data:
+        value = (data.get('paymentDate') or '').strip()
+        if not value:
+            return jsonify({'message': 'paymentDate cannot be empty'}), 400
+        record.payment_date = value
+    if 'paymentSource' in data:
+        value = (data.get('paymentSource') or '').strip()
+        if not value:
+            return jsonify({'message': 'paymentSource cannot be empty'}), 400
+        record.payment_source = value
+    if 'currency' in data:
+        value = (data.get('currency') or '').strip().upper()
+        if value not in ('USD', 'TRY', 'EUR'):
+            return jsonify({'message': 'currency must be USD, TRY or EUR'}), 400
+        record.currency = value
+    if 'description1' in data:
+        record.description_1 = (data.get('description1') or '').strip() or None
+    if 'description2' in data:
+        record.description_2 = (data.get('description2') or '').strip() or None
+    record.updated_at = _iso_timestamp()
+    db.session.commit()
+    return jsonify({'message': 'Incoming payment updated'})
+
+
+@api_bp.route('/incoming-payments/<payment_id>', methods=['DELETE'])
+def delete_incoming_payment(payment_id):
+    guard = _require_admin()
+    if guard:
+        return guard
+    record = IncomingPayment.query.get(payment_id)
+    if not record:
+        return jsonify({'message': 'Incoming payment not found'}), 404
+    db.session.delete(record)
+    db.session.commit()
+    return jsonify({'message': 'Incoming payment deleted'})
+
+
+@api_bp.route('/outgoing-payments', methods=['GET'])
+def get_outgoing_payments():
+    guard = _require_admin()
+    if guard:
+        return guard
+    records = OutgoingPayment.query.order_by(OutgoingPayment.sequence_number.desc()).all()
+    return jsonify([{
+        'id': r.id,
+        'sequenceNumber': r.sequence_number,
+        'paymentDate': r.payment_date,
+        'paymentAmount': r.payment_amount,
+        'currency': getattr(r, 'currency', None) or 'USD',
+        'paymentType': r.payment_type,
+        'paymentReason': r.payment_reason,
+        'description1': r.description_1,
+        'createdAt': r.created_at,
+        'updatedAt': r.updated_at
+    } for r in records])
+
+
+@api_bp.route('/outgoing-payments', methods=['POST'])
+def add_outgoing_payment():
+    guard = _require_admin()
+    if guard:
+        return guard
+    data = request.get_json() or {}
+    payment_date = (data.get('paymentDate') or '').strip()
+    payment_reason = (data.get('paymentReason') or '').strip()
+    payment_type = (data.get('paymentType') or '').strip()
+    currency = (data.get('currency') or 'USD').strip().upper()
+    if currency not in ('USD', 'TRY', 'EUR'):
+        currency = 'USD'
+    payment_amount = data.get('paymentAmount')
+    if not payment_date or not payment_reason or payment_type not in ('Cash', 'Bank'):
+        return jsonify({'message': 'paymentDate, paymentType (Cash/Bank), paymentReason are required'}), 400
+    try:
+        payment_amount = float(payment_amount)
+    except (TypeError, ValueError):
+        return jsonify({'message': 'paymentAmount must be a number'}), 400
+    now = _iso_timestamp()
+    record = OutgoingPayment(
+        id=str(uuid.uuid4()),
+        sequence_number=_next_sequence(OutgoingPayment),
+        payment_date=payment_date,
+        payment_amount=payment_amount,
+        currency=currency,
+        payment_type=payment_type,
+        payment_reason=payment_reason,
+        description_1=(data.get('description1') or '').strip() or None,
+        created_at=now,
+        updated_at=now
+    )
+    db.session.add(record)
+    db.session.commit()
+    return jsonify({'message': 'Outgoing payment added', 'id': record.id, 'sequenceNumber': record.sequence_number}), 201
+
+
+@api_bp.route('/outgoing-payments/<payment_id>', methods=['PUT'])
+def update_outgoing_payment(payment_id):
+    guard = _require_admin()
+    if guard:
+        return guard
+    record = OutgoingPayment.query.get(payment_id)
+    if not record:
+        return jsonify({'message': 'Outgoing payment not found'}), 404
+    data = request.get_json() or {}
+    if 'paymentDate' in data:
+        value = (data.get('paymentDate') or '').strip()
+        if not value:
+            return jsonify({'message': 'paymentDate cannot be empty'}), 400
+        record.payment_date = value
+    if 'paymentReason' in data:
+        value = (data.get('paymentReason') or '').strip()
+        if not value:
+            return jsonify({'message': 'paymentReason cannot be empty'}), 400
+        record.payment_reason = value
+    if 'paymentType' in data:
+        value = (data.get('paymentType') or '').strip()
+        if value not in ('Cash', 'Bank'):
+            return jsonify({'message': 'paymentType must be Cash or Bank'}), 400
+        record.payment_type = value
+    if 'currency' in data:
+        value = (data.get('currency') or '').strip().upper()
+        if value not in ('USD', 'TRY', 'EUR'):
+            return jsonify({'message': 'currency must be USD, TRY or EUR'}), 400
+        record.currency = value
+    if 'paymentAmount' in data:
+        try:
+            record.payment_amount = float(data.get('paymentAmount'))
+        except (TypeError, ValueError):
+            return jsonify({'message': 'paymentAmount must be a number'}), 400
+    if 'description1' in data:
+        record.description_1 = (data.get('description1') or '').strip() or None
+    record.updated_at = _iso_timestamp()
+    db.session.commit()
+    return jsonify({'message': 'Outgoing payment updated'})
+
+
+@api_bp.route('/outgoing-payments/<payment_id>', methods=['DELETE'])
+def delete_outgoing_payment(payment_id):
+    guard = _require_admin()
+    if guard:
+        return guard
+    record = OutgoingPayment.query.get(payment_id)
+    if not record:
+        return jsonify({'message': 'Outgoing payment not found'}), 404
+    db.session.delete(record)
+    db.session.commit()
+    return jsonify({'message': 'Outgoing payment deleted'})
 
 
 # News and Updates (Haberler ve Güncellemeler)

@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Application, Student, Program, University, ApplicationStatus, User, Period, APPLICATION_CURRENCIES } from '../types';
+import { Application, Student, Program, University, ApplicationStatus, User, Period } from '../types';
 import {
   Plus, Filter, FileText, CheckCircle, XCircle, AlertCircle,
   MessageSquare, User as UserIcon, GraduationCap,
@@ -137,7 +137,28 @@ interface ApplicationManagerProps {
   users?: User[];
   onAddApplication: (app: Application, files?: FileList | null) => Promise<string | null> | void;
   onUpdateStatus: (id: string, status: ApplicationStatus) => void;
-  onUpdateApplication?: (id: string, payload: { status?: ApplicationStatus; responsibleId?: string | null; cost?: number | null; commission?: number | null; saleAmount?: number | null; currency?: string }) => void | Promise<void>;
+  onUpdateApplication?: (id: string, payload: {
+    status?: ApplicationStatus;
+    responsibleId?: string | null;
+    userId?: string | null;
+    annualPayment?: number | null;
+    educationVat?: number | null;
+    grossCommission?: number | null;
+    abroadVat?: number | null;
+    netCommission?: number | null;
+    bonusMax?: number | null;
+    bonusMin?: number | null;
+    agencyCommission?: number | null;
+    agencyBonus?: number | null;
+    agencyContractAmount?: number | null;
+    agencyPaidContractAmount?: number | null;
+    agencyPaidContractDescription?: string | null;
+    agencyPaidContractDescriptionDate?: string | null;
+    agencyPaidContractPaymentMethod?: string | null;
+    currency?: string | null;
+    remainingMin?: number | null;
+    remainingMax?: number | null;
+  }) => void | Promise<void>;
   onSyncApplicationTimestamps?: (payload: {
     applicationId: string;
     applicationUpdatedAt: string;
@@ -192,14 +213,29 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const [selectedResponsibleId, setSelectedResponsibleId] = useState('');
 
   // Inline edit in detail: financial fields (admin only), synced when app changes
-  const [detailCost, setDetailCost] = useState<string>('');
-  const [detailCommission, setDetailCommission] = useState<string>('');
-  const [detailSaleAmount, setDetailSaleAmount] = useState<string>('');
+  const [detailFinance, setDetailFinance] = useState({
+    annualPayment: '',
+    educationVat: '',
+    grossCommission: '',
+    abroadVat: '',
+    netCommission: '',
+    bonusMax: '',
+    bonusMin: '',
+    agencyCommission: '',
+    agencyBonus: '',
+    agencyContractAmount: '',
+    agencyPaidContractAmount: '',
+    agencyPaidContractDescription: '',
+    agencyPaidContractDescriptionDate: '',
+    agencyPaidContractPaymentMethod: '',
+    currency: 'USD',
+    remainingMin: '',
+    remainingMax: ''
+  });
   const [detailEditMode, setDetailEditMode] = useState(false);
   const [detailLeftTab, setDetailLeftTab] = useState<'general' | 'files'>('general');
   const [editFormAgentId, setEditFormAgentId] = useState('');
   const [editFormResponsibleId, setEditFormResponsibleId] = useState('');
-  const [detailCurrency, setDetailCurrency] = useState<string>('USD');
 
   const agentUsers = useMemo(() => users.filter(u => (u.role || '').toString().toLowerCase() === 'agent'), [users]);
   const responsibleUsers = useMemo(() => users.filter(u => { const r = (u.role || '').toString().toUpperCase(); return r === 'ADMIN' || r === 'USER'; }), [users]);
@@ -217,6 +253,25 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
 
   const activePeriods = useMemo(() => periods.filter(p => p.active !== false), [periods]);
   const getPeriod = (id: string | undefined) => (id ? periods.find(p => p.id === id) : null);
+  const financeFromApplication = (app: Application) => ({
+    annualPayment: app.annualPayment != null ? String(app.annualPayment) : '',
+    educationVat: app.educationVat != null ? String(app.educationVat) : '',
+    grossCommission: app.grossCommission != null ? String(app.grossCommission) : '',
+    abroadVat: app.abroadVat != null ? String(app.abroadVat) : '',
+    netCommission: app.netCommission != null ? String(app.netCommission) : '',
+    bonusMax: app.bonusMax != null ? String(app.bonusMax) : '',
+    bonusMin: app.bonusMin != null ? String(app.bonusMin) : '',
+    agencyCommission: app.agencyCommission != null ? String(app.agencyCommission) : '',
+    agencyBonus: app.agencyBonus != null ? String(app.agencyBonus) : '',
+    agencyContractAmount: app.agencyContractAmount != null ? String(app.agencyContractAmount) : '',
+    agencyPaidContractAmount: app.agencyPaidContractAmount != null ? String(app.agencyPaidContractAmount) : '',
+    agencyPaidContractDescription: app.agencyPaidContractDescription || '',
+    agencyPaidContractDescriptionDate: app.agencyPaidContractDescriptionDate || '',
+    agencyPaidContractPaymentMethod: app.agencyPaidContractPaymentMethod || '',
+    currency: (app.currency && ['USD', 'TRY', 'EUR'].includes(app.currency)) ? app.currency : 'USD',
+    remainingMin: app.remainingMin != null ? String(app.remainingMin) : '',
+    remainingMax: app.remainingMax != null ? String(app.remainingMax) : ''
+  });
 
   // Derived filters: first by period (active only), then by degree
   const availablePrograms = useMemo(() => {
@@ -326,12 +381,9 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     if (!selectedAppId) return;
     const app = applications.find(a => a.id === selectedAppId);
     if (app) {
-      setDetailCost(app.cost != null ? String(app.cost) : '');
-      setDetailCommission(app.commission != null ? String(app.commission) : '');
-      setDetailSaleAmount(app.saleAmount != null ? String(app.saleAmount) : '');
+      setDetailFinance(financeFromApplication(app));
       setEditFormAgentId(app.userId || '');
       setEditFormResponsibleId(app.responsibleId || '');
-      setDetailCurrency(app.currency && APPLICATION_CURRENCIES.includes(app.currency as any) ? app.currency : 'USD');
     }
     setDetailEditMode(false);
     setDetailLeftTab('general');
@@ -808,12 +860,9 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      setDetailCost(app.cost != null ? String(app.cost) : '');
-                      setDetailCommission(app.commission != null ? String(app.commission) : '');
-                      setDetailSaleAmount(app.saleAmount != null ? String(app.saleAmount) : '');
+                      setDetailFinance(financeFromApplication(app));
                       setEditFormAgentId(app.userId || '');
                       setEditFormResponsibleId(app.responsibleId || '');
-                      setDetailCurrency(app.currency && APPLICATION_CURRENCIES.includes(app.currency as any) ? app.currency : 'USD');
                       setDetailEditMode(false);
                     }}
                     className="px-4 py-2 rounded-xl font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors text-sm whitespace-nowrap"
@@ -827,10 +876,23 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                       onUpdateApplication(app.id, {
                         userId: editFormAgentId || null,
                         responsibleId: editFormResponsibleId || null,
-                        cost: num(detailCost),
-                        commission: num(detailCommission),
-                        saleAmount: num(detailSaleAmount),
-                        currency: APPLICATION_CURRENCIES.includes(detailCurrency as any) ? detailCurrency : 'USD'
+                        annualPayment: num(detailFinance.annualPayment),
+                        educationVat: num(detailFinance.educationVat),
+                        grossCommission: num(detailFinance.grossCommission),
+                        abroadVat: num(detailFinance.abroadVat),
+                        netCommission: num(detailFinance.netCommission),
+                        bonusMax: num(detailFinance.bonusMax),
+                        bonusMin: num(detailFinance.bonusMin),
+                        agencyCommission: num(detailFinance.agencyCommission),
+                        agencyBonus: num(detailFinance.agencyBonus),
+                        agencyContractAmount: num(detailFinance.agencyContractAmount),
+                        agencyPaidContractAmount: num(detailFinance.agencyPaidContractAmount),
+                        agencyPaidContractDescription: detailFinance.agencyPaidContractDescription.trim() || null,
+                        agencyPaidContractDescriptionDate: detailFinance.agencyPaidContractDescriptionDate || null,
+                        agencyPaidContractPaymentMethod: detailFinance.agencyPaidContractPaymentMethod.trim() || null,
+                        currency: ['USD', 'TRY', 'EUR'].includes(detailFinance.currency) ? detailFinance.currency : 'USD',
+                        remainingMin: num(detailFinance.remainingMin),
+                        remainingMax: num(detailFinance.remainingMax)
                       });
                       setDetailEditMode(false);
                     }}
@@ -1274,89 +1336,139 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
         {/* 3. Financial block at bottom */}
         {isAdmin && (
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
-            <h3 className="text-gray-500 text-xs font-bold uppercase tracking-wider mb-3">{t.cost} / {t.commission} / {t.saleAmount}</h3>
-            <div className="grid grid-cols-5 gap-4 text-sm w-full">
+            <h3 className="text-gray-500 text-xs font-bold uppercase tracking-wider mb-3">Finansal Bilgiler</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm w-full">
               {detailEditMode ? (
                 <>
                   <div className="min-w-0 flex flex-col gap-1">
-                    <label className="text-gray-500 text-xs font-medium">{t.cost}</label>
+                    <label className="text-gray-500 text-xs font-medium">Yıllık Ödeme</label>
                     <input
                       type="number"
                       step="any"
-                      value={detailCost}
-                      onChange={(e) => setDetailCost(e.target.value)}
+                      value={detailFinance.annualPayment}
+                      onChange={(e) => setDetailFinance(prev => ({ ...prev, annualPayment: e.target.value }))}
                       className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                     />
                   </div>
                   <div className="min-w-0 flex flex-col gap-1">
-                    <label className="text-gray-500 text-xs font-medium">{t.commission}</label>
+                    <label className="text-gray-500 text-xs font-medium">Eğitim KDV</label>
                     <input
                       type="number"
                       step="any"
-                      value={detailCommission}
-                      onChange={(e) => setDetailCommission(e.target.value)}
+                      value={detailFinance.educationVat}
+                      onChange={(e) => setDetailFinance(prev => ({ ...prev, educationVat: e.target.value }))}
                       className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                     />
                   </div>
                   <div className="min-w-0 flex flex-col gap-1">
-                    <label className="text-gray-500 text-xs font-medium">{t.saleAmount}</label>
+                    <label className="text-gray-500 text-xs font-medium">Brüt Komisyon</label>
                     <input
                       type="number"
                       step="any"
-                      value={detailSaleAmount}
-                      onChange={(e) => setDetailSaleAmount(e.target.value)}
+                      value={detailFinance.grossCommission}
+                      onChange={(e) => setDetailFinance(prev => ({ ...prev, grossCommission: e.target.value }))}
                       className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                     />
                   </div>
                   <div className="min-w-0 flex flex-col gap-1">
-                    <label className="text-gray-500 text-xs font-medium">{t.currency}</label>
+                    <label className="text-gray-500 text-xs font-medium">Yurtdışı KDV</label>
+                    <input type="number" step="any" value={detailFinance.abroadVat} onChange={(e) => setDetailFinance(prev => ({ ...prev, abroadVat: e.target.value }))} className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                  </div>
+                  <div className="min-w-0 flex flex-col gap-1">
+                    <label className="text-gray-500 text-xs font-medium">Net Komisyon</label>
+                    <input type="number" step="any" value={detailFinance.netCommission} onChange={(e) => setDetailFinance(prev => ({ ...prev, netCommission: e.target.value }))} className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                  </div>
+                  <div className="min-w-0 flex flex-col gap-1">
+                    <label className="text-gray-500 text-xs font-medium">Bonus Max</label>
+                    <input type="number" step="any" value={detailFinance.bonusMax} onChange={(e) => setDetailFinance(prev => ({ ...prev, bonusMax: e.target.value }))} className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                  </div>
+                  <div className="min-w-0 flex flex-col gap-1">
+                    <label className="text-gray-500 text-xs font-medium">Bonus Min</label>
+                    <input type="number" step="any" value={detailFinance.bonusMin} onChange={(e) => setDetailFinance(prev => ({ ...prev, bonusMin: e.target.value }))} className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                  </div>
+                  <div className="min-w-0 flex flex-col gap-1">
+                    <label className="text-gray-500 text-xs font-medium">Acenta Komisyon</label>
+                    <input type="number" step="any" value={detailFinance.agencyCommission} onChange={(e) => setDetailFinance(prev => ({ ...prev, agencyCommission: e.target.value }))} className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                  </div>
+                  <div className="min-w-0 flex flex-col gap-1">
+                    <label className="text-gray-500 text-xs font-medium">Acenta Bonus</label>
+                    <input type="number" step="any" value={detailFinance.agencyBonus} onChange={(e) => setDetailFinance(prev => ({ ...prev, agencyBonus: e.target.value }))} className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                  </div>
+                  <div className="min-w-0 flex flex-col gap-1">
+                    <label className="text-gray-500 text-xs font-medium">Acenta Anlaşma Miktarı</label>
+                    <input type="number" step="any" value={detailFinance.agencyContractAmount} onChange={(e) => setDetailFinance(prev => ({ ...prev, agencyContractAmount: e.target.value }))} className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                  </div>
+                  <div className="min-w-0 flex flex-col gap-1">
+                    <label className="text-gray-500 text-xs font-medium">Acenta Ödenmiş Anlaşma Miktarı</label>
+                    <input type="number" step="any" value={detailFinance.agencyPaidContractAmount} onChange={(e) => setDetailFinance(prev => ({ ...prev, agencyPaidContractAmount: e.target.value }))} className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                  </div>
+                  <div className="min-w-0 flex flex-col gap-1 lg:col-span-2">
+                    <label className="text-gray-500 text-xs font-medium">Acenta Ödenmiş Anlaşma Miktarı Açıklaması</label>
+                    <input type="text" value={detailFinance.agencyPaidContractDescription} onChange={(e) => setDetailFinance(prev => ({ ...prev, agencyPaidContractDescription: e.target.value }))} className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                  </div>
+                  <div className="min-w-0 flex flex-col gap-1">
+                    <label className="text-gray-500 text-xs font-medium">Açıklama Tarihi</label>
+                    <input type="date" value={detailFinance.agencyPaidContractDescriptionDate} onChange={(e) => setDetailFinance(prev => ({ ...prev, agencyPaidContractDescriptionDate: e.target.value }))} className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                  </div>
+                  <div className="min-w-0 flex flex-col gap-1">
+                    <label className="text-gray-500 text-xs font-medium">Ödeme Şekli</label>
+                    <input type="text" value={detailFinance.agencyPaidContractPaymentMethod} onChange={(e) => setDetailFinance(prev => ({ ...prev, agencyPaidContractPaymentMethod: e.target.value }))} className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                  </div>
+                  <div className="min-w-0 flex flex-col gap-1">
+                    <label className="text-gray-500 text-xs font-medium">Currency</label>
                     <select
-                      value={detailCurrency}
-                      onChange={(e) => setDetailCurrency(e.target.value)}
-                      className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium"
+                      value={detailFinance.currency}
+                      onChange={(e) => setDetailFinance(prev => ({ ...prev, currency: e.target.value }))}
+                      className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                     >
-                      {APPLICATION_CURRENCIES.map(c => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
+                      <option value="USD">USD</option>
+                      <option value="TRY">TRY</option>
+                      <option value="EUR">EUR</option>
                     </select>
                   </div>
-                  <div className="min-w-0 flex flex-col gap-1 justify-end">
-                    <span className="text-gray-500 text-xs font-medium">{t.profit}</span>
-                    <p className="font-medium text-gray-900 pt-2">
-                      {(app.saleAmount != null && (app.cost != null || app.commission != null))
-                        ? (Number(app.saleAmount) - (Number(app.cost) || 0) - (Number(app.commission) || 0))
-                        : '—'}
-                      <span className="ml-1 text-gray-600 text-sm">{app.currency || 'USD'}</span>
-                    </p>
+                  <div className="min-w-0 flex flex-col gap-1">
+                    <label className="text-gray-500 text-xs font-medium">Kalan Min</label>
+                    <input type="number" step="any" value={detailFinance.remainingMin} onChange={(e) => setDetailFinance(prev => ({ ...prev, remainingMin: e.target.value }))} className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                  </div>
+                  <div className="min-w-0 flex flex-col gap-1">
+                    <label className="text-gray-500 text-xs font-medium">Kalan Max</label>
+                    <input type="number" step="any" value={detailFinance.remainingMax} onChange={(e) => setDetailFinance(prev => ({ ...prev, remainingMax: e.target.value }))} className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
                   </div>
                 </>
               ) : (
                 <>
                   <div className="min-w-0 py-1">
-                    <p className="text-gray-500 text-xs font-medium">{t.cost}</p>
-                    <p className="font-medium text-gray-900 mt-0.5">{app.cost != null ? Number(app.cost) : '—'} <span className="text-gray-600">{app.currency || 'USD'}</span></p>
+                    <p className="text-gray-500 text-xs font-medium">Yıllık Ödeme</p>
+                    <p className="font-medium text-gray-900 mt-0.5">{app.annualPayment != null ? Number(app.annualPayment) : '—'}</p>
                   </div>
                   <div className="min-w-0 py-1">
-                    <p className="text-gray-500 text-xs font-medium">{t.commission}</p>
-                    <p className="font-medium text-gray-900 mt-0.5">{app.commission != null ? Number(app.commission) : '—'} <span className="text-gray-600">{app.currency || 'USD'}</span></p>
+                    <p className="text-gray-500 text-xs font-medium">Eğitim KDV</p>
+                    <p className="font-medium text-gray-900 mt-0.5">{app.educationVat != null ? Number(app.educationVat) : '—'}</p>
                   </div>
                   <div className="min-w-0 py-1">
-                    <p className="text-gray-500 text-xs font-medium">{t.saleAmount}</p>
-                    <p className="font-medium text-gray-900 mt-0.5">{app.saleAmount != null ? Number(app.saleAmount) : '—'} <span className="text-gray-600">{app.currency || 'USD'}</span></p>
+                    <p className="text-gray-500 text-xs font-medium">Brüt Komisyon</p>
+                    <p className="font-medium text-gray-900 mt-0.5">{app.grossCommission != null ? Number(app.grossCommission) : '—'}</p>
                   </div>
                   <div className="min-w-0 py-1">
-                    <p className="text-gray-500 text-xs font-medium">{t.currency}</p>
-                    <p className="font-medium text-gray-900 mt-0.5">{app.currency || 'USD'}</p>
+                    <p className="text-gray-500 text-xs font-medium">Yurtdışı KDV</p>
+                    <p className="font-medium text-gray-900 mt-0.5">{app.abroadVat != null ? Number(app.abroadVat) : '—'}</p>
                   </div>
                   <div className="min-w-0 py-1">
-                    <p className="text-gray-500 text-xs font-medium">{t.profit}</p>
-                    <p className="font-medium text-gray-900 mt-0.5">
-                      {(app.saleAmount != null && (app.cost != null || app.commission != null))
-                        ? (Number(app.saleAmount) - (Number(app.cost) || 0) - (Number(app.commission) || 0))
-                        : '—'}
-                      <span className="ml-1 text-gray-600">{app.currency || 'USD'}</span>
-                    </p>
+                    <p className="text-gray-500 text-xs font-medium">Net Komisyon</p>
+                    <p className="font-medium text-gray-900 mt-0.5">{app.netCommission != null ? Number(app.netCommission) : '—'}</p>
                   </div>
+                  <div className="min-w-0 py-1"><p className="text-gray-500 text-xs font-medium">Bonus Max</p><p className="font-medium text-gray-900 mt-0.5">{app.bonusMax != null ? Number(app.bonusMax) : '—'}</p></div>
+                  <div className="min-w-0 py-1"><p className="text-gray-500 text-xs font-medium">Bonus Min</p><p className="font-medium text-gray-900 mt-0.5">{app.bonusMin != null ? Number(app.bonusMin) : '—'}</p></div>
+                  <div className="min-w-0 py-1"><p className="text-gray-500 text-xs font-medium">Acenta Komisyon</p><p className="font-medium text-gray-900 mt-0.5">{app.agencyCommission != null ? Number(app.agencyCommission) : '—'}</p></div>
+                  <div className="min-w-0 py-1"><p className="text-gray-500 text-xs font-medium">Acenta Bonus</p><p className="font-medium text-gray-900 mt-0.5">{app.agencyBonus != null ? Number(app.agencyBonus) : '—'}</p></div>
+                  <div className="min-w-0 py-1"><p className="text-gray-500 text-xs font-medium">Acenta Anlaşma Miktarı</p><p className="font-medium text-gray-900 mt-0.5">{app.agencyContractAmount != null ? Number(app.agencyContractAmount) : '—'}</p></div>
+                  <div className="min-w-0 py-1"><p className="text-gray-500 text-xs font-medium">Acenta Ödenmiş Anlaşma Miktarı</p><p className="font-medium text-gray-900 mt-0.5">{app.agencyPaidContractAmount != null ? Number(app.agencyPaidContractAmount) : '—'}</p></div>
+                  <div className="min-w-0 py-1 lg:col-span-2"><p className="text-gray-500 text-xs font-medium">Acenta Ödenmiş Anlaşma Miktarı Açıklaması</p><p className="font-medium text-gray-900 mt-0.5 break-words">{app.agencyPaidContractDescription || '—'}</p></div>
+                  <div className="min-w-0 py-1"><p className="text-gray-500 text-xs font-medium">Açıklama Tarihi</p><p className="font-medium text-gray-900 mt-0.5">{app.agencyPaidContractDescriptionDate || '—'}</p></div>
+                  <div className="min-w-0 py-1"><p className="text-gray-500 text-xs font-medium">Ödeme Şekli</p><p className="font-medium text-gray-900 mt-0.5">{app.agencyPaidContractPaymentMethod || '—'}</p></div>
+                  <div className="min-w-0 py-1"><p className="text-gray-500 text-xs font-medium">Currency</p><p className="font-medium text-gray-900 mt-0.5">{app.currency || 'USD'}</p></div>
+                  <div className="min-w-0 py-1"><p className="text-gray-500 text-xs font-medium">Kalan Min</p><p className="font-medium text-gray-900 mt-0.5">{app.remainingMin != null ? Number(app.remainingMin) : '—'}</p></div>
+                  <div className="min-w-0 py-1"><p className="text-gray-500 text-xs font-medium">Kalan Max</p><p className="font-medium text-gray-900 mt-0.5">{app.remainingMax != null ? Number(app.remainingMax) : '—'}</p></div>
                 </>
               )}
             </div>

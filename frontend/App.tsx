@@ -22,6 +22,7 @@ import {
 } from './types';
 import { PeriodManager } from './components/PeriodManager';
 import { ApplicationsDashboard } from './components/ApplicationsDashboard';
+import { PaymentsManager } from './components/PaymentsManager';
 
 const NewsAndUpdates = lazy(() => import('./components/NewsAndUpdates').then(m => ({ default: m.NewsAndUpdates })));
 
@@ -45,6 +46,8 @@ const PATH_TO_PAGE: Record<string, string> = {
   '/applications-dashboard': 'applications-dashboard',
   '/periods': 'periods',
   '/users': 'users',
+  '/incoming-payments': 'incoming-payments',
+  '/outgoing-payments': 'outgoing-payments',
   '/news': 'news',
   '/account': 'account'
 };
@@ -58,6 +61,8 @@ const PAGE_TO_PATH: Record<string, string> = {
   'applications-dashboard': '/applications-dashboard',
   periods: '/periods',
   users: '/users',
+  'incoming-payments': '/incoming-payments',
+  'outgoing-payments': '/outgoing-payments',
   news: '/news',
   account: '/account'
 };
@@ -130,7 +135,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (state.currentUser && state.currentUser.role !== UserRole.ADMIN && (activePage === 'users' || activePage === 'periods' || activePage === 'applications-dashboard')) {
+    if (state.currentUser && state.currentUser.role !== UserRole.ADMIN && (activePage === 'users' || activePage === 'periods' || activePage === 'applications-dashboard' || activePage === 'incoming-payments' || activePage === 'outgoing-payments')) {
       setActivePage('dashboard');
       if (typeof window !== 'undefined') {
         window.history.replaceState({ page: 'dashboard' }, '', '/dashboard');
@@ -351,10 +356,6 @@ export default function App() {
     const userIdToSend = app.userId ?? state.currentUser?.id ?? '';
     if (userIdToSend) formData.append('user_id', userIdToSend);
     if (app.responsibleId) formData.append('responsible_id', app.responsibleId);
-    if (app.cost != null) formData.append('cost', String(app.cost));
-    if (app.commission != null) formData.append('commission', String(app.commission));
-    if (app.saleAmount != null) formData.append('sale_amount', String(app.saleAmount));
-    formData.append('currency', app.currency && ['USD', 'TRY', 'EUR'].includes(app.currency) ? app.currency : 'USD');
     if (state.currentUser) formData.append('role', state.currentUser.role);
     try {
       const res = await fetch('/api/applications', {
@@ -380,9 +381,6 @@ export default function App() {
             agentCountryCode: agentUser.countryCode
           }),
           ...(app.responsibleId && { responsibleId: app.responsibleId, responsibleName: responsibleUser?.name }),
-          ...(app.cost != null && { cost: app.cost }),
-          ...(app.commission != null && { commission: app.commission }),
-          ...(app.saleAmount != null && { saleAmount: app.saleAmount }),
           currency: app.currency && ['USD', 'TRY', 'EUR'].includes(app.currency) ? app.currency : 'USD'
         };
         setState(prev => ({
@@ -426,7 +424,28 @@ export default function App() {
     }
   };
 
-  const updateApplication = async (id: string, payload: { status?: ApplicationStatus; userId?: string | null; responsibleId?: string | null; cost?: number | null; commission?: number | null; saleAmount?: number | null; currency?: string }) => {
+  const updateApplication = async (id: string, payload: {
+    status?: ApplicationStatus;
+    userId?: string | null;
+    responsibleId?: string | null;
+    annualPayment?: number | null;
+    educationVat?: number | null;
+    grossCommission?: number | null;
+    abroadVat?: number | null;
+    netCommission?: number | null;
+    bonusMax?: number | null;
+    bonusMin?: number | null;
+    agencyCommission?: number | null;
+    agencyBonus?: number | null;
+    agencyContractAmount?: number | null;
+    agencyPaidContractAmount?: number | null;
+    agencyPaidContractDescription?: string | null;
+    agencyPaidContractDescriptionDate?: string | null;
+    agencyPaidContractPaymentMethod?: string | null;
+    currency?: string | null;
+    remainingMin?: number | null;
+    remainingMax?: number | null;
+  }) => {
     try {
       const res = await fetch(`/api/applications/${id}`, {
         method: 'PUT',
@@ -449,10 +468,23 @@ export default function App() {
               agentCountryCode: agentUser?.countryCode
             }),
             ...(payload.responsibleId !== undefined && { responsibleId: payload.responsibleId || undefined, responsibleName: responsibleUser?.name }),
-            ...(payload.cost !== undefined && { cost: payload.cost ?? undefined }),
-            ...(payload.commission !== undefined && { commission: payload.commission ?? undefined }),
-            ...(payload.saleAmount !== undefined && { saleAmount: payload.saleAmount ?? undefined }),
-            ...(payload.currency !== undefined && { currency: payload.currency }),
+            ...(payload.annualPayment !== undefined && { annualPayment: payload.annualPayment ?? undefined }),
+            ...(payload.educationVat !== undefined && { educationVat: payload.educationVat ?? undefined }),
+            ...(payload.grossCommission !== undefined && { grossCommission: payload.grossCommission ?? undefined }),
+            ...(payload.abroadVat !== undefined && { abroadVat: payload.abroadVat ?? undefined }),
+            ...(payload.netCommission !== undefined && { netCommission: payload.netCommission ?? undefined }),
+            ...(payload.bonusMax !== undefined && { bonusMax: payload.bonusMax ?? undefined }),
+            ...(payload.bonusMin !== undefined && { bonusMin: payload.bonusMin ?? undefined }),
+            ...(payload.agencyCommission !== undefined && { agencyCommission: payload.agencyCommission ?? undefined }),
+            ...(payload.agencyBonus !== undefined && { agencyBonus: payload.agencyBonus ?? undefined }),
+            ...(payload.agencyContractAmount !== undefined && { agencyContractAmount: payload.agencyContractAmount ?? undefined }),
+            ...(payload.agencyPaidContractAmount !== undefined && { agencyPaidContractAmount: payload.agencyPaidContractAmount ?? undefined }),
+            ...(payload.agencyPaidContractDescription !== undefined && { agencyPaidContractDescription: payload.agencyPaidContractDescription ?? undefined }),
+            ...(payload.agencyPaidContractDescriptionDate !== undefined && { agencyPaidContractDescriptionDate: payload.agencyPaidContractDescriptionDate ?? undefined }),
+            ...(payload.agencyPaidContractPaymentMethod !== undefined && { agencyPaidContractPaymentMethod: payload.agencyPaidContractPaymentMethod ?? undefined }),
+            ...(payload.currency !== undefined && { currency: payload.currency ?? undefined }),
+            ...(payload.remainingMin !== undefined && { remainingMin: payload.remainingMin ?? undefined }),
+            ...(payload.remainingMax !== undefined && { remainingMax: payload.remainingMax ?? undefined }),
             ...(data.updatedAt ? { updatedAt: data.updatedAt } : {})
           } : a),
           students: data.studentId && data.studentUpdatedAt
@@ -802,6 +834,34 @@ export default function App() {
             onSetUserActive={setUserActive}
           />
         );
+      case 'incoming-payments':
+        if (state.currentUser?.role !== UserRole.ADMIN) {
+          return (
+            <Dashboard
+              students={state.students}
+              applications={state.applications}
+              programs={state.programs}
+              universitiesCount={state.universities.length}
+              onOpenApplication={openApplicationDetails}
+              onOpenStudent={openStudentDetails}
+            />
+          );
+        }
+        return <PaymentsManager mode="incoming" currentUser={state.currentUser} />;
+      case 'outgoing-payments':
+        if (state.currentUser?.role !== UserRole.ADMIN) {
+          return (
+            <Dashboard
+              students={state.students}
+              applications={state.applications}
+              programs={state.programs}
+              universitiesCount={state.universities.length}
+              onOpenApplication={openApplicationDetails}
+              onOpenStudent={openStudentDetails}
+            />
+          );
+        }
+        return <PaymentsManager mode="outgoing" currentUser={state.currentUser} />;
       default:
         return (
           <Dashboard

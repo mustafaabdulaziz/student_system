@@ -77,10 +77,23 @@ class Application(db.Model):
     user = db.relationship('User', backref='applications', foreign_keys=[user_id])
     responsible_id = db.Column(db.String, db.ForeignKey('users.id'), nullable=True)  # Admin or User responsible
     responsible = db.relationship('User', foreign_keys=[responsible_id])
-    cost = db.Column(db.Float, nullable=True)
-    commission = db.Column(db.Float, nullable=True)
-    sale_amount = db.Column(db.Float, nullable=True)
+    annual_payment = db.Column(db.Float, nullable=True)
+    education_vat = db.Column(db.Float, nullable=True)
+    gross_commission = db.Column(db.Float, nullable=True)
+    abroad_vat = db.Column(db.Float, nullable=True)
+    net_commission = db.Column(db.Float, nullable=True)
+    bonus_max = db.Column(db.Float, nullable=True)
+    bonus_min = db.Column(db.Float, nullable=True)
+    agency_commission = db.Column(db.Float, nullable=True)
+    agency_bonus = db.Column(db.Float, nullable=True)
+    agency_contract_amount = db.Column(db.Float, nullable=True)
+    agency_paid_contract_amount = db.Column(db.Float, nullable=True)
+    agency_paid_contract_description = db.Column(db.String, nullable=True)
+    agency_paid_contract_description_date = db.Column(db.String, nullable=True)
+    agency_paid_contract_payment_method = db.Column(db.String, nullable=True)
     currency = db.Column(db.String, nullable=True, default='USD')
+    remaining_min = db.Column(db.Float, nullable=True)
+    remaining_max = db.Column(db.Float, nullable=True)
 
 
 
@@ -121,3 +134,30 @@ class Notification(db.Model):
     is_read = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.String, nullable=False)
     type = db.Column(db.String, nullable=False)  # 'MESSAGE', 'STATUS', 'NEWS'
+
+
+class IncomingPayment(db.Model):
+    __tablename__ = 'incoming_payments'
+    id = db.Column(db.String, primary_key=True)
+    sequence_number = db.Column(db.Integer, nullable=False, unique=True)
+    payment_date = db.Column(db.String, nullable=False)
+    payment_source = db.Column(db.String, nullable=False)
+    currency = db.Column(db.String, nullable=False, default='USD')
+    description_1 = db.Column(db.String, nullable=True)
+    description_2 = db.Column(db.String, nullable=True)
+    created_at = db.Column(db.String, nullable=False)
+    updated_at = db.Column(db.String, nullable=True)
+
+
+class OutgoingPayment(db.Model):
+    __tablename__ = 'outgoing_payments'
+    id = db.Column(db.String, primary_key=True)
+    sequence_number = db.Column(db.Integer, nullable=False, unique=True)
+    payment_date = db.Column(db.String, nullable=False)
+    payment_amount = db.Column(db.Float, nullable=False)
+    currency = db.Column(db.String, nullable=False, default='USD')
+    payment_type = db.Column(db.String, nullable=False)  # Cash / Bank
+    payment_reason = db.Column(db.String, nullable=False)
+    description_1 = db.Column(db.String, nullable=True)
+    created_at = db.Column(db.String, nullable=False)
+    updated_at = db.Column(db.String, nullable=True)
