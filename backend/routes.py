@@ -1,6 +1,6 @@
 
 from flask import Blueprint, request, jsonify, session, current_app, send_from_directory, url_for
-from models import db, Student, University, Program, Application, User, Notification, Period, NewsItem
+from models import db, Student, University, Program, Application, User, Notification, Period, NewsItem, IncomingPayment, OutgoingPayment
 import os
 import uuid
 from datetime import datetime
@@ -10,6 +10,175 @@ api_bp = Blueprint('api', __name__)
 
 # Uploads at project root: student_system/uploads (when backend is in student_system/backend)
 UPLOADS_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'uploads'))
+
+
+def _iso_timestamp():
+    return datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+
+
+def _normalize_ts_z(ts):
+    """Normalize stored ISO-ish string to API format ending with Z."""
+    if not ts:
+        return None
+    if isinstance(ts, str) and ts.endswith('Z'):
+        return ts
+    if isinstance(ts, str) and 'T' in ts:
+        return ts + 'Z' if not ts.endswith('Z') else ts
+    if isinstance(ts, str):
+        return ts + 'T00:00:00.000Z'
+    return ts
+
+
+def _application_updated_at_for_api(application):
+    raw = getattr(application, 'updated_at', None) or application.created_at
+    return _normalize_ts_z(raw) or _iso_timestamp()
+
+
+def _student_updated_at_for_api(student):
+    raw = getattr(student, 'updated_at', None) or getattr(student, 'created_at', None)
+    return _normalize_ts_z(raw)
+
+
+def _touch_application_and_student(application):
+    """Bump application.updated_at and the parent student's updated_at."""
+    if not application:
+        return
+    now = _iso_timestamp()
+    application.updated_at = now
+    st = Student.query.get(application.student_id)
+    if st:
+        st.updated_at = now
+
+
+def _query_int_arg(name, default_value, min_value=1, max_value=500):
+    raw = request.args.get(name)
+    if raw is None:
+        return default_value
+    try:
+        parsed = int(raw)
+    except (TypeError, ValueError):
+        return default_value
+    if parsed < min_value:
+        return min_value
+    if parsed > max_value:
+        return max_value
+    return parsed
+
+
+def _wants_pagination():
+    return request.args.get('page') is not None or request.args.get('pageSize') is not None
+
+
+def _serialize_student(s):
+    return {
+        'id': s.id,
+        'firstName': s.first_name,
+        'lastName': s.last_name,
+        'passportNumber': s.passport_number,
+        'fatherName': s.father_name,
+        'motherName': s.mother_name,
+        'gender': s.gender,
+        'phone': s.phone,
+        'email': s.email,
+        'nationality': s.nationality,
+        'degreeTarget': s.degree_target,
+        'dob': s.dob,
+        'residenceCountry': s.residence_country,
+        'userId': getattr(s, 'user_id', None),
+        'createdAt': getattr(s, 'created_at', None),
+        'updatedAt': _student_updated_at_for_api(s) or _normalize_ts_z(getattr(s, 'created_at', None))
+    }
+
+
+def _serialize_program(p):
+    return {
+        'id': p.id,
+        'universityId': p.university_id,
+        'name': p.name,
+        'nameInArabic': getattr(p, 'name_in_arabic', None),
+        'category': getattr(p, 'category', None),
+        'degree': p.degree,
+        'language': p.language,
+        'years': p.years,
+        'deadline': getattr(p, 'deadline', None),
+        'periodId': getattr(p, 'period_id', None),
+        'fee': p.fee,
+        'feeBeforeDiscount': getattr(p, 'fee_before_discount', None),
+        'deposit': getattr(p, 'deposit', None),
+        'cashPrice': getattr(p, 'cash_price', None),
+        'currency': getattr(p, 'currency', 'USD'),
+        'country': getattr(p, 'country', None),
+        'description': p.description,
+        'isOpen': bool(getattr(p, 'is_open', True))
+    }
+
+
+def _normalize_created_at(created_at):
+    if not created_at:
+        return datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+    if created_at.endswith('Z'):
+        return created_at
+    if 'T' in created_at:
+        return created_at + 'Z'
+    return created_at + 'T00:00:00.000Z'
+
+
+def _serialize_application(a, program_by_id):
+    p = program_by_id.get(a.program_id)
+    return {
+        'id': a.id,
+        'studentId': a.student_id,
+        'programId': a.program_id,
+        'periodId': getattr(a, 'period_id', None) or (p.period_id if p else None),
+        'status': a.status,
+        'semester': a.semester,
+        'createdAt': _normalize_created_at(a.created_at),
+        'updatedAt': _application_updated_at_for_api(a),
+        'files': [url_for('api.upload_file', filename=f, _external=False) for f in (a.files or [])],
+        'userId': a.user_id,
+        'agentPhone': a.user.phone if a.user else None,
+        'agentName': a.user.name if a.user else None,
+        'agentCountryCode': a.user.country_code if a.user else None,
+        'responsibleId': getattr(a, 'responsible_id', None),
+        'responsibleName': a.responsible.name if getattr(a, 'responsible', None) and a.responsible else None,
+        'annualPayment': getattr(a, 'annual_payment', None),
+        'educationVat': getattr(a, 'education_vat', None),
+        'grossCommission': getattr(a, 'gross_commission', None),
+        'abroadVat': getattr(a, 'abroad_vat', None),
+        'netCommission': getattr(a, 'net_commission', None),
+        'bonusMax': getattr(a, 'bonus_max', None),
+        'bonusMin': getattr(a, 'bonus_min', None),
+        'agencyCommission': getattr(a, 'agency_commission', None),
+        'agencyBonus': getattr(a, 'agency_bonus', None),
+        'agencyContractAmount': getattr(a, 'agency_contract_amount', None),
+        'agencyPaidContractAmount': getattr(a, 'agency_paid_contract_amount', None),
+        'agencyPaidContractDescription': getattr(a, 'agency_paid_contract_description', None),
+        'agencyPaidContractDescriptionDate': getattr(a, 'agency_paid_contract_description_date', None),
+        'agencyPaidContractPaymentMethod': getattr(a, 'agency_paid_contract_payment_method', None),
+        'currency': getattr(a, 'currency', None) or 'USD',
+        'remainingMin': getattr(a, 'remaining_min', None),
+        'remainingMax': getattr(a, 'remaining_max', None)
+    }
+
+
+def _request_role_value():
+    if request.method == 'GET':
+        return (request.args.get('role') or '').upper()
+    if request.is_json:
+        data = request.get_json(silent=True) or {}
+        return (data.get('role') or '').upper()
+    return (request.form.get('role') or '').upper()
+
+
+def _require_admin():
+    if _request_role_value() != 'ADMIN':
+        return jsonify({'message': 'Only admin can access this endpoint'}), 403
+    return None
+
+
+def _next_sequence(model_cls):
+    max_value = db.session.query(db.func.max(model_cls.sequence_number)).scalar()
+    return int(max_value or 0) + 1
 
 # إضافة مستخدم جديد (خاص بالمسؤول)
 @api_bp.route('/users', methods=['POST'])
@@ -149,10 +318,23 @@ def login():
 def get_students():
     user_role = request.args.get('role')
     user_id = request.args.get('user_id')
+    query = Student.query
     if user_role == 'agent' and user_id:
-        students = Student.query.filter_by(user_id=user_id).all()
-    else:
-        students = Student.query.all()
+        query = query.filter_by(user_id=user_id)
+    query = query.order_by(Student.created_at.desc())
+    if _wants_pagination():
+        page = _query_int_arg('page', 1, min_value=1, max_value=1000000)
+        page_size = _query_int_arg('pageSize', 80, min_value=1, max_value=500)
+        total = query.count()
+        students = query.offset((page - 1) * page_size).limit(page_size).all()
+        return jsonify({
+            'items': [_serialize_student(s) for s in students],
+            'total': total,
+            'page': page,
+            'pageSize': page_size,
+            'totalPages': max(1, (total + page_size - 1) // page_size)
+        })
+    students = query.all()
     # Debug log: show how many students returned and their user_ids
     try:
         print(f"GET /api/students called with role={user_role} user_id={user_id} -> returning {len(students)} students")
@@ -161,23 +343,7 @@ def get_students():
     except Exception:
         pass
 
-    return jsonify([{
-        'id': s.id,
-        'firstName': s.first_name,
-        'lastName': s.last_name,
-        'passportNumber': s.passport_number,
-        'fatherName': s.father_name,
-        'motherName': s.mother_name,
-        'gender': s.gender,
-        'phone': s.phone,
-        'email': s.email,
-        'nationality': s.nationality,
-        'degreeTarget': s.degree_target,
-        'dob': s.dob,
-        'residenceCountry': s.residence_country,
-        'userId': getattr(s, 'user_id', None),
-        'createdAt': getattr(s, 'created_at', None)
-    } for s in students])
+    return jsonify([_serialize_student(s) for s in students])
 
 @api_bp.route('/students', methods=['POST'])
 def add_student():
@@ -186,7 +352,7 @@ def add_student():
     user_id = data.get('user_id')
     if user_role == 'agent' and not user_id:
         return jsonify({'message': 'Agent user_id required'}), 400
-    created_at = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+    created_at = _iso_timestamp()
     student = Student(
         id=str(uuid.uuid4()),
         first_name=data['firstName'],
@@ -195,14 +361,15 @@ def add_student():
         father_name=data['fatherName'],
         mother_name=data['motherName'],
         gender=data['gender'],
-        phone=data['phone'],
-        email=data['email'],
+        phone=data.get('phone') or '',
+        email=data.get('email') or '',
         nationality=data['nationality'],
         degree_target=data['degreeTarget'],
         dob=data['dob'],
         residence_country=data['residenceCountry'],
         user_id=user_id,
-        created_at=created_at
+        created_at=created_at,
+        updated_at=created_at
     )
     db.session.add(student)
     db.session.commit()
@@ -223,7 +390,7 @@ def add_student():
                 db.session.add(n)
             db.session.commit()
     print(f"Created student {student.id} user_id={user_id}")
-    return jsonify({'message': 'Student added', 'id': student.id, 'createdAt': created_at}), 201
+    return jsonify({'message': 'Student added', 'id': student.id, 'createdAt': created_at, 'updatedAt': created_at}), 201
 
 
 @api_bp.route('/students/<student_id>', methods=['PUT'])
@@ -244,8 +411,9 @@ def update_student(student_id):
     student.degree_target = data.get('degreeTarget', student.degree_target)
     student.dob = data.get('dob', student.dob)
     student.residence_country = data.get('residenceCountry', student.residence_country)
+    student.updated_at = _iso_timestamp()
     db.session.commit()
-    return jsonify({'message': 'Student updated'})
+    return jsonify({'message': 'Student updated', 'updatedAt': student.updated_at})
 
 
 # Universities
@@ -284,26 +452,21 @@ def add_university():
 # Programs
 @api_bp.route('/programs', methods=['GET'])
 def get_programs():
-    programs = Program.query.all()
-    return jsonify([{
-        'id': p.id,
-        'universityId': p.university_id,
-        'name': p.name,
-        'nameInArabic': getattr(p, 'name_in_arabic', None),
-        'category': getattr(p, 'category', None),
-        'degree': p.degree,
-        'language': p.language,
-        'years': p.years,
-        'deadline': getattr(p, 'deadline', None),
-        'periodId': getattr(p, 'period_id', None),
-        'fee': p.fee,
-        'feeBeforeDiscount': getattr(p, 'fee_before_discount', None),
-        'deposit': getattr(p, 'deposit', None),
-        'cashPrice': getattr(p, 'cash_price', None),
-        'currency': getattr(p, 'currency', 'USD'),
-        'country': getattr(p, 'country', None),
-        'description': p.description
-    } for p in programs])
+    query = Program.query.order_by(Program.name.asc())
+    if _wants_pagination():
+        page = _query_int_arg('page', 1, min_value=1, max_value=1000000)
+        page_size = _query_int_arg('pageSize', 80, min_value=1, max_value=500)
+        total = query.count()
+        programs = query.offset((page - 1) * page_size).limit(page_size).all()
+        return jsonify({
+            'items': [_serialize_program(p) for p in programs],
+            'total': total,
+            'page': page,
+            'pageSize': page_size,
+            'totalPages': max(1, (total + page_size - 1) // page_size)
+        })
+    programs = query.all()
+    return jsonify([_serialize_program(p) for p in programs])
 
 @api_bp.route('/programs', methods=['POST'])
 def add_program():
@@ -337,7 +500,8 @@ def add_program():
         cash_price=data.get('cashPrice'),
         currency=data.get('currency') or 'USD',
         country=data.get('country') or None,
-        description=data.get('description') or ''
+        description=data.get('description') or '',
+        is_open=True if data.get('isOpen') is None else bool(data.get('isOpen'))
     )
     try:
         db.session.add(program)
@@ -392,6 +556,8 @@ def update_program(prog_id):
         program.country = data['country'] or None
     if 'description' in data:
         program.description = data['description']
+    if 'isOpen' in data:
+        program.is_open = bool(data['isOpen'])
     
     db.session.commit()
     return jsonify({'message': 'تم تحديث البرنامج', 'id': program.id}), 200
@@ -487,44 +653,28 @@ def delete_period(period_id):
 def get_applications():
     user_role = request.args.get('role')
     user_id = request.args.get('user_id')
+    query = Application.query
     if user_role == 'agent' and user_id:
-        applications = Application.query.filter_by(user_id=user_id).all()
-    else:
-        applications = Application.query.all()
-    def _file_urls(file_list):
-        if not file_list:
-            return []
-        return [url_for('api.upload_file', filename=f, _external=False) for f in file_list]
-
-    def _normalize_created_at(created_at):
-        if not created_at:
-            return datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
-        if created_at.endswith('Z'):
-            return created_at
-        if 'T' in created_at:
-            return created_at + 'Z'
-        return created_at + 'T00:00:00.000Z'
-
-    return jsonify([{
-        'id': a.id,
-        'studentId': a.student_id,
-        'programId': a.program_id,
-        'periodId': (lambda pid, prog: pid or (prog.period_id if prog else None))(getattr(a, 'period_id', None), Program.query.get(a.program_id) if a.program_id else None),
-        'status': a.status,
-        'semester': a.semester,
-        'createdAt': _normalize_created_at(a.created_at),
-        'files': _file_urls(a.files),
-        'userId': a.user_id,
-        'agentPhone': a.user.phone if a.user else None,
-        'agentName': a.user.name if a.user else None,
-        'agentCountryCode': a.user.country_code if a.user else None,
-        'responsibleId': getattr(a, 'responsible_id', None),
-        'responsibleName': a.responsible.name if getattr(a, 'responsible', None) and a.responsible else None,
-        'cost': getattr(a, 'cost', None),
-        'commission': getattr(a, 'commission', None),
-        'saleAmount': getattr(a, 'sale_amount', None),
-        'currency': getattr(a, 'currency', None) or 'USD'
-    } for a in applications])
+        query = query.filter_by(user_id=user_id)
+    query = query.order_by(Application.created_at.desc())
+    if _wants_pagination():
+        page = _query_int_arg('page', 1, min_value=1, max_value=1000000)
+        page_size = _query_int_arg('pageSize', 80, min_value=1, max_value=500)
+        total = query.count()
+        applications = query.offset((page - 1) * page_size).limit(page_size).all()
+        program_ids = [a.program_id for a in applications if a.program_id]
+        program_by_id = {p.id: p for p in Program.query.filter(Program.id.in_(program_ids)).all()} if program_ids else {}
+        return jsonify({
+            'items': [_serialize_application(a, program_by_id) for a in applications],
+            'total': total,
+            'page': page,
+            'pageSize': page_size,
+            'totalPages': max(1, (total + page_size - 1) // page_size)
+        })
+    applications = query.all()
+    program_ids = [a.program_id for a in applications if a.program_id]
+    program_by_id = {p.id: p for p in Program.query.filter(Program.id.in_(program_ids)).all()} if program_ids else {}
+    return jsonify([_serialize_application(a, program_by_id) for a in applications])
 
 
 import os
@@ -546,12 +696,6 @@ def add_application():
     user_role = request.form.get('role')
     user_id = request.form.get('user_id')
     responsible_id = request.form.get('responsible_id') or None
-    cost = request.form.get('cost', type=float) if request.form.get('cost') not in (None, '') else None
-    commission = request.form.get('commission', type=float) if request.form.get('commission') not in (None, '') else None
-    sale_amount = request.form.get('sale_amount', type=float) if request.form.get('sale_amount') not in (None, '') else None
-    currency = (request.form.get('currency') or 'USD').strip() or 'USD'
-    if currency not in ('USD', 'TRY', 'EUR'):
-        currency = 'USD'
     created_at = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
     saved_files = []
     upload_folder = UPLOADS_DIR
@@ -568,15 +712,15 @@ def add_application():
         status=status,
         semester=semester,
         created_at=created_at,
+        updated_at=created_at,
         files=saved_files,
         user_id=user_id,
-        responsible_id=responsible_id,
-        cost=cost,
-        commission=commission,
-        sale_amount=sale_amount,
-        currency=currency
+        responsible_id=responsible_id
     )
     db.session.add(application)
+    stu = Student.query.get(student_id)
+    if stu:
+        stu.updated_at = created_at
     db.session.commit()
     # 7. Notify admin and users when an agent adds an application
     if user_id:
@@ -599,7 +743,10 @@ def add_application():
         'message': 'Application added',
         'id': application.id,
         'files': file_urls,
-        'createdAt': application.created_at
+        'createdAt': application.created_at,
+        'updatedAt': application.updated_at or application.created_at,
+        'studentId': student_id,
+        'studentUpdatedAt': stu.updated_at if stu else None
     }), 201
 
 
@@ -645,16 +792,23 @@ def add_application_v2():
         status=status,
         semester=semester,
         created_at=created_at,
+        updated_at=created_at,
         files=saved_files
     )
     db.session.add(application)
+    stu = Student.query.get(student_id)
+    if stu:
+        stu.updated_at = created_at
     db.session.commit()
     file_urls = [url_for('api.upload_file', filename=f, _external=False) for f in saved_files]
     return jsonify({
         'message': 'Application added',
         'id': application.id,
         'files': file_urls,
-        'createdAt': application.created_at
+        'createdAt': application.created_at,
+        'updatedAt': application.updated_at or application.created_at,
+        'studentId': student_id,
+        'studentUpdatedAt': _student_updated_at_for_api(stu) if stu else None
     }), 201
 
 
@@ -697,10 +851,11 @@ def post_application_message(app_id):
         created_at=datetime.utcnow().isoformat()
     )
     db.session.add(msg)
-    db.session.commit()
-
-    # Notification Logic
+    db.session.flush()
     application = Application.query.get(app_id)
+    if application:
+        _touch_application_and_student(application)
+    # Notification Logic
     if application:
         if sender == 'ADMIN':
             # Notify Application Owner (User/Agent)
@@ -730,9 +885,16 @@ def post_application_message(app_id):
                     type="MESSAGE"
                 )
                 db.session.add(n)
-        db.session.commit()
+    db.session.commit()
 
-    resp = {'message': 'Message added', 'id': msg.id}
+    st_after = Student.query.get(application.student_id) if application else None
+    resp = {
+        'message': 'Message added',
+        'id': msg.id,
+        'updatedAt': _application_updated_at_for_api(application) if application else None,
+        'studentId': application.student_id if application else None,
+        'studentUpdatedAt': _student_updated_at_for_api(st_after) if st_after else None
+    }
     if sender_user_id:
         u = User.query.get(sender_user_id)
         resp['senderName'] = u.name if u else None
@@ -836,7 +998,31 @@ def application_files(app_id):
         saved.append(filename)
 
     application.files = (application.files or []) + saved
+    _touch_application_and_student(application)
     db.session.commit()
+
+    # Notify admin, managers (USER), and responsible when an agent uploads files
+    uploader_id = (request.form.get('user_id') or request.form.get('userId') or '').strip() or None
+    if saved and uploader_id:
+        uploader = User.query.get(uploader_id)
+        if uploader and (uploader.role or '').lower() == 'agent':
+            notify_ids = {u.id for u in User.query.filter(User.role.in_(['ADMIN', 'USER'])).all()}
+            if getattr(application, 'responsible_id', None):
+                notify_ids.add(application.responsible_id)
+            notify_ids.discard(uploader_id)
+            for uid in notify_ids:
+                n = Notification(
+                    id=str(uuid.uuid4()),
+                    user_id=uid,
+                    title='Application files uploaded',
+                    message=f"Agent {uploader.name} uploaded file(s) to application #{application.id}.",
+                    link=f"/applications/{application.id}",
+                    created_at=datetime.utcnow().isoformat(),
+                    type='STATUS'
+                )
+                db.session.add(n)
+            db.session.commit()
+
     files_info = [
         {
             'name': f.split('_', 1)[1] if '_' in f else f,
@@ -844,7 +1030,14 @@ def application_files(app_id):
             'url': url_for('api.upload_file', filename=f, _external=False)
         } for f in application.files
     ]
-    return jsonify({'message': 'Files added', 'files': files_info}), 201
+    stu = Student.query.get(application.student_id)
+    return jsonify({
+        'message': 'Files added',
+        'files': files_info,
+        'updatedAt': _application_updated_at_for_api(application),
+        'studentId': application.student_id,
+        'studentUpdatedAt': _student_updated_at_for_api(stu)
+    }), 201
 
 @api_bp.route('/applications/<app_id>/files/<path:filename>', methods=['DELETE'])
 def delete_application_file(app_id, filename):
@@ -860,6 +1053,7 @@ def delete_application_file(app_id, filename):
     # SQLAlchemy requires assigning a new reference or mutating the mutable list properly if using JSON
     # It's safer to assign a new list of the remaining items.
     application.files = list(current_files)
+    _touch_application_and_student(application)
     db.session.commit()
 
     upload_folder = UPLOADS_DIR
@@ -870,7 +1064,13 @@ def delete_application_file(app_id, filename):
         except Exception as e:
             pass # ignore if file already missing or locked
 
-    return jsonify({'message': 'File deleted successfully'}), 200
+    stu = Student.query.get(application.student_id)
+    return jsonify({
+        'message': 'File deleted successfully',
+        'updatedAt': _application_updated_at_for_api(application),
+        'studentId': application.student_id,
+        'studentUpdatedAt': _student_updated_at_for_api(stu)
+    }), 200
 
 # Update application status
 @api_bp.route('/applications/<app_id>/status', methods=['PUT'])
@@ -885,8 +1085,8 @@ def update_application_status(app_id):
         return jsonify({'message': 'Application not found'}), 404
         
     application.status = new_status
-    db.session.commit()
-    
+    _touch_application_and_student(application)
+
     # 5. Notify agent (application owner) when status changes
     if application.user_id:
         notification = Notification(
@@ -915,13 +1115,20 @@ def update_application_status(app_id):
             )
             db.session.add(n)
     db.session.commit()
-        
-    return jsonify({'message': 'Status updated', 'status': application.status}), 200
+
+    stu = Student.query.get(application.student_id)
+    return jsonify({
+        'message': 'Status updated',
+        'status': application.status,
+        'updatedAt': _application_updated_at_for_api(application),
+        'studentId': application.student_id,
+        'studentUpdatedAt': _student_updated_at_for_api(stu)
+    }), 200
 
 
 @api_bp.route('/applications/<app_id>', methods=['PUT'])
 def update_application(app_id):
-    """Update application: status, responsible_id, cost, commission, sale_amount."""
+    """Update application fields."""
     application = Application.query.get(app_id)
     if not application:
         return jsonify({'message': 'Application not found'}), 404
@@ -932,26 +1139,275 @@ def update_application(app_id):
         application.user_id = data['userId'] or None
     if 'responsibleId' in data:
         application.responsible_id = data['responsibleId'] or None
-    if 'cost' in data:
-        application.cost = data['cost'] if data.get('cost') not in (None, '') else None
-    if 'commission' in data:
-        application.commission = data['commission'] if data.get('commission') not in (None, '') else None
-    if 'saleAmount' in data:
-        application.sale_amount = data['saleAmount'] if data.get('saleAmount') not in (None, '') else None
-    if 'currency' in data and data.get('currency') in ('USD', 'TRY', 'EUR'):
-        application.currency = data['currency']
+    numeric_map = {
+        'annualPayment': 'annual_payment',
+        'educationVat': 'education_vat',
+        'grossCommission': 'gross_commission',
+        'abroadVat': 'abroad_vat',
+        'netCommission': 'net_commission',
+        'bonusMax': 'bonus_max',
+        'bonusMin': 'bonus_min',
+        'agencyCommission': 'agency_commission',
+        'agencyBonus': 'agency_bonus',
+        'agencyContractAmount': 'agency_contract_amount',
+        'agencyPaidContractAmount': 'agency_paid_contract_amount',
+        'remainingMin': 'remaining_min',
+        'remainingMax': 'remaining_max'
+    }
+    for api_key, db_attr in numeric_map.items():
+        if api_key in data:
+            value = data.get(api_key)
+            setattr(application, db_attr, value if value not in (None, '') else None)
+
+    text_map = {
+        'agencyPaidContractDescription': 'agency_paid_contract_description',
+        'agencyPaidContractDescriptionDate': 'agency_paid_contract_description_date',
+        'agencyPaidContractPaymentMethod': 'agency_paid_contract_payment_method'
+    }
+    for api_key, db_attr in text_map.items():
+        if api_key in data:
+            value = data.get(api_key)
+            setattr(application, db_attr, (value.strip() if isinstance(value, str) else value) or None)
+    if 'currency' in data:
+        value = (data.get('currency') or '').strip().upper()
+        if value in ('USD', 'TRY', 'EUR'):
+            application.currency = value
+    _touch_application_and_student(application)
     db.session.commit()
+    stu = Student.query.get(application.student_id)
     return jsonify({
         'message': 'Application updated',
         'id': application.id,
         'status': application.status,
         'userId': application.user_id,
         'responsibleId': application.responsible_id,
-        'cost': application.cost,
-        'commission': application.commission,
-        'saleAmount': application.sale_amount,
-        'currency': application.currency or 'USD'
+        'annualPayment': application.annual_payment,
+        'educationVat': application.education_vat,
+        'grossCommission': application.gross_commission,
+        'abroadVat': application.abroad_vat,
+        'netCommission': application.net_commission,
+        'bonusMax': application.bonus_max,
+        'bonusMin': application.bonus_min,
+        'agencyCommission': application.agency_commission,
+        'agencyBonus': application.agency_bonus,
+        'agencyContractAmount': application.agency_contract_amount,
+        'agencyPaidContractAmount': application.agency_paid_contract_amount,
+        'agencyPaidContractDescription': application.agency_paid_contract_description,
+        'agencyPaidContractDescriptionDate': application.agency_paid_contract_description_date,
+        'agencyPaidContractPaymentMethod': application.agency_paid_contract_payment_method,
+        'currency': application.currency or 'USD',
+        'remainingMin': application.remaining_min,
+        'remainingMax': application.remaining_max,
+        'updatedAt': _application_updated_at_for_api(application),
+        'studentId': application.student_id,
+        'studentUpdatedAt': _student_updated_at_for_api(stu)
     }), 200
+
+
+@api_bp.route('/incoming-payments', methods=['GET'])
+def get_incoming_payments():
+    guard = _require_admin()
+    if guard:
+        return guard
+    records = IncomingPayment.query.order_by(IncomingPayment.sequence_number.desc()).all()
+    return jsonify([{
+        'id': r.id,
+        'sequenceNumber': r.sequence_number,
+        'paymentDate': r.payment_date,
+        'paymentSource': r.payment_source,
+        'currency': getattr(r, 'currency', None) or 'USD',
+        'description1': r.description_1,
+        'description2': r.description_2,
+        'createdAt': r.created_at,
+        'updatedAt': r.updated_at
+    } for r in records])
+
+
+@api_bp.route('/incoming-payments', methods=['POST'])
+def add_incoming_payment():
+    guard = _require_admin()
+    if guard:
+        return guard
+    data = request.get_json() or {}
+    payment_date = (data.get('paymentDate') or '').strip()
+    payment_source = (data.get('paymentSource') or '').strip()
+    currency = (data.get('currency') or 'USD').strip().upper()
+    if currency not in ('USD', 'TRY', 'EUR'):
+        currency = 'USD'
+    if not payment_date or not payment_source:
+        return jsonify({'message': 'paymentDate and paymentSource are required'}), 400
+    now = _iso_timestamp()
+    record = IncomingPayment(
+        id=str(uuid.uuid4()),
+        sequence_number=_next_sequence(IncomingPayment),
+        payment_date=payment_date,
+        payment_source=payment_source,
+        currency=currency,
+        description_1=(data.get('description1') or '').strip() or None,
+        description_2=(data.get('description2') or '').strip() or None,
+        created_at=now,
+        updated_at=now
+    )
+    db.session.add(record)
+    db.session.commit()
+    return jsonify({'message': 'Incoming payment added', 'id': record.id, 'sequenceNumber': record.sequence_number}), 201
+
+
+@api_bp.route('/incoming-payments/<payment_id>', methods=['PUT'])
+def update_incoming_payment(payment_id):
+    guard = _require_admin()
+    if guard:
+        return guard
+    record = IncomingPayment.query.get(payment_id)
+    if not record:
+        return jsonify({'message': 'Incoming payment not found'}), 404
+    data = request.get_json() or {}
+    if 'paymentDate' in data:
+        value = (data.get('paymentDate') or '').strip()
+        if not value:
+            return jsonify({'message': 'paymentDate cannot be empty'}), 400
+        record.payment_date = value
+    if 'paymentSource' in data:
+        value = (data.get('paymentSource') or '').strip()
+        if not value:
+            return jsonify({'message': 'paymentSource cannot be empty'}), 400
+        record.payment_source = value
+    if 'currency' in data:
+        value = (data.get('currency') or '').strip().upper()
+        if value not in ('USD', 'TRY', 'EUR'):
+            return jsonify({'message': 'currency must be USD, TRY or EUR'}), 400
+        record.currency = value
+    if 'description1' in data:
+        record.description_1 = (data.get('description1') or '').strip() or None
+    if 'description2' in data:
+        record.description_2 = (data.get('description2') or '').strip() or None
+    record.updated_at = _iso_timestamp()
+    db.session.commit()
+    return jsonify({'message': 'Incoming payment updated'})
+
+
+@api_bp.route('/incoming-payments/<payment_id>', methods=['DELETE'])
+def delete_incoming_payment(payment_id):
+    guard = _require_admin()
+    if guard:
+        return guard
+    record = IncomingPayment.query.get(payment_id)
+    if not record:
+        return jsonify({'message': 'Incoming payment not found'}), 404
+    db.session.delete(record)
+    db.session.commit()
+    return jsonify({'message': 'Incoming payment deleted'})
+
+
+@api_bp.route('/outgoing-payments', methods=['GET'])
+def get_outgoing_payments():
+    guard = _require_admin()
+    if guard:
+        return guard
+    records = OutgoingPayment.query.order_by(OutgoingPayment.sequence_number.desc()).all()
+    return jsonify([{
+        'id': r.id,
+        'sequenceNumber': r.sequence_number,
+        'paymentDate': r.payment_date,
+        'paymentAmount': r.payment_amount,
+        'currency': getattr(r, 'currency', None) or 'USD',
+        'paymentType': r.payment_type,
+        'paymentReason': r.payment_reason,
+        'description1': r.description_1,
+        'createdAt': r.created_at,
+        'updatedAt': r.updated_at
+    } for r in records])
+
+
+@api_bp.route('/outgoing-payments', methods=['POST'])
+def add_outgoing_payment():
+    guard = _require_admin()
+    if guard:
+        return guard
+    data = request.get_json() or {}
+    payment_date = (data.get('paymentDate') or '').strip()
+    payment_reason = (data.get('paymentReason') or '').strip()
+    payment_type = (data.get('paymentType') or '').strip()
+    currency = (data.get('currency') or 'USD').strip().upper()
+    if currency not in ('USD', 'TRY', 'EUR'):
+        currency = 'USD'
+    payment_amount = data.get('paymentAmount')
+    if not payment_date or not payment_reason or payment_type not in ('Cash', 'Bank'):
+        return jsonify({'message': 'paymentDate, paymentType (Cash/Bank), paymentReason are required'}), 400
+    try:
+        payment_amount = float(payment_amount)
+    except (TypeError, ValueError):
+        return jsonify({'message': 'paymentAmount must be a number'}), 400
+    now = _iso_timestamp()
+    record = OutgoingPayment(
+        id=str(uuid.uuid4()),
+        sequence_number=_next_sequence(OutgoingPayment),
+        payment_date=payment_date,
+        payment_amount=payment_amount,
+        currency=currency,
+        payment_type=payment_type,
+        payment_reason=payment_reason,
+        description_1=(data.get('description1') or '').strip() or None,
+        created_at=now,
+        updated_at=now
+    )
+    db.session.add(record)
+    db.session.commit()
+    return jsonify({'message': 'Outgoing payment added', 'id': record.id, 'sequenceNumber': record.sequence_number}), 201
+
+
+@api_bp.route('/outgoing-payments/<payment_id>', methods=['PUT'])
+def update_outgoing_payment(payment_id):
+    guard = _require_admin()
+    if guard:
+        return guard
+    record = OutgoingPayment.query.get(payment_id)
+    if not record:
+        return jsonify({'message': 'Outgoing payment not found'}), 404
+    data = request.get_json() or {}
+    if 'paymentDate' in data:
+        value = (data.get('paymentDate') or '').strip()
+        if not value:
+            return jsonify({'message': 'paymentDate cannot be empty'}), 400
+        record.payment_date = value
+    if 'paymentReason' in data:
+        value = (data.get('paymentReason') or '').strip()
+        if not value:
+            return jsonify({'message': 'paymentReason cannot be empty'}), 400
+        record.payment_reason = value
+    if 'paymentType' in data:
+        value = (data.get('paymentType') or '').strip()
+        if value not in ('Cash', 'Bank'):
+            return jsonify({'message': 'paymentType must be Cash or Bank'}), 400
+        record.payment_type = value
+    if 'currency' in data:
+        value = (data.get('currency') or '').strip().upper()
+        if value not in ('USD', 'TRY', 'EUR'):
+            return jsonify({'message': 'currency must be USD, TRY or EUR'}), 400
+        record.currency = value
+    if 'paymentAmount' in data:
+        try:
+            record.payment_amount = float(data.get('paymentAmount'))
+        except (TypeError, ValueError):
+            return jsonify({'message': 'paymentAmount must be a number'}), 400
+    if 'description1' in data:
+        record.description_1 = (data.get('description1') or '').strip() or None
+    record.updated_at = _iso_timestamp()
+    db.session.commit()
+    return jsonify({'message': 'Outgoing payment updated'})
+
+
+@api_bp.route('/outgoing-payments/<payment_id>', methods=['DELETE'])
+def delete_outgoing_payment(payment_id):
+    guard = _require_admin()
+    if guard:
+        return guard
+    record = OutgoingPayment.query.get(payment_id)
+    if not record:
+        return jsonify({'message': 'Outgoing payment not found'}), 404
+    db.session.delete(record)
+    db.session.commit()
+    return jsonify({'message': 'Outgoing payment deleted'})
 
 
 # News and Updates (Haberler ve Güncellemeler)

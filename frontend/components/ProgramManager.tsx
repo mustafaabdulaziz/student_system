@@ -116,10 +116,15 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
   const [filterUniversityIds, setFilterUniversityIds] = useState<string[]>([]);
   const [filterDegrees, setFilterDegrees] = useState<string[]>([]);
   const [filterLanguages, setFilterLanguages] = useState<string[]>([]);
+  const [filterCountries, setFilterCountries] = useState<string[]>([]);
   const [sortBy, setSortBy] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [columnsOpen, setColumnsOpen] = useState(false);
+  const columnsRef = useRef<HTMLDivElement>(null);
   const LANGUAGES = ['English', 'Turkish', 'Arabic'];
   const DEGREES = ['Bachelor', 'Master', 'PhD', 'CombinedPhD', 'Diploma'] as const;
+  const programColumnKeys = useMemo(() => ['name', 'isOpen', 'university', 'degree', 'language', 'fee', 'cashPrice', 'deposit'], []);
+  const [visibleTreeColumns, setVisibleTreeColumns] = useState<string[]>(programColumnKeys);
   const [formData, setFormData] = useState<Partial<Program>>({
     name: '',
     nameInArabic: '',
@@ -135,11 +140,41 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
     currency: 'USD',
     periodId: '',
     country: '',
-    description: ''
+    description: '',
+    isOpen: true as boolean
   });
 
   const getUniversityName = (id: string) => universities.find(u => u.id === id)?.name || t.noUniversities;
   const getPeriodName = (id: string | undefined) => (id && periods.find(p => p.id === id))?.name ?? '—';
+  const visibleTreeColSpan = visibleTreeColumns.length + 1; // + actions column
+  const programColumnOptions = [
+    { key: 'name', label: t.programName },
+    { key: 'isOpen', label: t.programAvailability },
+    { key: 'university', label: t.universities },
+    { key: 'degree', label: t.programDegree },
+    { key: 'language', label: t.programLanguage },
+    { key: 'fee', label: t.programFee },
+    { key: 'cashPrice', label: t.cashPrice },
+    { key: 'deposit', label: t.deposit }
+  ];
+
+  const getProgramCountry = (prog: Program) => {
+    const pc = (prog.country || '').trim();
+    if (pc) return pc;
+    return (universities.find(u => u.id === prog.universityId)?.country || '').trim();
+  };
+
+  const programCountryFilterOptions = useMemo(() => {
+    const set = new Set<string>();
+    programs.forEach(prog => {
+      const c = getProgramCountry(prog);
+      if (c) set.add(c);
+    });
+    if (set.size === 0) {
+      return [...COUNTRIES].sort((a, b) => a.localeCompare(b)).map(c => ({ value: c, label: c }));
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b)).map(c => ({ value: c, label: c }));
+  }, [programs, universities]);
 
   const filteredPrograms = useMemo(() => {
     return programs.filter(prog => {
@@ -149,9 +184,11 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
       const matchUniversity = filterUniversityIds.length === 0 || filterUniversityIds.includes(prog.universityId);
       const matchDegree = filterDegrees.length === 0 || filterDegrees.includes(prog.degree);
       const matchLanguage = filterLanguages.length === 0 || filterLanguages.includes(prog.language);
-      return matchName && matchNameAr && matchCategory && matchUniversity && matchDegree && matchLanguage;
+      const resolvedCountry = getProgramCountry(prog);
+      const matchCountry = filterCountries.length === 0 || (resolvedCountry !== '' && filterCountries.includes(resolvedCountry));
+      return matchName && matchNameAr && matchCategory && matchUniversity && matchDegree && matchLanguage && matchCountry;
     });
-  }, [programs, searchProgramName, searchNameInArabic, filterCategories, filterUniversityIds, filterDegrees, filterLanguages]);
+  }, [programs, searchProgramName, searchNameInArabic, filterCategories, filterUniversityIds, filterDegrees, filterLanguages, filterCountries, universities]);
 
   let notoSansVfsPromise: Promise<void> | null = null;
   const ensurePdfFont = async (doc: jsPDF) => {
@@ -189,15 +226,63 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
         case 'fee': va = a.fee ?? 0; vb = b.fee ?? 0; return dir * ((va as number) - (vb as number));
         case 'deposit': va = a.deposit ?? -1; vb = b.deposit ?? -1; return dir * ((va as number) - (vb as number));
         case 'cashPrice': va = a.cashPrice ?? -1; vb = b.cashPrice ?? -1; return dir * ((va as number) - (vb as number));
-        case 'period': va = getPeriodName(a.periodId); vb = getPeriodName(b.periodId); return dir * (va as string).localeCompare(vb as string);
+        case 'isOpen': va = a.isOpen === false ? 0 : 1; vb = b.isOpen === false ? 0 : 1; return dir * ((va as number) - (vb as number));
         default: return 0;
       }
     });
-  }, [filteredPrograms, sortBy, sortDir, getUniversityName, getPeriodName]);
+  }, [filteredPrograms, sortBy, sortDir, getUniversityName]);
 
   const toggleSort = (key: string) => {
     setSortBy(prev => (prev === key ? prev : key));
     setSortDir(prev => (sortBy === key ? (prev === 'asc' ? 'desc' : 'asc') : 'asc'));
+  };
+
+  const storageKey = `tree-columns:programs:${currentUser?.id || 'guest'}`;
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return;
+      const valid = parsed.filter((k: string) => programColumnKeys.includes(k));
+      if (valid.length > 0) setVisibleTreeColumns(valid);
+    } catch {
+      // ignore corrupted localStorage values
+    }
+  }, [storageKey, programColumnKeys]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(storageKey, JSON.stringify(visibleTreeColumns));
+  }, [storageKey, visibleTreeColumns]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (columnsRef.current && !columnsRef.current.contains(e.target as Node)) {
+        setColumnsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (sortBy && programColumnKeys.includes(sortBy) && !visibleTreeColumns.includes(sortBy)) {
+      setSortBy(null);
+      setSortDir('asc');
+    }
+  }, [sortBy, visibleTreeColumns, programColumnKeys]);
+
+  const toggleTreeColumn = (key: string) => {
+    setVisibleTreeColumns(prev => {
+      if (prev.includes(key)) {
+        if (prev.length === 1) return prev;
+        return prev.filter(k => k !== key);
+      }
+      return [...prev, key];
+    });
   };
 
   const handlePrintPDF = async () => {
@@ -209,23 +294,23 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
     doc.text(new Date().toLocaleDateString(undefined, { dateStyle: 'long' }), 14, 18);
     const head = [
       t.programName,
+      t.programAvailability,
       t.universities,
       t.programDegree,
       t.programLanguage,
       t.programFee,
-      t.deposit,
       t.cashPrice,
-      t.programPeriod
+      t.deposit
     ];
     const body = sortedPrograms.map(p => [
       p.name,
+      p.isOpen === false ? t.programStatusClosed : t.programStatusOpen,
       getUniversityName(p.universityId),
       translateDegree(p.degree),
       p.language,
       p.currency ? `${p.currency} ${(p.fee ?? 0).toLocaleString()}` : `${(p.fee ?? 0).toLocaleString()}`,
-      p.deposit != null ? (p.currency ? `${p.currency} ${p.deposit.toLocaleString()}` : String(p.deposit)) : '—',
       p.cashPrice != null ? (p.currency ? `${p.currency} ${p.cashPrice.toLocaleString()}` : String(p.cashPrice)) : '—',
-      getPeriodName(p.periodId)
+      p.deposit != null ? (p.currency ? `${p.currency} ${p.deposit.toLocaleString()}` : String(p.deposit)) : '—'
     ]);
     autoTable(doc, {
       head: [head],
@@ -247,7 +332,7 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
     </th>
   );
 
-  const hasActiveFilters = !!(searchProgramName.trim() || searchNameInArabic.trim() || filterCategories.length > 0 || filterUniversityIds.length > 0 || filterDegrees.length > 0 || filterLanguages.length > 0);
+  const hasActiveFilters = !!(searchProgramName.trim() || searchNameInArabic.trim() || filterCategories.length > 0 || filterUniversityIds.length > 0 || filterDegrees.length > 0 || filterLanguages.length > 0 || filterCountries.length > 0);
 
   const clearFilters = () => {
     setSearchProgramName('');
@@ -256,6 +341,7 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
     setFilterUniversityIds([]);
     setFilterDegrees([]);
     setFilterLanguages([]);
+    setFilterCountries([]);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -277,7 +363,8 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
         currency: formData.currency || 'USD',
         periodId: formData.periodId || undefined,
         country: formData.country || undefined,
-        description: formData.description
+        description: formData.description,
+        isOpen: formData.isOpen !== false
       };
 
       if (modalMode === 'edit' && onEditProgram) {
@@ -295,7 +382,7 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
     setEditingId(null);
     setFormData({
       name: '', nameInArabic: '', universityId: '', category: undefined, degree: 'Bachelor', language: 'English',
-      years: 4, fee: 0, feeBeforeDiscount: undefined, deposit: undefined, cashPrice: undefined, currency: 'USD', periodId: '', country: '', description: ''
+      years: 4, fee: 0, feeBeforeDiscount: undefined, deposit: undefined, cashPrice: undefined, currency: 'USD', periodId: '', country: '', description: '', isOpen: true
     });
     setModalOpen(true);
   };
@@ -313,7 +400,7 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
     setEditingId(null);
     setFormData({
       name: '', nameInArabic: '', universityId: '', category: undefined, degree: 'Bachelor', language: 'English',
-      years: 4, fee: 0, feeBeforeDiscount: undefined, deposit: undefined, cashPrice: undefined, currency: 'USD', periodId: '', country: '', description: ''
+      years: 4, fee: 0, feeBeforeDiscount: undefined, deposit: undefined, cashPrice: undefined, currency: 'USD', periodId: '', country: '', description: '', isOpen: true
     });
   };
 
@@ -394,6 +481,12 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
                     <p className="text-xs font-medium text-gray-500 mb-0.5">{t.programCountry}</p>
                     <p className="text-gray-900">{selectedProgramForView.country || '—'}</p>
                   </div>
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 mb-0.5">{t.programAvailability}</p>
+                    <p className="text-gray-900">
+                      {selectedProgramForView.isOpen === false ? t.programStatusClosed : t.programStatusOpen}
+                    </p>
+                  </div>
                 </div>
               </section>
               <section className="bg-gray-50/80 rounded-2xl p-6 border border-gray-100">
@@ -417,12 +510,12 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
                     </p>
                   </div>
                   <div>
-                    <p className="text-xs font-medium text-gray-500 mb-0.5">{t.deposit}</p>
-                    <p className="text-gray-900">{selectedProgramForView.deposit != null ? `${selectedProgramForView.currency || 'USD'} ${selectedProgramForView.deposit.toLocaleString()}` : '—'}</p>
-                  </div>
-                  <div>
                     <p className="text-xs font-medium text-gray-500 mb-0.5">{t.cashPrice}</p>
                     <p className="text-gray-900">{selectedProgramForView.cashPrice != null ? `${selectedProgramForView.currency || 'USD'} ${selectedProgramForView.cashPrice.toLocaleString()}` : '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 mb-0.5">{t.deposit}</p>
+                    <p className="text-gray-900">{selectedProgramForView.deposit != null ? `${selectedProgramForView.currency || 'USD'} ${selectedProgramForView.deposit.toLocaleString()}` : '—'}</p>
                   </div>
                 </div>
               </section>
@@ -548,6 +641,17 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
                       ))}
                     </select>
                   </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{t.programAvailability}</label>
+                    <select
+                      className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none"
+                      value={formData.isOpen === false ? 'closed' : 'open'}
+                      onChange={e => setFormData({ ...formData, isOpen: e.target.value === 'open' })}
+                    >
+                      <option value="open">{t.programStatusOpen}</option>
+                      <option value="closed">{t.programStatusClosed}</option>
+                    </select>
+                  </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
@@ -615,6 +719,16 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
                     />
                   </div>
                   <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{t.cashPrice}</label>
+                    <input
+                      type="number"
+                      min={0}
+                      className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none"
+                      value={formData.cashPrice ?? ''}
+                      onChange={e => setFormData({ ...formData, cashPrice: e.target.value === '' ? undefined : parseInt(e.target.value) })}
+                    />
+                  </div>
+                  <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">{t.programCurrency}</label>
                     <select
                       value={formData.currency}
@@ -649,16 +763,6 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
                       onChange={e => setFormData({ ...formData, deposit: e.target.value === '' ? undefined : parseInt(e.target.value) })}
                     />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">{t.cashPrice}</label>
-                    <input
-                      type="number"
-                      min={0}
-                      className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none"
-                      value={formData.cashPrice ?? ''}
-                      onChange={e => setFormData({ ...formData, cashPrice: e.target.value === '' ? undefined : parseInt(e.target.value) })}
-                    />
-                  </div>
                 </div>
               </section>
               <section className="bg-gray-50/80 rounded-2xl p-6 border border-gray-100">
@@ -685,6 +789,31 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
           <p className="text-gray-500">{t.programsTitle}</p>
         </div>
         <div className="flex items-center gap-2">
+          <div className="relative" ref={columnsRef}>
+            <button
+              type="button"
+              onClick={() => setColumnsOpen(prev => !prev)}
+              className="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              <Filter size={16} />
+              <span>{t.columns}</span>
+            </button>
+            {columnsOpen && (
+              <div className="absolute right-0 mt-2 w-56 bg-white border border-gray-200 rounded-xl shadow-lg p-2 z-30">
+                {programColumnOptions.map(col => (
+                  <label key={col.key} className="flex items-center gap-2 px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-50 rounded-md cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={visibleTreeColumns.includes(col.key)}
+                      onChange={() => toggleTreeColumn(col.key)}
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span>{col.label}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
           <button
             type="button"
             onClick={handlePrintPDF}
@@ -786,6 +915,15 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
               placeholder={t.filterAll}
             />
           </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1.5">{t.programCountry}</label>
+            <MultiSelect
+              options={programCountryFilterOptions}
+              selected={filterCountries}
+              onChange={setFilterCountries}
+              placeholder={t.filterAll}
+            />
+          </div>
         </div>
       </div>
 
@@ -795,38 +933,52 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
           <table className="w-full text-right text-sm">
             <thead className="bg-gray-50 text-gray-900 border-b border-gray-200">
               <tr>
-                <SortTh colKey="name" label={t.programName} />
-                <SortTh colKey="university" label={t.universities} />
-                <SortTh colKey="degree" label={t.programDegree} />
-                <SortTh colKey="language" label={t.programLanguage} />
-                <SortTh colKey="fee" label={t.programFee} />
-                <SortTh colKey="deposit" label={t.deposit} />
-                <SortTh colKey="cashPrice" label={t.cashPrice} />
-                <SortTh colKey="period" label={t.programPeriod} />
+                {visibleTreeColumns.includes('name') && <SortTh colKey="name" label={t.programName} />}
+                {visibleTreeColumns.includes('isOpen') && <SortTh colKey="isOpen" label={t.programAvailability} className="text-center" />}
+                {visibleTreeColumns.includes('university') && <SortTh colKey="university" label={t.universities} />}
+                {visibleTreeColumns.includes('degree') && <SortTh colKey="degree" label={t.programDegree} />}
+                {visibleTreeColumns.includes('language') && <SortTh colKey="language" label={t.programLanguage} />}
+                {visibleTreeColumns.includes('fee') && <SortTh colKey="fee" label={t.programFee} />}
+                {visibleTreeColumns.includes('cashPrice') && <SortTh colKey="cashPrice" label={t.cashPrice} />}
+                {visibleTreeColumns.includes('deposit') && <SortTh colKey="deposit" label={t.deposit} />}
                 <th className="px-6 py-4 font-bold text-center">{t.edit}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {sortedPrograms.map((program) => (
                 <tr key={program.id} className="hover:bg-gray-50 transition-colors group">
-                  <td className="px-6 py-4 font-medium text-gray-900">{program.name}</td>
-                  <td className="px-6 py-4 text-gray-900">{getUniversityName(program.universityId)}</td>
-                  <td className="px-6 py-4">
-                    <span className="px-2 py-1 bg-purple-50 text-purple-700 rounded text-xs">
-                      {translateDegree(program.degree)}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">{program.language}</td>
-                  <td className="px-6 py-4 font-bold text-gray-900">
-                    {program.currency ? `${program.currency} ${program.fee.toLocaleString()}` : `$${program.fee.toLocaleString()}`}
-                  </td>
-                  <td className="px-6 py-4 text-gray-900">
-                    {program.deposit != null ? (program.currency ? `${program.currency} ${program.deposit.toLocaleString()}` : program.deposit.toLocaleString()) : '—'}
-                  </td>
-                  <td className="px-6 py-4 text-gray-900">
-                    {program.cashPrice != null ? (program.currency ? `${program.currency} ${program.cashPrice.toLocaleString()}` : program.cashPrice.toLocaleString()) : '—'}
-                  </td>
-                  <td className="px-6 py-4 text-gray-900">{getPeriodName(program.periodId)}</td>
+                  {visibleTreeColumns.includes('name') && <td className="px-6 py-4 font-medium text-gray-900">{program.name}</td>}
+                  {visibleTreeColumns.includes('isOpen') && (
+                    <td className="px-6 py-4 text-center">
+                      <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-semibold ${program.isOpen === false ? 'bg-gray-200 text-gray-700' : 'bg-emerald-50 text-emerald-800'}`}>
+                        {program.isOpen === false ? t.programStatusClosed : t.programStatusOpen}
+                      </span>
+                    </td>
+                  )}
+                  {visibleTreeColumns.includes('university') && <td className="px-6 py-4 text-gray-900">{getUniversityName(program.universityId)}</td>}
+                  {visibleTreeColumns.includes('degree') && (
+                    <td className="px-6 py-4">
+                      <span className="px-2 py-1 bg-purple-50 text-purple-700 rounded text-xs">
+                        {translateDegree(program.degree)}
+                      </span>
+                    </td>
+                  )}
+                  {visibleTreeColumns.includes('language') && <td className="px-6 py-4">{program.language}</td>}
+                  {visibleTreeColumns.includes('fee') && (
+                    <td className="px-6 py-4 font-bold text-gray-900">
+                      {program.currency ? `${program.currency} ${program.fee.toLocaleString()}` : `$${program.fee.toLocaleString()}`}
+                    </td>
+                  )}
+                  {visibleTreeColumns.includes('cashPrice') && (
+                    <td className="px-6 py-4 text-gray-900">
+                      {program.cashPrice != null ? (program.currency ? `${program.currency} ${program.cashPrice.toLocaleString()}` : program.cashPrice.toLocaleString()) : '—'}
+                    </td>
+                  )}
+                  {visibleTreeColumns.includes('deposit') && (
+                    <td className="px-6 py-4 text-gray-900">
+                      {program.deposit != null ? (program.currency ? `${program.currency} ${program.deposit.toLocaleString()}` : program.deposit.toLocaleString()) : '—'}
+                    </td>
+                  )}
                   <td className="px-6 py-4 text-center">
                     <div className="flex justify-center gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
                       <button
@@ -860,7 +1012,7 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
               ))}
               {sortedPrograms.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-6 py-8 text-center text-gray-400">
+                  <td colSpan={visibleTreeColSpan} className="px-6 py-8 text-center text-gray-400">
                     {hasActiveFilters ? t.searchNoResults : t.noPrograms}
                   </td>
                 </tr>

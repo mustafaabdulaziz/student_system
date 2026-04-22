@@ -82,6 +82,13 @@ if __name__ == '__main__':
                         conn.commit()
                     except Exception:
                         pass
+            try:
+                prog_cols_open = [c['name'] for c in inspector.get_columns('programs')]
+                if 'is_open' not in prog_cols_open:
+                    conn.execute(text('ALTER TABLE programs ADD COLUMN is_open BOOLEAN NOT NULL DEFAULT TRUE'))
+                    conn.commit()
+            except Exception as e:
+                print('programs is_open column check:', e)
             # Ensure periods table has active column (add only if missing; never drop data)
             try:
                 if 'periods' in inspector.get_table_names():
@@ -98,7 +105,33 @@ if __name__ == '__main__':
                     if 'period_id' not in app_cols:
                         conn.execute(text('ALTER TABLE applications ADD COLUMN period_id VARCHAR REFERENCES periods(id)'))
                         conn.commit()
-                    for col, typ in [('responsible_id', 'VARCHAR REFERENCES users(id)'), ('cost', 'FLOAT'), ('commission', 'FLOAT'), ('sale_amount', 'FLOAT'), ('currency', 'VARCHAR')]:
+                    for col, typ in [('responsible_id', 'VARCHAR REFERENCES users(id)')]:
+                        if col not in app_cols:
+                            try:
+                                conn.execute(text(f'ALTER TABLE applications ADD COLUMN {col} {typ}'))
+                                conn.commit()
+                            except Exception:
+                                pass
+                    finance_cols = [
+                        ('annual_payment', 'FLOAT'),
+                        ('education_vat', 'FLOAT'),
+                        ('gross_commission', 'FLOAT'),
+                        ('abroad_vat', 'FLOAT'),
+                        ('net_commission', 'FLOAT'),
+                        ('bonus_max', 'FLOAT'),
+                        ('bonus_min', 'FLOAT'),
+                        ('agency_commission', 'FLOAT'),
+                        ('agency_bonus', 'FLOAT'),
+                        ('agency_contract_amount', 'FLOAT'),
+                        ('agency_paid_contract_amount', 'FLOAT'),
+                        ('agency_paid_contract_description', 'VARCHAR'),
+                        ('agency_paid_contract_description_date', 'VARCHAR'),
+                        ('agency_paid_contract_payment_method', 'VARCHAR'),
+                        ('currency', 'VARCHAR'),
+                        ('remaining_min', 'FLOAT'),
+                        ('remaining_max', 'FLOAT'),
+                    ]
+                    for col, typ in finance_cols:
                         if col not in app_cols:
                             try:
                                 conn.execute(text(f'ALTER TABLE applications ADD COLUMN {col} {typ}'))
@@ -116,6 +149,33 @@ if __name__ == '__main__':
                         conn.commit()
             except Exception as e:
                 print('Students created_at column check:', e)
+            # students.updated_at, applications.updated_at
+            try:
+                if 'students' in inspector.get_table_names():
+                    sc = [c['name'] for c in inspector.get_columns('students')]
+                    if 'updated_at' not in sc:
+                        conn.execute(text('ALTER TABLE students ADD COLUMN updated_at VARCHAR'))
+                        conn.commit()
+                    try:
+                        conn.execute(text('UPDATE students SET updated_at = created_at WHERE updated_at IS NULL AND created_at IS NOT NULL'))
+                        conn.commit()
+                    except Exception:
+                        pass
+            except Exception as e:
+                print('Students updated_at column check:', e)
+            try:
+                if 'applications' in inspector.get_table_names():
+                    ac = [c['name'] for c in inspector.get_columns('applications')]
+                    if 'updated_at' not in ac:
+                        conn.execute(text('ALTER TABLE applications ADD COLUMN updated_at VARCHAR'))
+                        conn.commit()
+                    try:
+                        conn.execute(text('UPDATE applications SET updated_at = created_at WHERE updated_at IS NULL OR updated_at = \'\''))
+                        conn.commit()
+                    except Exception:
+                        pass
+            except Exception as e:
+                print('Applications updated_at column check:', e)
             # Ensure application_messages has sender_user_id (who sent the message)
             try:
                 if 'application_messages' in inspector.get_table_names():
@@ -125,6 +185,21 @@ if __name__ == '__main__':
                         conn.commit()
             except Exception as e:
                 print('application_messages sender_user_id column check:', e)
+            # Ensure payment tables and currency columns
+            try:
+                table_names = inspector.get_table_names()
+                if 'incoming_payments' in table_names:
+                    incoming_cols = [c['name'] for c in inspector.get_columns('incoming_payments')]
+                    if 'currency' not in incoming_cols:
+                        conn.execute(text("ALTER TABLE incoming_payments ADD COLUMN currency VARCHAR NOT NULL DEFAULT 'USD'"))
+                        conn.commit()
+                if 'outgoing_payments' in table_names:
+                    outgoing_cols = [c['name'] for c in inspector.get_columns('outgoing_payments')]
+                    if 'currency' not in outgoing_cols:
+                        conn.execute(text("ALTER TABLE outgoing_payments ADD COLUMN currency VARCHAR NOT NULL DEFAULT 'USD'"))
+                        conn.commit()
+            except Exception as e:
+                print('Payments currency column check:', e)
         # إضافة أدمن افتراضي إذا لم يوجد
         try:
             exists = User.query.options(load_only(User.email)).filter_by(email='admin@admin.com').first()

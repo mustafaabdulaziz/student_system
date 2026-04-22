@@ -1,4 +1,4 @@
-import React, { useState, useEffect, Suspense, lazy } from 'react';
+import React, { useState, useEffect, useCallback, Suspense, lazy } from 'react';
 import { Layout } from './components/Layout';
 import { useTranslation } from './hooks/useTranslation';
 import { Dashboard } from './components/Dashboard';
@@ -22,6 +22,7 @@ import {
 } from './types';
 import { PeriodManager } from './components/PeriodManager';
 import { ApplicationsDashboard } from './components/ApplicationsDashboard';
+import { PaymentsManager } from './components/PaymentsManager';
 
 const NewsAndUpdates = lazy(() => import('./components/NewsAndUpdates').then(m => ({ default: m.NewsAndUpdates })));
 
@@ -45,6 +46,8 @@ const PATH_TO_PAGE: Record<string, string> = {
   '/applications-dashboard': 'applications-dashboard',
   '/periods': 'periods',
   '/users': 'users',
+  '/incoming-payments': 'incoming-payments',
+  '/outgoing-payments': 'outgoing-payments',
   '/news': 'news',
   '/account': 'account'
 };
@@ -58,6 +61,8 @@ const PAGE_TO_PATH: Record<string, string> = {
   'applications-dashboard': '/applications-dashboard',
   periods: '/periods',
   users: '/users',
+  'incoming-payments': '/incoming-payments',
+  'outgoing-payments': '/outgoing-payments',
   news: '/news',
   account: '/account'
 };
@@ -77,6 +82,7 @@ export default function App() {
   const [activePage, setActivePage] = useState('dashboard');
   const [prefillStudentIdForApp, setPrefillStudentIdForApp] = useState<string | null>(null);
   const [targetApplicationId, setTargetApplicationId] = useState<string | null>(null);
+  const [targetStudentId, setTargetStudentId] = useState<string | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
 
   const navigateTo = (page: string) => {
@@ -129,7 +135,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (state.currentUser && state.currentUser.role !== UserRole.ADMIN && (activePage === 'users' || activePage === 'periods' || activePage === 'applications-dashboard')) {
+    if (state.currentUser && state.currentUser.role !== UserRole.ADMIN && (activePage === 'users' || activePage === 'periods' || activePage === 'applications-dashboard' || activePage === 'incoming-payments' || activePage === 'outgoing-payments')) {
       setActivePage('dashboard');
       if (typeof window !== 'undefined') {
         window.history.replaceState({ page: 'dashboard' }, '', '/dashboard');
@@ -162,6 +168,11 @@ export default function App() {
   const openApplicationDetails = (appId: string) => {
     setTargetApplicationId(appId);
     navigateTo('applications');
+  };
+
+  const openStudentDetails = (studentId: string) => {
+    setTargetStudentId(studentId);
+    navigateTo('students');
   };
 
   // State Updates
@@ -294,7 +305,8 @@ export default function App() {
           ...stud,
           id: data.id,
           userId: userIdToSend || undefined,
-          ...(data.createdAt && { createdAt: data.createdAt })
+          ...(data.createdAt && { createdAt: data.createdAt }),
+          ...(data.updatedAt && { updatedAt: data.updatedAt })
         };
         setState(prev => ({ ...prev, students: [...prev.students, newStudent] }));
         return data.id;
@@ -307,7 +319,7 @@ export default function App() {
     return null;
   };
 
-  const updateStudent = async (student: Student) => {
+  const updateStudent = async (student: Student): Promise<Student | undefined> => {
     try {
       const res = await fetch(`/api/students/${student.id}`, {
         method: 'PUT',
@@ -316,16 +328,19 @@ export default function App() {
       });
       const data = await res.json();
       if (res.ok) {
+        const merged: Student = { ...student, ...(data.updatedAt ? { updatedAt: data.updatedAt } : {}) };
         setState(prev => ({
           ...prev,
-          students: prev.students.map(s => s.id === student.id ? student : s)
+          students: prev.students.map(s => s.id === student.id ? merged : s)
         }));
+        return merged;
       } else {
         alert(data.message || 'Failed to update student');
       }
     } catch (err) {
       alert('Connection error');
     }
+    return undefined;
   };
 
   const addApplication = async (app: Application, files?: FileList | null): Promise<string | null> => {
@@ -341,10 +356,6 @@ export default function App() {
     const userIdToSend = app.userId ?? state.currentUser?.id ?? '';
     if (userIdToSend) formData.append('user_id', userIdToSend);
     if (app.responsibleId) formData.append('responsible_id', app.responsibleId);
-    if (app.cost != null) formData.append('cost', String(app.cost));
-    if (app.commission != null) formData.append('commission', String(app.commission));
-    if (app.saleAmount != null) formData.append('sale_amount', String(app.saleAmount));
-    formData.append('currency', app.currency && ['USD', 'TRY', 'EUR'].includes(app.currency) ? app.currency : 'USD');
     if (state.currentUser) formData.append('role', state.currentUser.role);
     try {
       const res = await fetch('/api/applications', {
@@ -362,6 +373,7 @@ export default function App() {
           id: data.id,
           files: savedFiles,
           createdAt: data.createdAt != null ? data.createdAt : app.createdAt,
+          updatedAt: data.updatedAt != null ? data.updatedAt : (data.createdAt != null ? data.createdAt : app.createdAt),
           ...(agentId && { userId: agentId }),
           ...(agentUser && {
             agentName: agentUser.name,
@@ -369,14 +381,14 @@ export default function App() {
             agentCountryCode: agentUser.countryCode
           }),
           ...(app.responsibleId && { responsibleId: app.responsibleId, responsibleName: responsibleUser?.name }),
-          ...(app.cost != null && { cost: app.cost }),
-          ...(app.commission != null && { commission: app.commission }),
-          ...(app.saleAmount != null && { saleAmount: app.saleAmount }),
           currency: app.currency && ['USD', 'TRY', 'EUR'].includes(app.currency) ? app.currency : 'USD'
         };
         setState(prev => ({
           ...prev,
-          applications: [...prev.applications, newApp]
+          applications: [...prev.applications, newApp],
+          students: data.studentId && data.studentUpdatedAt
+            ? prev.students.map(s => s.id === data.studentId ? { ...s, updatedAt: data.studentUpdatedAt } : s)
+            : prev.students
         }));
         return data.id;
       }
@@ -399,7 +411,10 @@ export default function App() {
       if (res.ok) {
         setState(prev => ({
           ...prev,
-          applications: prev.applications.map(a => a.id === id ? { ...a, status } : a)
+          applications: prev.applications.map(a => a.id === id ? { ...a, status, ...(data.updatedAt ? { updatedAt: data.updatedAt } : {}) } : a),
+          students: data.studentId && data.studentUpdatedAt
+            ? prev.students.map(s => s.id === data.studentId ? { ...s, updatedAt: data.studentUpdatedAt } : s)
+            : prev.students
         }));
       } else {
         alert(data.message || 'فشل تحديث الحالة');
@@ -409,7 +424,28 @@ export default function App() {
     }
   };
 
-  const updateApplication = async (id: string, payload: { status?: ApplicationStatus; userId?: string | null; responsibleId?: string | null; cost?: number | null; commission?: number | null; saleAmount?: number | null; currency?: string }) => {
+  const updateApplication = async (id: string, payload: {
+    status?: ApplicationStatus;
+    userId?: string | null;
+    responsibleId?: string | null;
+    annualPayment?: number | null;
+    educationVat?: number | null;
+    grossCommission?: number | null;
+    abroadVat?: number | null;
+    netCommission?: number | null;
+    bonusMax?: number | null;
+    bonusMin?: number | null;
+    agencyCommission?: number | null;
+    agencyBonus?: number | null;
+    agencyContractAmount?: number | null;
+    agencyPaidContractAmount?: number | null;
+    agencyPaidContractDescription?: string | null;
+    agencyPaidContractDescriptionDate?: string | null;
+    agencyPaidContractPaymentMethod?: string | null;
+    currency?: string | null;
+    remainingMin?: number | null;
+    remainingMax?: number | null;
+  }) => {
     try {
       const res = await fetch(`/api/applications/${id}`, {
         method: 'PUT',
@@ -432,11 +468,28 @@ export default function App() {
               agentCountryCode: agentUser?.countryCode
             }),
             ...(payload.responsibleId !== undefined && { responsibleId: payload.responsibleId || undefined, responsibleName: responsibleUser?.name }),
-            ...(payload.cost !== undefined && { cost: payload.cost ?? undefined }),
-            ...(payload.commission !== undefined && { commission: payload.commission ?? undefined }),
-            ...(payload.saleAmount !== undefined && { saleAmount: payload.saleAmount ?? undefined }),
-            ...(payload.currency !== undefined && { currency: payload.currency })
-          } : a)
+            ...(payload.annualPayment !== undefined && { annualPayment: payload.annualPayment ?? undefined }),
+            ...(payload.educationVat !== undefined && { educationVat: payload.educationVat ?? undefined }),
+            ...(payload.grossCommission !== undefined && { grossCommission: payload.grossCommission ?? undefined }),
+            ...(payload.abroadVat !== undefined && { abroadVat: payload.abroadVat ?? undefined }),
+            ...(payload.netCommission !== undefined && { netCommission: payload.netCommission ?? undefined }),
+            ...(payload.bonusMax !== undefined && { bonusMax: payload.bonusMax ?? undefined }),
+            ...(payload.bonusMin !== undefined && { bonusMin: payload.bonusMin ?? undefined }),
+            ...(payload.agencyCommission !== undefined && { agencyCommission: payload.agencyCommission ?? undefined }),
+            ...(payload.agencyBonus !== undefined && { agencyBonus: payload.agencyBonus ?? undefined }),
+            ...(payload.agencyContractAmount !== undefined && { agencyContractAmount: payload.agencyContractAmount ?? undefined }),
+            ...(payload.agencyPaidContractAmount !== undefined && { agencyPaidContractAmount: payload.agencyPaidContractAmount ?? undefined }),
+            ...(payload.agencyPaidContractDescription !== undefined && { agencyPaidContractDescription: payload.agencyPaidContractDescription ?? undefined }),
+            ...(payload.agencyPaidContractDescriptionDate !== undefined && { agencyPaidContractDescriptionDate: payload.agencyPaidContractDescriptionDate ?? undefined }),
+            ...(payload.agencyPaidContractPaymentMethod !== undefined && { agencyPaidContractPaymentMethod: payload.agencyPaidContractPaymentMethod ?? undefined }),
+            ...(payload.currency !== undefined && { currency: payload.currency ?? undefined }),
+            ...(payload.remainingMin !== undefined && { remainingMin: payload.remainingMin ?? undefined }),
+            ...(payload.remainingMax !== undefined && { remainingMax: payload.remainingMax ?? undefined }),
+            ...(data.updatedAt ? { updatedAt: data.updatedAt } : {})
+          } : a),
+          students: data.studentId && data.studentUpdatedAt
+            ? prev.students.map(s => s.id === data.studentId ? { ...s, updatedAt: data.studentUpdatedAt } : s)
+            : prev.students
         }));
       } else {
         alert(data.message || 'Update failed');
@@ -445,6 +498,23 @@ export default function App() {
       alert('Connection error');
     }
   };
+
+  const onSyncApplicationTimestamps = useCallback((payload: {
+    applicationId: string;
+    applicationUpdatedAt: string;
+    studentId?: string;
+    studentUpdatedAt?: string | null;
+  }) => {
+    setState(prev => ({
+      ...prev,
+      applications: prev.applications.map(a =>
+        a.id === payload.applicationId ? { ...a, updatedAt: payload.applicationUpdatedAt } : a
+      ),
+      students: payload.studentId && payload.studentUpdatedAt
+        ? prev.students.map(s => s.id === payload.studentId ? { ...s, updatedAt: payload.studentUpdatedAt as string } : s)
+        : prev.students
+    }));
+  }, []);
 
   const addPeriod = async (period: Omit<Period, 'id'>) => {
     try {
@@ -593,24 +663,52 @@ export default function App() {
     if (!state.currentUser) return;
     const fetchAll = async () => {
       try {
-        // إعداد روابط الطلبات حسب نوع المستخدم
-        let studentsUrl = '/api/students';
-        let applicationsUrl = '/api/applications';
-        if (state.currentUser.role === UserRole.AGENT) {
-          studentsUrl += `?role=agent&user_id=${state.currentUser.id}`;
-          applicationsUrl += `?role=agent&user_id=${state.currentUser.id}`;
-        }
-        const endpoints = [
-          '/api/universities',
-          '/api/programs',
-          studentsUrl,
-          applicationsUrl,
-          '/api/periods'
+        const buildBaseUrl = (base: string) => {
+          const params = new URLSearchParams();
+          if (state.currentUser?.role === UserRole.AGENT && state.currentUser.id) {
+            params.set('role', 'agent');
+            params.set('user_id', state.currentUser.id);
+          }
+          const query = params.toString();
+          return query ? `${base}?${query}` : base;
+        };
+
+        const fetchPaginatedAll = async (base: string, pageSize = 500) => {
+          let page = 1;
+          let totalPages = 1;
+          const items: any[] = [];
+          do {
+            const delimiter = base.includes('?') ? '&' : '?';
+            const url = `${base}${delimiter}page=${page}&pageSize=${pageSize}`;
+            const res = await fetch(url);
+            const data = await res.json();
+            if (Array.isArray(data)) {
+              return data;
+            }
+            const batch = Array.isArray(data?.items) ? data.items : [];
+            items.push(...batch);
+            const parsedTotalPages = Number(data?.totalPages);
+            totalPages = Number.isFinite(parsedTotalPages) && parsedTotalPages > 0 ? parsedTotalPages : 1;
+            page += 1;
+          } while (page <= totalPages);
+          return items;
+        };
+
+        const programsBaseUrl = '/api/programs';
+        const studentsBaseUrl = buildBaseUrl('/api/students');
+        const applicationsBaseUrl = buildBaseUrl('/api/applications');
+
+        const sharedRequests: Promise<any>[] = [
+          fetch('/api/universities').then(r => r.json()),
+          fetchPaginatedAll(programsBaseUrl),
+          fetchPaginatedAll(studentsBaseUrl),
+          fetchPaginatedAll(applicationsBaseUrl),
+          fetch('/api/periods').then(r => r.json())
         ];
         if (state.currentUser.role === UserRole.ADMIN) {
-          endpoints.push('/api/users');
+          sharedRequests.push(fetch('/api/users').then(r => r.json()));
         }
-        const responses = await Promise.all(endpoints.map(e => fetch(e).then(r => r.json())));
+        const responses = await Promise.all(sharedRequests);
         setState(prev => ({
           ...prev,
           universities: responses[0],
@@ -644,6 +742,8 @@ export default function App() {
             applications={state.applications}
             programs={state.programs}
             universitiesCount={state.universities.length}
+            onOpenApplication={openApplicationDetails}
+            onOpenStudent={openStudentDetails}
           />
         );
       case 'universities':
@@ -651,9 +751,9 @@ export default function App() {
       case 'programs':
         return <ProgramManager programs={state.programs} universities={state.universities} periods={state.periods} onAddProgram={addProgram} onEditProgram={editProgram} onDeleteProgram={deleteProgram} currentUser={state.currentUser} />;
       case 'students':
-        return <StudentManager students={state.students} applications={state.applications} programs={state.programs} universities={state.universities} users={state.users} onAddStudent={addStudent} onEditStudent={updateStudent} onCreateApplicationForStudent={openCreateApplicationForStudent} onViewApplication={openApplicationDetails} currentUser={state.currentUser} />;
+        return <StudentManager students={state.students} applications={state.applications} programs={state.programs} universities={state.universities} periods={state.periods} users={state.users} onAddStudent={addStudent} onEditStudent={updateStudent} onCreateApplicationForStudent={openCreateApplicationForStudent} onAddApplicationForStudent={(app) => addApplication(app)} onViewApplication={openApplicationDetails} currentUser={state.currentUser} targetStudentId={targetStudentId} clearTargetStudent={() => setTargetStudentId(null)} />;
       case 'applications':
-        return <ApplicationManager applications={state.applications} students={state.students} programs={state.programs} universities={state.universities} periods={state.periods} users={state.users} onAddApplication={addApplication} onUpdateStatus={updateAppStatus} onUpdateApplication={updateApplication} initialStudentId={prefillStudentIdForApp} clearInitialStudent={() => setPrefillStudentIdForApp(null)} targetApplicationId={targetApplicationId} clearTargetApplication={() => setTargetApplicationId(null)} currentUser={state.currentUser} />;
+        return <ApplicationManager applications={state.applications} students={state.students} programs={state.programs} universities={state.universities} periods={state.periods} users={state.users} onAddApplication={addApplication} onUpdateStatus={updateAppStatus} onUpdateApplication={updateApplication} onSyncApplicationTimestamps={onSyncApplicationTimestamps} initialStudentId={prefillStudentIdForApp} clearInitialStudent={() => setPrefillStudentIdForApp(null)} targetApplicationId={targetApplicationId} clearTargetApplication={() => setTargetApplicationId(null)} currentUser={state.currentUser} />;
       case 'applications-dashboard':
         return (
           <ApplicationsDashboard
@@ -678,6 +778,8 @@ export default function App() {
               applications={state.applications}
               programs={state.programs}
               universitiesCount={state.universities.length}
+              onOpenApplication={openApplicationDetails}
+              onOpenStudent={openStudentDetails}
             />
           );
         }
@@ -717,6 +819,8 @@ export default function App() {
               applications={state.applications}
               programs={state.programs}
               universitiesCount={state.universities.length}
+              onOpenApplication={openApplicationDetails}
+              onOpenStudent={openStudentDetails}
             />
           );
         }
@@ -730,6 +834,34 @@ export default function App() {
             onSetUserActive={setUserActive}
           />
         );
+      case 'incoming-payments':
+        if (state.currentUser?.role !== UserRole.ADMIN) {
+          return (
+            <Dashboard
+              students={state.students}
+              applications={state.applications}
+              programs={state.programs}
+              universitiesCount={state.universities.length}
+              onOpenApplication={openApplicationDetails}
+              onOpenStudent={openStudentDetails}
+            />
+          );
+        }
+        return <PaymentsManager mode="incoming" currentUser={state.currentUser} />;
+      case 'outgoing-payments':
+        if (state.currentUser?.role !== UserRole.ADMIN) {
+          return (
+            <Dashboard
+              students={state.students}
+              applications={state.applications}
+              programs={state.programs}
+              universitiesCount={state.universities.length}
+              onOpenApplication={openApplicationDetails}
+              onOpenStudent={openStudentDetails}
+            />
+          );
+        }
+        return <PaymentsManager mode="outgoing" currentUser={state.currentUser} />;
       default:
         return (
           <Dashboard
@@ -737,6 +869,8 @@ export default function App() {
             applications={state.applications}
             programs={state.programs}
             universitiesCount={state.universities.length}
+            onOpenApplication={openApplicationDetails}
+            onOpenStudent={openStudentDetails}
           />
         );
     }

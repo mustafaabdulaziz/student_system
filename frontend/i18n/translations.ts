@@ -22,6 +22,7 @@ export interface Translations {
     submit: string;
     close: string;
     optional: string;
+    columns: string;
 
     // Navigation
     dashboard: string;
@@ -57,6 +58,8 @@ export interface Translations {
     toDate: string;
     applyFilter: string;
     clearFilter: string;
+    /** Recent applications table on dashboard: student column label (not “select student”) */
+    dashboardStudentColumn: string;
     applicationsDashboard: string;
     yesterday: string;
     last7Days: string;
@@ -100,6 +103,7 @@ export interface Translations {
     kanbanView: string;
     visitOfficialWebsite: string;
     overview: string;
+    generalInfo: string;
     programsAndFees: string;
     availableSpecialization: string;
     city: string;
@@ -117,6 +121,8 @@ export interface Translations {
 
     // Programs
     programsTitle: string;
+    /** Short table column: program only (no “management”) */
+    program: string;
     addProgram: string;
     editProgram: string;
     programName: string;
@@ -141,6 +147,9 @@ export interface Translations {
     deposit: string;
     cashPrice: string;
     programCountry: string;
+    programAvailability: string;
+    programStatusOpen: string;
+    programStatusClosed: string;
     programCurrency: string;
     programDescription: string;
     selectUniversity: string;
@@ -150,6 +159,8 @@ export interface Translations {
     searchNameInArabicPlaceholder: string;
     filterAll: string;
     clearFilters: string;
+    filterCreatedFrom: string;
+    filterCreatedTo: string;
     number: string;
     bachelor: string;
     master: string;
@@ -187,6 +198,7 @@ export interface Translations {
     applicationNumber: string;
     updateDate: string;
     createdAt: string;
+    lastUpdatedAt: string;
     noApplicationsInSystem: string;
     noAttachments: string;
     attachAdditionalFiles: string;
@@ -311,6 +323,7 @@ export const translations: Record<Language, Translations> = {
         submit: 'إرسال',
         close: 'إغلاق',
         optional: 'اختياري',
+        columns: 'الأعمدة',
 
         // Navigation
         dashboard: 'لوحة التحكم',
@@ -346,6 +359,7 @@ export const translations: Record<Language, Translations> = {
         toDate: 'إلى تاريخ',
         applyFilter: 'تطبيق',
         clearFilter: 'مسح الفلتر',
+        dashboardStudentColumn: 'الطالب',
         applicationsDashboard: 'لوحة البطبات',
         yesterday: 'أمس',
         last7Days: 'آخر 7 أيام',
@@ -387,6 +401,7 @@ export const translations: Record<Language, Translations> = {
         kanbanView: 'عرض كانبان',
         visitOfficialWebsite: 'زيارة الموقع الرسمي',
         overview: 'نظرة عامة',
+        generalInfo: 'معلومات عامة',
         programsAndFees: 'البرامج والرسوم',
         availableSpecialization: 'تخصص متاح',
         city: 'المدينة',
@@ -404,6 +419,7 @@ export const translations: Record<Language, Translations> = {
 
         // Programs
         programsTitle: 'إدارة البرامج',
+        program: 'برنامج',
         addProgram: 'إضافة برنامج',
         editProgram: 'تعديل البرنامج',
         programName: 'اسم البرنامج',
@@ -421,13 +437,16 @@ export const translations: Record<Language, Translations> = {
         programLanguage: 'لغة التدريس',
         programYears: 'عدد السنوات',
         programDeadline: 'الموعد النهائي',
-        programFee: 'الرسوم',
+        programFee: 'الرسوم السنوية',
         programPeriod: 'الدورة',
         selectPeriod: 'اختر الدورة',
         feeBeforeDiscount: 'الرسوم قبل الخصم',
         deposit: 'العربون',
         cashPrice: 'السعر النقدي',
         programCountry: 'الدولة',
+        programAvailability: 'التوفر',
+        programStatusOpen: 'مفتوح',
+        programStatusClosed: 'مغلق',
         programCurrency: 'العملة',
         programDescription: 'الوصف',
         selectUniversity: 'اختر الجامعة',
@@ -437,6 +456,8 @@ export const translations: Record<Language, Translations> = {
         searchNameInArabicPlaceholder: 'بحث بالاسم بالعربية...',
         filterAll: 'الكل',
         clearFilters: 'مسح الفلاتر',
+        filterCreatedFrom: 'تاريخ بداية الإنشاء',
+        filterCreatedTo: 'تاريخ نهاية الإنشاء',
         number: 'الرقم',
         bachelor: 'بكالوريوس',
         master: 'ماجستير',
@@ -473,6 +494,7 @@ export const translations: Record<Language, Translations> = {
         applicationNumber: 'رقم الطلب',
         updateDate: 'التحديث',
         createdAt: 'تاريخ الإنشاء',
+        lastUpdatedAt: 'آخر تحديث',
         noApplicationsInSystem: 'لم يتم العثور على أي طلبات في النظام',
         noAttachments: 'لا يوجد مرفقات',
         attachAdditionalFiles: 'إرفاق ملفات إضافية',
@@ -597,6 +619,7 @@ export const translations: Record<Language, Translations> = {
         submit: 'Submit',
         close: 'Close',
         optional: 'Optional',
+        columns: 'Columns',
 
         // Navigation
         dashboard: 'Dashboard',
@@ -632,6 +655,7 @@ export const translations: Record<Language, Translations> = {
         toDate: 'To date',
         applyFilter: 'Apply',
         clearFilter: 'Clear filter',
+        dashboardStudentColumn: 'Student',
         applicationsDashboard: 'Applications Dashboard',
         yesterday: 'Yesterday',
         last7Days: 'Last 7 days',
@@ -673,6 +697,7 @@ export const translations: Record<Language, Translations> = {
         kanbanView: 'Kanban view',
         visitOfficialWebsite: 'Visit Official Website',
         overview: 'Overview',
+        generalInfo: 'General information',
         programsAndFees: 'Programs and Fees',
         availableSpecialization: 'Available specialization',
         city: 'City',
@@ -690,6 +715,7 @@ export const translations: Record<Language, Translations> = {
 
         // Programs
         programsTitle: 'Program Management',
+        program: 'Program',
         addProgram: 'Add Program',
         editProgram: 'Edit Program',
         programName: 'Program Name',
@@ -707,13 +733,16 @@ export const translations: Record<Language, Translations> = {
         programLanguage: 'Language',
         programYears: 'Years',
         programDeadline: 'Deadline',
-        programFee: 'Fee',
+        programFee: 'Annual fee',
         programPeriod: 'Period',
         selectPeriod: 'Select Period',
         feeBeforeDiscount: 'Fee before discount',
         deposit: 'Deposit',
         cashPrice: 'Cash price',
         programCountry: 'Country',
+        programAvailability: 'Availability',
+        programStatusOpen: 'Open',
+        programStatusClosed: 'Closed',
         programCurrency: 'Currency',
         programDescription: 'Description',
         selectUniversity: 'Select University',
@@ -723,6 +752,8 @@ export const translations: Record<Language, Translations> = {
         searchNameInArabicPlaceholder: 'Search by name in Arabic...',
         filterAll: 'All',
         clearFilters: 'Clear filters',
+        filterCreatedFrom: 'Start creation date',
+        filterCreatedTo: 'End creation date',
         number: 'Number',
         bachelor: 'Bachelor',
         master: 'Master',
@@ -759,6 +790,7 @@ export const translations: Record<Language, Translations> = {
         applicationNumber: 'Application Number',
         updateDate: 'Update',
         createdAt: 'Created at',
+        lastUpdatedAt: 'Last updated',
         noApplicationsInSystem: 'No applications found in the system',
         noAttachments: 'No attachments',
         attachAdditionalFiles: 'Attach additional files',
@@ -883,6 +915,7 @@ export const translations: Record<Language, Translations> = {
         submit: 'Gönder',
         close: 'Kapat',
         optional: 'İsteğe bağlı',
+        columns: 'Sütunlar',
 
         // Navigation
         dashboard: 'Kontrol Paneli',
@@ -918,6 +951,7 @@ export const translations: Record<Language, Translations> = {
         toDate: 'Bitiş tarihi',
         applyFilter: 'Uygula',
         clearFilter: 'Filtreyi temizle',
+        dashboardStudentColumn: 'Öğrenci',
         applicationsDashboard: 'Başvuru Panosu',
         yesterday: 'Dün',
         last7Days: 'Son 7 gün',
@@ -959,6 +993,7 @@ export const translations: Record<Language, Translations> = {
         kanbanView: 'Kanban görünümü',
         visitOfficialWebsite: 'Resmi Siteyi Ziyaret Et',
         overview: 'Genel Bakış',
+        generalInfo: 'Genel Bilgiler',
         programsAndFees: 'Programlar ve Ücretler',
         availableSpecialization: 'Uygun uzmanlık',
         city: 'Şehir',
@@ -976,6 +1011,7 @@ export const translations: Record<Language, Translations> = {
 
         // Programs
         programsTitle: 'Program Yönetimi',
+        program: 'Program',
         addProgram: 'Program Ekle',
         editProgram: 'Programı Düzenle',
         programName: 'Program Adı',
@@ -993,13 +1029,16 @@ export const translations: Record<Language, Translations> = {
         programLanguage: 'Dil',
         programYears: 'Yıl',
         programDeadline: 'Son Tarih',
-        programFee: 'Ücret',
+        programFee: 'Yıllık ücret',
         programPeriod: 'Dönem',
         selectPeriod: 'Dönem Seç',
         feeBeforeDiscount: 'İndirim öncesi ücret',
         deposit: 'Depozito',
-        cashPrice: 'Nakit fiyat',
+        cashPrice: 'Nakit fiyatı',
         programCountry: 'Ülke',
+        programAvailability: 'Müsaitlik',
+        programStatusOpen: 'Açık',
+        programStatusClosed: 'Kapalı',
         programCurrency: 'Para Birimi',
         programDescription: 'Açıklama',
         selectUniversity: 'Üniversite Seç',
@@ -1009,6 +1048,8 @@ export const translations: Record<Language, Translations> = {
         searchNameInArabicPlaceholder: 'Arapça adla ara...',
         filterAll: 'Tümü',
         clearFilters: 'Filtreleri temizle',
+        filterCreatedFrom: 'Başlangıç oluşturma tarihi',
+        filterCreatedTo: 'Bitiş oluşturma tarihi',
         number: 'Numara',
         bachelor: 'Lisans',
         master: 'Yüksek Lisans',
@@ -1045,6 +1086,7 @@ export const translations: Record<Language, Translations> = {
         applicationNumber: 'Başvuru No',
         updateDate: 'Güncelleme',
         createdAt: 'Oluşturulma tarihi',
+        lastUpdatedAt: 'Son güncelleme',
         noApplicationsInSystem: 'Sistemde başvuru bulunamadı',
         noAttachments: 'Ek yok',
         attachAdditionalFiles: 'Ek dosya ekle',
