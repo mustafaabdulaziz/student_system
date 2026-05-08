@@ -13,6 +13,13 @@ export interface User {
   countryCode?: string;
   password?: string;
   active?: boolean;
+  agentCommissions?: AgentCommission[];
+}
+
+export interface AgentCommission {
+  universityId: string;
+  commissionKind: 'rate' | 'amount';
+  commissionValue: number;
 }
 
 export interface University {
@@ -23,6 +30,11 @@ export interface University {
   city: string;
   description: string;
   logo?: string; // URL or base64 - optional
+  /** Admin-only: education VAT rate (integer, e.g. percent points) */
+  educationVatRate?: number | null;
+  /** Admin-only: commission as fixed amount or rate */
+  commissionKind?: 'amount' | 'rate' | null;
+  commissionValue?: number | null;
 }
 
 export type ProgramCategory =
@@ -60,7 +72,6 @@ export interface Program {
   deposit?: number;
   cashPrice?: number;
   currency?: string;
-  country?: string;
   description?: string;
   /** Program intake / listing availability (false = closed) */
   isOpen?: boolean;
@@ -86,11 +97,18 @@ export interface Student {
 }
 
 export enum ApplicationStatus {
-  DRAFT = 'Draft',
-  UNDER_REVIEW = 'Under Review',
-  ACCEPTED = 'Accepted',
-  REJECTED = 'Rejected',
-  MISSING_DOCS = 'Missing Documents'
+  DRAFT = 'Taslak',
+  MISSING_DOCS = 'Eksik Evrak',
+  UNDER_REVIEW = 'Teklif Mektubu Bekleniyor',
+  ACCEPTANCE_LETTER_WAITING = 'Kabul Mektubu Bekleniyor',
+  STUDENT_CERT_WAITING = 'Ogrenci Belgesi Bekleniyor',
+  ANNUAL_PAYMENT_WAITING = 'Yillik Odemesi Tamamlamasi Bekleniyor',
+  REGISTRATION_WAITING = 'Kayit Bekleniyor',
+  REJECTED = 'Reddedildi',
+  REGISTERED_WITH_OTHER_AGENCY = 'Baska Acenta Uzerinden Kayitli',
+  PAYMENT_REJECTED = 'Odeme Red Edildi',
+  QUOTA_FULL = 'Kota Dolu',
+  ACCEPTED = 'Onaylandi'
 }
 
 export interface Application {
@@ -109,8 +127,12 @@ export interface Application {
   agentCountryCode?: string;
   responsibleId?: string;
   responsibleName?: string;
+  agencyCompanyId?: string;
+  agencyCompanyName?: string;
   annualPayment?: number;
+  educationVatRate?: number;
   educationVat?: number;
+  abroadVatRate?: number;
   grossCommission?: number;
   abroadVat?: number;
   netCommission?: number;
@@ -119,13 +141,12 @@ export interface Application {
   agencyCommission?: number;
   agencyBonus?: number;
   agencyContractAmount?: number;
-  agencyPaidContractAmount?: number;
-  agencyPaidContractDescription?: string;
-  agencyPaidContractDescriptionDate?: string;
-  agencyPaidContractPaymentMethod?: string;
   currency?: string;
   remainingMin?: number;
   remainingMax?: number;
+  paymentDeserved?: boolean;
+  paymentDate?: string;
+  paymentMonth?: string;
 }
 
 export interface Period {
@@ -134,6 +155,16 @@ export interface Period {
   startDate: string;
   endDate: string;
   active?: boolean;
+}
+
+export interface AgencyCompany {
+  id: string;
+  name: string;
+}
+
+export interface PaymentSource {
+  id: string;
+  name: string;
 }
 
 export interface NewsItem {
@@ -153,5 +184,7 @@ export interface AppState {
   students: Student[];
   applications: Application[];
   periods: Period[];
+  agencyCompanies: AgencyCompany[];
+  paymentSources: PaymentSource[];
   currentUser: User | null;
 }

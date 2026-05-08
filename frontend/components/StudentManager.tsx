@@ -106,7 +106,13 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
   targetStudentId,
   clearTargetStudent
 }) => {
-  const { t, translateGender, translateStatus, translateDegree } = useTranslation();
+  const { t, language, translateGender, translateStatus, translateDegree } = useTranslation();
+  const dateLocale = { ar: 'ar-EG', en: 'en-GB', tr: 'tr-TR' }[language] || 'en-GB';
+  const scrollContentTop = () => {
+    const container = document.getElementById('app-scroll-container');
+    if (container) container.scrollTo({ top: 0, behavior: 'auto' });
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'auto' });
+  };
   const [searchTerm, setSearchTerm] = useState('');
   const [filterNationalities, setFilterNationalities] = useState<string[]>([]);
   const [filterGender, setFilterGender] = useState('');
@@ -140,9 +146,16 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
     if (s) {
       setSelectedStudentForDetails(s);
       setModalOpen(false);
+      scrollContentTop();
     }
     if (typeof clearTargetStudent === 'function') clearTargetStudent();
   }, [targetStudentId, students, clearTargetStudent]);
+
+  useEffect(() => {
+    if (isModalOpen || selectedStudentForDetails) {
+      scrollContentTop();
+    }
+  }, [isModalOpen, selectedStudentForDetails]);
 
   const agentUsers = useMemo(() => users.filter(u => (u.role || '').toString().toLowerCase() === 'agent'), [users]);
   const isAdminOrUser = currentUser && ((currentUser.role || '').toString().toUpperCase() === 'ADMIN' || (currentUser.role || '').toString().toUpperCase() === 'USER');
@@ -551,11 +564,15 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case ApplicationStatus.ACCEPTED: return <span className="px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-700">{t.approved}</span>;
-      case ApplicationStatus.REJECTED: return <span className="px-2 py-1 rounded text-xs font-medium bg-red-100 text-red-700">{t.rejected}</span>;
-      case ApplicationStatus.DRAFT: return <span className="px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-700">{t.draft}</span>;
-      case ApplicationStatus.MISSING_DOCS: return <span className="px-2 py-1 rounded text-xs font-medium bg-orange-100 text-orange-700">{t.pending}</span>;
-      default: return <span className="px-2 py-1 rounded text-xs font-medium bg-yellow-100 text-yellow-700">{t.pending}</span>;
+      case ApplicationStatus.ACCEPTED: return <span className="px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-700">{translateStatus(status)}</span>;
+      case ApplicationStatus.REJECTED:
+      case ApplicationStatus.PAYMENT_REJECTED:
+        return <span className="px-2 py-1 rounded text-xs font-medium bg-red-100 text-red-700">{translateStatus(status)}</span>;
+      case ApplicationStatus.DRAFT: return <span className="px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-700">{translateStatus(status)}</span>;
+      case ApplicationStatus.MISSING_DOCS:
+      case ApplicationStatus.QUOTA_FULL:
+        return <span className="px-2 py-1 rounded text-xs font-medium bg-orange-100 text-orange-700">{translateStatus(status)}</span>;
+      default: return <span className="px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-700">{translateStatus(status)}</span>;
     }
   };
 
@@ -808,10 +825,10 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
             </div>
             <div className="text-sm text-gray-500 shrink-0 text-right space-y-0.5">
               {selectedStudentForDetails.createdAt && (
-                <div>{t.createdAt}: {new Date(selectedStudentForDetails.createdAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</div>
+                <div>{t.createdAt}: {new Date(selectedStudentForDetails.createdAt).toLocaleString(dateLocale, { dateStyle: 'medium', timeStyle: 'short' })}</div>
               )}
               {(selectedStudentForDetails.updatedAt || selectedStudentForDetails.createdAt) && (
-                <div className="text-blue-700 font-medium">{t.lastUpdatedAt}: {new Date(selectedStudentForDetails.updatedAt || selectedStudentForDetails.createdAt || 0).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</div>
+                <div className="text-blue-700 font-medium">{t.lastUpdatedAt}: {new Date(selectedStudentForDetails.updatedAt || selectedStudentForDetails.createdAt || 0).toLocaleString(dateLocale, { dateStyle: 'medium', timeStyle: 'short' })}</div>
               )}
             </div>
             <div className="flex items-center gap-2 shrink-0 flex-wrap">
@@ -940,13 +957,13 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                             onClick={() => onViewApplication?.(app.id)}
                           >
                             <div className="flex justify-between items-start mb-2">
-                              <div className="font-bold text-gray-800 group-hover:text-blue-600 transition-colors">{info.programName}</div>
+                              <div className="font-bold text-gray-800 group-hover:text-blue-600 transition-colors">{info.universityName}</div>
                               {getStatusBadge(app.status)}
                             </div>
-                            <div className="text-sm text-gray-600 mb-1">{info.universityName} - <span className="text-xs bg-gray-200 px-2 py-0.5 rounded">{info.degree}</span></div>
+                            <div className="text-sm text-gray-600 mb-1">{info.programName} - <span className="text-xs bg-gray-200 px-2 py-0.5 rounded">{info.degree}</span></div>
                             <div className="text-xs text-gray-400 mt-2 flex justify-between">
                               <span>{t.applicationDetails}: #{app.id}</span>
-                              <span>{t.dateOfBirth}: {new Date(app.createdAt).toLocaleDateString()}</span>
+                              <span>{t.dateOfBirth}: {new Date(app.createdAt).toLocaleDateString(dateLocale)}</span>
                             </div>
                           </div>
                         );
@@ -1158,12 +1175,12 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                         {isAdminOrUser && visibleTreeColumns.includes('agent') && <td className="px-4 py-3 text-gray-900">{getAgentName(student)}</td>}
                         {visibleTreeColumns.includes('createdAt') && (
                           <td className="px-4 py-3 text-gray-600 whitespace-nowrap text-xs">
-                            {student.createdAt ? new Date(student.createdAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+                            {student.createdAt ? new Date(student.createdAt).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
                           </td>
                         )}
                         {visibleTreeColumns.includes('updatedAt') && (
                           <td className="px-4 py-3 text-gray-600 whitespace-nowrap text-xs">
-                            {(student.updatedAt || student.createdAt) ? new Date(student.updatedAt || student.createdAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+                            {(student.updatedAt || student.createdAt) ? new Date(student.updatedAt || student.createdAt).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
                           </td>
                         )}
                         <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
@@ -1239,13 +1256,13 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                     {student.createdAt && (
                       <div className="flex justify-between">
                         <span>{t.createdAt}:</span>
-                        <span>{new Date(student.createdAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}</span>
+                        <span>{new Date(student.createdAt).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' })}</span>
                       </div>
                     )}
                     {(student.updatedAt || student.createdAt) && (
                       <div className="flex justify-between">
                         <span>{t.lastUpdatedAt}:</span>
-                        <span>{new Date(student.updatedAt || student.createdAt!).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}</span>
+                        <span>{new Date(student.updatedAt || student.createdAt!).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' })}</span>
                       </div>
                     )}
                     <div className="flex justify-between">

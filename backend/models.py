@@ -40,6 +40,10 @@ class University(db.Model):
     city = db.Column(db.String, nullable=False) # Added city field
     description = db.Column(db.Text, nullable=False)
     logo = db.Column(db.Text, nullable=True)  # URL or base64 - optional
+    # Admin-only financial defaults (optional)
+    education_vat_rate = db.Column(db.Integer, nullable=True)
+    commission_kind = db.Column(db.String, nullable=True)  # 'amount' | 'rate'
+    commission_value = db.Column(db.Float, nullable=True)
 
 class Program(db.Model):
     __tablename__ = 'programs'
@@ -58,9 +62,30 @@ class Program(db.Model):
     deposit = db.Column(db.Float, nullable=True)
     cash_price = db.Column(db.Float, nullable=True)
     currency = db.Column(db.String, nullable=False, default='USD')
-    country = db.Column(db.String, nullable=True)
     description = db.Column(db.Text)
     is_open = db.Column(db.Boolean, nullable=False, default=True)
+
+
+class AgencyCompany(db.Model):
+    __tablename__ = 'agency_companies'
+    id = db.Column(db.String, primary_key=True)
+    name = db.Column(db.String, nullable=False)
+
+
+class PaymentSource(db.Model):
+    __tablename__ = 'payment_sources'
+    id = db.Column(db.String, primary_key=True)
+    name = db.Column(db.String, nullable=False)
+
+
+class UserUniversityCommission(db.Model):
+    __tablename__ = 'user_university_commissions'
+    id = db.Column(db.String, primary_key=True)
+    user_id = db.Column(db.String, db.ForeignKey('users.id'), nullable=False)
+    university_id = db.Column(db.String, db.ForeignKey('universities.id'), nullable=False)
+    commission_kind = db.Column(db.String, nullable=False)  # 'rate' | 'amount'
+    commission_value = db.Column(db.Float, nullable=False)
+
 
 class Application(db.Model):
     __tablename__ = 'applications'
@@ -77,8 +102,12 @@ class Application(db.Model):
     user = db.relationship('User', backref='applications', foreign_keys=[user_id])
     responsible_id = db.Column(db.String, db.ForeignKey('users.id'), nullable=True)  # Admin or User responsible
     responsible = db.relationship('User', foreign_keys=[responsible_id])
+    agency_company_id = db.Column(db.String, db.ForeignKey('agency_companies.id'), nullable=True)
+    agency_company = db.relationship('AgencyCompany', foreign_keys=[agency_company_id])
     annual_payment = db.Column(db.Float, nullable=True)
+    education_vat_rate = db.Column(db.Float, nullable=True)
     education_vat = db.Column(db.Float, nullable=True)
+    abroad_vat_rate = db.Column(db.Float, nullable=True, default=10.0)
     gross_commission = db.Column(db.Float, nullable=True)
     abroad_vat = db.Column(db.Float, nullable=True)
     net_commission = db.Column(db.Float, nullable=True)
@@ -94,7 +123,9 @@ class Application(db.Model):
     currency = db.Column(db.String, nullable=True, default='USD')
     remaining_min = db.Column(db.Float, nullable=True)
     remaining_max = db.Column(db.Float, nullable=True)
-
+    payment_deserved = db.Column(db.Boolean, nullable=False, default=False)
+    payment_date = db.Column(db.String, nullable=True)
+    payment_month = db.Column(db.String, nullable=True)
 
 
 class ApplicationMessage(db.Model):
@@ -141,7 +172,10 @@ class IncomingPayment(db.Model):
     id = db.Column(db.String, primary_key=True)
     sequence_number = db.Column(db.Integer, nullable=False, unique=True)
     payment_date = db.Column(db.String, nullable=False)
+    payment_type = db.Column(db.String, nullable=False, default='Cash')  # Cash / Bank
     payment_source = db.Column(db.String, nullable=False)
+    payment_source_id = db.Column(db.String, db.ForeignKey('payment_sources.id'), nullable=True)
+    payment_source_rel = db.relationship('PaymentSource', foreign_keys=[payment_source_id])
     payment_amount = db.Column(db.Float, nullable=True)
     currency = db.Column(db.String, nullable=False, default='USD')
     description_1 = db.Column(db.String, nullable=True)
@@ -158,7 +192,10 @@ class OutgoingPayment(db.Model):
     payment_amount = db.Column(db.Float, nullable=False)
     currency = db.Column(db.String, nullable=False, default='USD')
     payment_type = db.Column(db.String, nullable=False)  # Cash / Bank
-    payment_reason = db.Column(db.String, nullable=False)
+    payment_reason = db.Column(db.String, nullable=False)  # commission / debt / company_expense
+    expense_type = db.Column(db.String, nullable=True)  # when company_expense: rateb, kira, ...
     description_1 = db.Column(db.String, nullable=True)
+    user_id = db.Column(db.String, db.ForeignKey('users.id'), nullable=True)
+    user = db.relationship('User', foreign_keys=[user_id])
     created_at = db.Column(db.String, nullable=False)
     updated_at = db.Column(db.String, nullable=True)

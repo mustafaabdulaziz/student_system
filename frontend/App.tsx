@@ -16,6 +16,8 @@ import {
   Student,
   Application,
   Period,
+  AgencyCompany,
+  PaymentSource,
   AppState,
   UserRole,
   ApplicationStatus
@@ -23,6 +25,9 @@ import {
 import { PeriodManager } from './components/PeriodManager';
 import { ApplicationsDashboard } from './components/ApplicationsDashboard';
 import { PaymentsManager } from './components/PaymentsManager';
+import { PaymentDashboard } from './components/PaymentDashboard';
+import { AgencyCompanyManager } from './components/AgencyCompanyManager';
+import { PaymentSourceManager } from './components/PaymentSourceManager';
 
 const NewsAndUpdates = lazy(() => import('./components/NewsAndUpdates').then(m => ({ default: m.NewsAndUpdates })));
 
@@ -33,6 +38,8 @@ const INITIAL_STATE: AppState = {
   students: [],
   applications: [],
   periods: [],
+  agencyCompanies: [],
+  paymentSources: [],
   currentUser: null
 };
 
@@ -48,6 +55,9 @@ const PATH_TO_PAGE: Record<string, string> = {
   '/users': 'users',
   '/incoming-payments': 'incoming-payments',
   '/outgoing-payments': 'outgoing-payments',
+  '/payment-dashboard': 'payment-dashboard',
+  '/agency-companies': 'agency-companies',
+  '/payment-sources': 'payment-sources',
   '/news': 'news',
   '/account': 'account'
 };
@@ -63,6 +73,9 @@ const PAGE_TO_PATH: Record<string, string> = {
   users: '/users',
   'incoming-payments': '/incoming-payments',
   'outgoing-payments': '/outgoing-payments',
+  'payment-dashboard': '/payment-dashboard',
+  'agency-companies': '/agency-companies',
+  'payment-sources': '/payment-sources',
   news: '/news',
   account: '/account'
 };
@@ -135,7 +148,20 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (state.currentUser && state.currentUser.role !== UserRole.ADMIN && (activePage === 'users' || activePage === 'periods' || activePage === 'applications-dashboard' || activePage === 'incoming-payments' || activePage === 'outgoing-payments')) {
+    const role = state.currentUser?.role;
+    const shouldBlockPage = (
+      (role !== UserRole.ADMIN && (
+        activePage === 'users' ||
+        activePage === 'periods' ||
+        activePage === 'incoming-payments' ||
+        activePage === 'outgoing-payments' ||
+        activePage === 'payment-dashboard' ||
+        activePage === 'agency-companies' ||
+        activePage === 'payment-sources'
+      )) ||
+      (activePage === 'applications-dashboard' && role !== UserRole.ADMIN && role !== UserRole.AGENT)
+    );
+    if (state.currentUser && shouldBlockPage) {
       setActivePage('dashboard');
       if (typeof window !== 'undefined') {
         window.history.replaceState({ page: 'dashboard' }, '', '/dashboard');
@@ -356,6 +382,7 @@ export default function App() {
     const userIdToSend = app.userId ?? state.currentUser?.id ?? '';
     if (userIdToSend) formData.append('user_id', userIdToSend);
     if (app.responsibleId) formData.append('responsible_id', app.responsibleId);
+    if (app.agencyCompanyId) formData.append('agency_company_id', app.agencyCompanyId);
     if (state.currentUser) formData.append('role', state.currentUser.role);
     try {
       const res = await fetch('/api/applications', {
@@ -368,8 +395,11 @@ export default function App() {
         const agentId = app.userId || state.currentUser?.id;
         const agentUser = state.users.find(u => u.id === agentId);
         const responsibleUser = app.responsibleId ? state.users.find(u => u.id === app.responsibleId) : null;
+        const agencyCompany = app.agencyCompanyId ? state.agencyCompanies.find(c => c.id === app.agencyCompanyId) : null;
+        const fromApi = data.application || {};
         const newApp = {
           ...app,
+          ...fromApi,
           id: data.id,
           files: savedFiles,
           createdAt: data.createdAt != null ? data.createdAt : app.createdAt,
@@ -381,6 +411,7 @@ export default function App() {
             agentCountryCode: agentUser.countryCode
           }),
           ...(app.responsibleId && { responsibleId: app.responsibleId, responsibleName: responsibleUser?.name }),
+          ...(app.agencyCompanyId && { agencyCompanyId: app.agencyCompanyId, agencyCompanyName: agencyCompany?.name }),
           currency: app.currency && ['USD', 'TRY', 'EUR'].includes(app.currency) ? app.currency : 'USD'
         };
         setState(prev => ({
@@ -411,7 +442,13 @@ export default function App() {
       if (res.ok) {
         setState(prev => ({
           ...prev,
-          applications: prev.applications.map(a => a.id === id ? { ...a, status, ...(data.updatedAt ? { updatedAt: data.updatedAt } : {}) } : a),
+          applications: prev.applications.map(a => a.id === id ? {
+            ...a,
+            status,
+            ...(data.paymentDate !== undefined && { paymentDate: data.paymentDate ?? undefined }),
+            ...(data.paymentMonth !== undefined && { paymentMonth: data.paymentMonth ?? undefined }),
+            ...(data.updatedAt ? { updatedAt: data.updatedAt } : {})
+          } : a),
           students: data.studentId && data.studentUpdatedAt
             ? prev.students.map(s => s.id === data.studentId ? { ...s, updatedAt: data.studentUpdatedAt } : s)
             : prev.students
@@ -429,22 +466,16 @@ export default function App() {
     userId?: string | null;
     responsibleId?: string | null;
     annualPayment?: number | null;
-    educationVat?: number | null;
+    educationVatRate?: number | null;
+    abroadVatRate?: number | null;
     grossCommission?: number | null;
-    abroadVat?: number | null;
-    netCommission?: number | null;
     bonusMax?: number | null;
     bonusMin?: number | null;
     agencyCommission?: number | null;
     agencyBonus?: number | null;
-    agencyContractAmount?: number | null;
-    agencyPaidContractAmount?: number | null;
-    agencyPaidContractDescription?: string | null;
-    agencyPaidContractDescriptionDate?: string | null;
-    agencyPaidContractPaymentMethod?: string | null;
+    agencyCompanyId?: string | null;
     currency?: string | null;
-    remainingMin?: number | null;
-    remainingMax?: number | null;
+    paymentDeserved?: boolean;
   }) => {
     try {
       const res = await fetch(`/api/applications/${id}`, {
@@ -456,6 +487,7 @@ export default function App() {
       if (res.ok) {
         const responsibleUser = payload.responsibleId != null ? state.users.find(u => u.id === payload.responsibleId) : undefined;
         const agentUser = payload.userId != null ? state.users.find(u => u.id === payload.userId) : undefined;
+        const agencyCompany = payload.agencyCompanyId != null ? state.agencyCompanies.find(c => c.id === payload.agencyCompanyId) : undefined;
         setState(prev => ({
           ...prev,
           applications: prev.applications.map(a => a.id === id ? {
@@ -468,23 +500,28 @@ export default function App() {
               agentCountryCode: agentUser?.countryCode
             }),
             ...(payload.responsibleId !== undefined && { responsibleId: payload.responsibleId || undefined, responsibleName: responsibleUser?.name }),
+            ...(payload.agencyCompanyId !== undefined && { agencyCompanyId: payload.agencyCompanyId || undefined, agencyCompanyName: agencyCompany?.name }),
             ...(payload.annualPayment !== undefined && { annualPayment: payload.annualPayment ?? undefined }),
-            ...(payload.educationVat !== undefined && { educationVat: payload.educationVat ?? undefined }),
+            ...(payload.educationVatRate !== undefined && { educationVatRate: payload.educationVatRate ?? undefined }),
+            ...(payload.abroadVatRate !== undefined && { abroadVatRate: payload.abroadVatRate ?? undefined }),
             ...(payload.grossCommission !== undefined && { grossCommission: payload.grossCommission ?? undefined }),
-            ...(payload.abroadVat !== undefined && { abroadVat: payload.abroadVat ?? undefined }),
-            ...(payload.netCommission !== undefined && { netCommission: payload.netCommission ?? undefined }),
             ...(payload.bonusMax !== undefined && { bonusMax: payload.bonusMax ?? undefined }),
             ...(payload.bonusMin !== undefined && { bonusMin: payload.bonusMin ?? undefined }),
             ...(payload.agencyCommission !== undefined && { agencyCommission: payload.agencyCommission ?? undefined }),
             ...(payload.agencyBonus !== undefined && { agencyBonus: payload.agencyBonus ?? undefined }),
-            ...(payload.agencyContractAmount !== undefined && { agencyContractAmount: payload.agencyContractAmount ?? undefined }),
-            ...(payload.agencyPaidContractAmount !== undefined && { agencyPaidContractAmount: payload.agencyPaidContractAmount ?? undefined }),
-            ...(payload.agencyPaidContractDescription !== undefined && { agencyPaidContractDescription: payload.agencyPaidContractDescription ?? undefined }),
-            ...(payload.agencyPaidContractDescriptionDate !== undefined && { agencyPaidContractDescriptionDate: payload.agencyPaidContractDescriptionDate ?? undefined }),
-            ...(payload.agencyPaidContractPaymentMethod !== undefined && { agencyPaidContractPaymentMethod: payload.agencyPaidContractPaymentMethod ?? undefined }),
             ...(payload.currency !== undefined && { currency: payload.currency ?? undefined }),
-            ...(payload.remainingMin !== undefined && { remainingMin: payload.remainingMin ?? undefined }),
-            ...(payload.remainingMax !== undefined && { remainingMax: payload.remainingMax ?? undefined }),
+            ...(payload.paymentDeserved !== undefined && { paymentDeserved: payload.paymentDeserved }),
+            ...(data.annualPayment !== undefined && { annualPayment: data.annualPayment ?? undefined }),
+            ...(data.educationVatRate !== undefined && { educationVatRate: data.educationVatRate ?? undefined }),
+            ...(data.educationVat !== undefined && { educationVat: data.educationVat ?? undefined }),
+            ...(data.abroadVatRate !== undefined && { abroadVatRate: data.abroadVatRate ?? undefined }),
+            ...(data.abroadVat !== undefined && { abroadVat: data.abroadVat ?? undefined }),
+            ...(data.netCommission !== undefined && { netCommission: data.netCommission ?? undefined }),
+            ...(data.agencyContractAmount !== undefined && { agencyContractAmount: data.agencyContractAmount ?? undefined }),
+            ...(data.remainingMin !== undefined && { remainingMin: data.remainingMin ?? undefined }),
+            ...(data.remainingMax !== undefined && { remainingMax: data.remainingMax ?? undefined }),
+            ...(data.paymentDate !== undefined && { paymentDate: data.paymentDate ?? undefined }),
+            ...(data.paymentMonth !== undefined && { paymentMonth: data.paymentMonth ?? undefined }),
             ...(data.updatedAt ? { updatedAt: data.updatedAt } : {})
           } : a),
           students: data.studentId && data.studentUpdatedAt
@@ -493,6 +530,135 @@ export default function App() {
         }));
       } else {
         alert(data.message || 'Update failed');
+      }
+    } catch (err) {
+      alert('Connection error');
+    }
+  };
+
+  const addAgencyCompany = async (name: string) => {
+    try {
+      const res = await fetch('/api/agency-companies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, role: state.currentUser?.role })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setState(prev => ({
+          ...prev,
+          agencyCompanies: [...prev.agencyCompanies, { id: data.id, name }]
+        }));
+        return data.id as string;
+      }
+      alert(data.message || 'Aracı firma eklenemedi');
+    } catch (err) {
+      alert('Connection error');
+    }
+    return null;
+  };
+
+  const editAgencyCompany = async (company: AgencyCompany) => {
+    try {
+      const res = await fetch(`/api/agency-companies/${company.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: company.name, role: state.currentUser?.role })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setState(prev => ({
+          ...prev,
+          agencyCompanies: prev.agencyCompanies.map(c => c.id === company.id ? company : c),
+          applications: prev.applications.map(a => a.agencyCompanyId === company.id ? { ...a, agencyCompanyName: company.name } : a)
+        }));
+      } else {
+        alert(data.message || 'Aracı firma güncellenemedi');
+      }
+    } catch (err) {
+      alert('Connection error');
+    }
+  };
+
+  const deleteAgencyCompany = async (id: string) => {
+    try {
+      const res = await fetch(`/api/agency-companies/${id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: state.currentUser?.role })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setState(prev => ({
+          ...prev,
+          agencyCompanies: prev.agencyCompanies.filter(c => c.id !== id)
+        }));
+      } else {
+        alert(data.message || 'Aracı firma silinemedi');
+      }
+    } catch (err) {
+      alert('Connection error');
+    }
+  };
+
+  const addPaymentSource = async (name: string) => {
+    try {
+      const res = await fetch('/api/payment-sources', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, role: state.currentUser?.role })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setState(prev => ({
+          ...prev,
+          paymentSources: [...prev.paymentSources, { id: data.id, name }]
+        }));
+        return data.id as string;
+      }
+      alert(data.message || 'Ödeme kaynağı eklenemedi');
+    } catch (err) {
+      alert('Connection error');
+    }
+    return null;
+  };
+
+  const editPaymentSource = async (source: PaymentSource) => {
+    try {
+      const res = await fetch(`/api/payment-sources/${source.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: source.name, role: state.currentUser?.role })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setState(prev => ({
+          ...prev,
+          paymentSources: prev.paymentSources.map(s => s.id === source.id ? source : s)
+        }));
+      } else {
+        alert(data.message || 'Ödeme kaynağı güncellenemedi');
+      }
+    } catch (err) {
+      alert('Connection error');
+    }
+  };
+
+  const deletePaymentSource = async (id: string) => {
+    try {
+      const res = await fetch(`/api/payment-sources/${id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: state.currentUser?.role })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setState(prev => ({
+          ...prev,
+          paymentSources: prev.paymentSources.filter(s => s.id !== id)
+        }));
+      } else {
+        alert(data.message || 'Ödeme kaynağı silinemedi');
       }
     } catch (err) {
       alert('Connection error');
@@ -612,6 +778,7 @@ export default function App() {
           role: user.role,
           phone: user.phone,
           countryCode: user.countryCode,
+          agentCommissions: user.agentCommissions ?? [],
           ...(user.password ? { password: user.password } : {})
         })
       });
@@ -703,7 +870,9 @@ export default function App() {
           fetchPaginatedAll(programsBaseUrl),
           fetchPaginatedAll(studentsBaseUrl),
           fetchPaginatedAll(applicationsBaseUrl),
-          fetch('/api/periods').then(r => r.json())
+          fetch('/api/periods').then(r => r.json()),
+          fetch('/api/agency-companies').then(r => r.json()),
+          fetch('/api/payment-sources').then(r => r.json())
         ];
         if (state.currentUser.role === UserRole.ADMIN) {
           sharedRequests.push(fetch('/api/users').then(r => r.json()));
@@ -716,7 +885,9 @@ export default function App() {
           students: responses[2],
           applications: responses[3],
           periods: responses[4] || [],
-          users: state.currentUser?.role === UserRole.ADMIN ? (responses[5] || []).map((u: any) => ({ ...u, active: u.active !== false })) : []
+          agencyCompanies: responses[5] || [],
+          paymentSources: responses[6] || [],
+          users: state.currentUser?.role === UserRole.ADMIN ? (responses[7] || []).map((u: any) => ({ ...u, active: u.active !== false })) : []
         }));
       } catch (err) {
         console.error('Error fetching data:', err);
@@ -741,6 +912,8 @@ export default function App() {
             students={state.students}
             applications={state.applications}
             programs={state.programs}
+            universities={state.universities}
+            currentUser={state.currentUser}
             universitiesCount={state.universities.length}
             onOpenApplication={openApplicationDetails}
             onOpenStudent={openStudentDetails}
@@ -753,7 +926,7 @@ export default function App() {
       case 'students':
         return <StudentManager students={state.students} applications={state.applications} programs={state.programs} universities={state.universities} periods={state.periods} users={state.users} onAddStudent={addStudent} onEditStudent={updateStudent} onCreateApplicationForStudent={openCreateApplicationForStudent} onAddApplicationForStudent={(app) => addApplication(app)} onViewApplication={openApplicationDetails} currentUser={state.currentUser} targetStudentId={targetStudentId} clearTargetStudent={() => setTargetStudentId(null)} />;
       case 'applications':
-        return <ApplicationManager applications={state.applications} students={state.students} programs={state.programs} universities={state.universities} periods={state.periods} users={state.users} onAddApplication={addApplication} onUpdateStatus={updateAppStatus} onUpdateApplication={updateApplication} onSyncApplicationTimestamps={onSyncApplicationTimestamps} initialStudentId={prefillStudentIdForApp} clearInitialStudent={() => setPrefillStudentIdForApp(null)} targetApplicationId={targetApplicationId} clearTargetApplication={() => setTargetApplicationId(null)} currentUser={state.currentUser} />;
+        return <ApplicationManager applications={state.applications} students={state.students} programs={state.programs} universities={state.universities} periods={state.periods} agencyCompanies={state.agencyCompanies} users={state.users} onAddApplication={addApplication} onUpdateStatus={updateAppStatus} onUpdateApplication={updateApplication} onSyncApplicationTimestamps={onSyncApplicationTimestamps} initialStudentId={prefillStudentIdForApp} clearInitialStudent={() => setPrefillStudentIdForApp(null)} targetApplicationId={targetApplicationId} clearTargetApplication={() => setTargetApplicationId(null)} onOpenStudent={openStudentDetails} currentUser={state.currentUser} />;
       case 'applications-dashboard':
         return (
           <ApplicationsDashboard
@@ -762,6 +935,7 @@ export default function App() {
             programs={state.programs}
             universities={state.universities}
             users={state.users}
+            currentUser={state.currentUser}
           />
         );
       case 'news':
@@ -777,6 +951,8 @@ export default function App() {
               students={state.students}
               applications={state.applications}
               programs={state.programs}
+              universities={state.universities}
+              currentUser={state.currentUser}
               universitiesCount={state.universities.length}
               onOpenApplication={openApplicationDetails}
               onOpenStudent={openStudentDetails}
@@ -818,6 +994,8 @@ export default function App() {
               students={state.students}
               applications={state.applications}
               programs={state.programs}
+              universities={state.universities}
+              currentUser={state.currentUser}
               universitiesCount={state.universities.length}
               onOpenApplication={openApplicationDetails}
               onOpenStudent={openStudentDetails}
@@ -827,6 +1005,7 @@ export default function App() {
         return (
           <UserManagementPage
             users={state.users}
+            universities={state.universities}
             currentUser={state.currentUser}
             onAddUser={addUser}
             onEditUser={editUser}
@@ -841,13 +1020,31 @@ export default function App() {
               students={state.students}
               applications={state.applications}
               programs={state.programs}
+              universities={state.universities}
+              currentUser={state.currentUser}
               universitiesCount={state.universities.length}
               onOpenApplication={openApplicationDetails}
               onOpenStudent={openStudentDetails}
             />
           );
         }
-        return <PaymentsManager mode="incoming" currentUser={state.currentUser} />;
+        return <PaymentsManager mode="incoming" currentUser={state.currentUser} paymentSources={state.paymentSources} />;
+      case 'payment-dashboard':
+        if (state.currentUser?.role !== UserRole.ADMIN) {
+          return (
+            <Dashboard
+              students={state.students}
+              applications={state.applications}
+              programs={state.programs}
+              universities={state.universities}
+              currentUser={state.currentUser}
+              universitiesCount={state.universities.length}
+              onOpenApplication={openApplicationDetails}
+              onOpenStudent={openStudentDetails}
+            />
+          );
+        }
+        return <PaymentDashboard currentUser={state.currentUser} />;
       case 'outgoing-payments':
         if (state.currentUser?.role !== UserRole.ADMIN) {
           return (
@@ -855,19 +1052,69 @@ export default function App() {
               students={state.students}
               applications={state.applications}
               programs={state.programs}
+              universities={state.universities}
+              currentUser={state.currentUser}
               universitiesCount={state.universities.length}
               onOpenApplication={openApplicationDetails}
               onOpenStudent={openStudentDetails}
             />
           );
         }
-        return <PaymentsManager mode="outgoing" currentUser={state.currentUser} />;
+        return <PaymentsManager mode="outgoing" currentUser={state.currentUser} paymentSources={state.paymentSources} />;
+      case 'agency-companies':
+        if (state.currentUser?.role !== UserRole.ADMIN) {
+          return (
+            <Dashboard
+              students={state.students}
+              applications={state.applications}
+              programs={state.programs}
+              universities={state.universities}
+              currentUser={state.currentUser}
+              universitiesCount={state.universities.length}
+              onOpenApplication={openApplicationDetails}
+              onOpenStudent={openStudentDetails}
+            />
+          );
+        }
+        return (
+          <AgencyCompanyManager
+            companies={state.agencyCompanies}
+            onAddCompany={addAgencyCompany}
+            onEditCompany={editAgencyCompany}
+            onDeleteCompany={deleteAgencyCompany}
+          />
+        );
+      case 'payment-sources':
+        if (state.currentUser?.role !== UserRole.ADMIN) {
+          return (
+            <Dashboard
+              students={state.students}
+              applications={state.applications}
+              programs={state.programs}
+              universities={state.universities}
+              currentUser={state.currentUser}
+              universitiesCount={state.universities.length}
+              onOpenApplication={openApplicationDetails}
+              onOpenStudent={openStudentDetails}
+            />
+          );
+        }
+        return (
+          <PaymentSourceManager
+            sources={state.paymentSources}
+            onAddSource={addPaymentSource}
+            onEditSource={editPaymentSource}
+            onDeleteSource={deletePaymentSource}
+          />
+        );
       default:
         return (
           <Dashboard
             students={state.students}
             applications={state.applications}
             programs={state.programs}
+            universities={state.universities}
+            currentUser={state.currentUser}
             universitiesCount={state.universities.length}
             onOpenApplication={openApplicationDetails}
             onOpenStudent={openStudentDetails}

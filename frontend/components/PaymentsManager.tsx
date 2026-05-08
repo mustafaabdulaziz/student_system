@@ -1,7 +1,17 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Download, Pencil, Plus, Trash2, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { User, UserRole } from '../types';
+import { PaymentSource, User, UserRole } from '../types';
+import {
+  OUTGOING_PAYMENT_REASON_LABELS,
+  OUTGOING_PAYMENT_REASONS,
+  COMPANY_EXPENSE_TYPE_LABELS,
+  COMPANY_EXPENSE_TYPES,
+  formatExpenseTypeDisplay,
+  formatOutgoingPaymentDisplay,
+  type OutgoingPaymentReasonCode,
+  type CompanyExpenseTypeCode
+} from '../constants/outgoingPayment';
 
 type PaymentsMode = 'incoming' | 'outgoing';
 type CurrencyCode = 'USD' | 'TRY' | 'EUR';
@@ -9,6 +19,7 @@ type CurrencyCode = 'USD' | 'TRY' | 'EUR';
 interface PaymentsManagerProps {
   mode: PaymentsMode;
   currentUser: User;
+  paymentSources?: PaymentSource[];
 }
 
 interface IncomingPaymentRow {
@@ -16,7 +27,9 @@ interface IncomingPaymentRow {
   sequenceNumber: number;
   paymentDate: string;
   paymentAmount: number;
+  paymentType: 'Cash' | 'Bank';
   paymentSource: string;
+  paymentSourceId?: string | null;
   currency: CurrencyCode;
   description1?: string;
   description2?: string;
@@ -30,7 +43,11 @@ interface OutgoingPaymentRow {
   currency: CurrencyCode;
   paymentType: 'Cash' | 'Bank';
   paymentReason: string;
+  expenseType?: string | null;
   description1?: string;
+  userId?: string;
+  userName?: string;
+  userRole?: string;
 }
 
 type Row = IncomingPaymentRow | OutgoingPaymentRow;
@@ -40,9 +57,10 @@ const endpointByMode: Record<PaymentsMode, string> = {
   outgoing: '/api/outgoing-payments'
 };
 
-export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentUser }) => {
+export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentUser, paymentSources = [] }) => {
   const isAdmin = currentUser?.role === UserRole.ADMIN;
   const [rows, setRows] = useState<Row[]>([]);
+  const [assignableUsers, setAssignableUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -67,7 +85,9 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
   const [incomingForm, setIncomingForm] = useState({
     paymentDate: '',
     paymentAmount: '',
+    paymentType: 'Cash' as 'Cash' | 'Bank',
     paymentSource: '',
+    paymentSourceId: '',
     currency: 'USD' as CurrencyCode,
     description1: '',
     description2: ''
@@ -77,14 +97,25 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
     paymentAmount: '',
     currency: 'USD' as CurrencyCode,
     paymentType: 'Cash' as 'Cash' | 'Bank',
-    paymentReason: '',
-    description1: ''
+    paymentReason: '' as '' | OutgoingPaymentReasonCode,
+    expenseType: '' as '' | CompanyExpenseTypeCode,
+    description1: '',
+    userId: ''
   });
 
   const resetForm = () => {
     setEditingId(null);
-    setIncomingForm({ paymentDate: '', paymentAmount: '', paymentSource: '', currency: 'USD', description1: '', description2: '' });
-    setOutgoingForm({ paymentDate: '', paymentAmount: '', currency: 'USD', paymentType: 'Cash', paymentReason: '', description1: '' });
+    setIncomingForm({ paymentDate: '', paymentAmount: '', paymentType: 'Cash', paymentSource: '', paymentSourceId: '', currency: 'USD', description1: '', description2: '' });
+    setOutgoingForm({
+      paymentDate: '',
+      paymentAmount: '',
+      currency: 'USD',
+      paymentType: 'Cash',
+      paymentReason: '',
+      expenseType: '',
+      description1: '',
+      userId: ''
+    });
     setFormError('');
   };
 
@@ -115,6 +146,21 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
     loadRows();
   }, [mode, currentUser.id, currentUser.role]);
 
+  useEffect(() => {
+    if (!isAdmin) return;
+    const loadUsers = async () => {
+      try {
+        const res = await fetch('/api/users');
+        const data = await res.json();
+        if (!res.ok) return;
+        setAssignableUsers(Array.isArray(data) ? data : []);
+      } catch {
+        // ignore user list loading failure in payments form
+      }
+    };
+    loadUsers();
+  }, [isAdmin]);
+
   const sortedRows = useMemo(
     () => [...rows].sort((a, b) => (b.sequenceNumber || 0) - (a.sequenceNumber || 0)),
     [rows]
@@ -128,7 +174,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
     const descriptionQuery = filters.descriptionQuery.trim().toLowerCase();
     const paymentSource = filters.paymentSource.trim().toLowerCase();
     const paymentType = filters.paymentType;
-    const paymentReason = filters.paymentReason.trim().toLowerCase();
+    const paymentReason = filters.paymentReason.trim();
     const amountMin = filters.amountMin !== '' ? Number(filters.amountMin) : null;
     const amountMax = filters.amountMax !== '' ? Number(filters.amountMax) : null;
 
@@ -141,6 +187,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
       if (mode === 'incoming') {
         const incoming = row as IncomingPaymentRow;
         if (paymentSource && !incoming.paymentSource.toLowerCase().includes(paymentSource)) return false;
+        if (paymentType && incoming.paymentType !== paymentType) return false;
         if (descriptionQuery) {
           const haystack = `${incoming.description1 || ''} ${incoming.description2 || ''}`.toLowerCase();
           if (!haystack.includes(descriptionQuery)) return false;
@@ -150,7 +197,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
       } else {
         const outgoing = row as OutgoingPaymentRow;
         if (paymentType && outgoing.paymentType !== paymentType) return false;
-        if (paymentReason && !outgoing.paymentReason.toLowerCase().includes(paymentReason)) return false;
+        if (paymentReason && outgoing.paymentReason !== paymentReason) return false;
         if (descriptionQuery && !(outgoing.description1 || '').toLowerCase().includes(descriptionQuery)) return false;
         if (amountMin !== null && outgoing.paymentAmount < amountMin) return false;
         if (amountMax !== null && outgoing.paymentAmount > amountMax) return false;
@@ -212,6 +259,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
           'Odeme Tarihi': r.paymentDate,
           'Odeme Miktari': r.paymentAmount,
           Currency: r.currency,
+          'Odeme Turu': r.paymentType === 'Cash' ? 'Nakit' : 'Banka',
           'Odeme Kaynagi': r.paymentSource,
           'Aciklama 1': r.description1 || '',
           'Aciklama 2': r.description2 || ''
@@ -224,8 +272,10 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
         'Odeme Miktari': r.paymentAmount,
         Currency: r.currency,
         'Odeme Turu': r.paymentType === 'Cash' ? 'Nakit' : 'Banka',
-        'Odeme Sebebi': r.paymentReason,
-        'Aciklama 1': r.description1 || ''
+        'Odeme Sebebi': formatOutgoingPaymentDisplay(r.paymentReason),
+        'Masraf Tipi': formatExpenseTypeDisplay(r.expenseType),
+        'Aciklama 1': r.description1 || '',
+        Kullanici: r.userName ? `${r.userName} (${(r.userRole || '').toLowerCase()})` : ''
       };
     });
     const wb = XLSX.utils.book_new();
@@ -247,20 +297,28 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
       setIncomingForm({
         paymentDate: incoming.paymentDate || '',
         paymentAmount: String(incoming.paymentAmount ?? ''),
+        paymentType: incoming.paymentType || 'Cash',
         paymentSource: incoming.paymentSource || '',
+        paymentSourceId: incoming.paymentSourceId || '',
         currency: incoming.currency || 'USD',
         description1: incoming.description1 || '',
         description2: incoming.description2 || ''
       });
     } else {
       const outgoing = row as OutgoingPaymentRow;
+      const pr = outgoing.paymentReason || '';
+      const reasonOk = (OUTGOING_PAYMENT_REASONS as readonly string[]).includes(pr);
+      const et = (outgoing.expenseType || '').trim();
+      const expenseOk = (COMPANY_EXPENSE_TYPES as readonly string[]).includes(et);
       setOutgoingForm({
         paymentDate: outgoing.paymentDate || '',
         paymentAmount: String(outgoing.paymentAmount ?? ''),
         currency: outgoing.currency || 'USD',
         paymentType: outgoing.paymentType || 'Cash',
-        paymentReason: outgoing.paymentReason || '',
-        description1: outgoing.description1 || ''
+        paymentReason: (reasonOk ? pr : '') as '' | OutgoingPaymentReasonCode,
+        expenseType: (expenseOk ? et : '') as '' | CompanyExpenseTypeCode,
+        description1: outgoing.description1 || '',
+        userId: outgoing.userId || ''
       });
     }
     setShowForm(true);
@@ -269,17 +327,38 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
   const submitForm = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
+    if (mode === 'outgoing') {
+      if (!outgoingForm.paymentReason) {
+        setFormError('Ödeme sebebi seçiniz.');
+        return;
+      }
+      if (
+        outgoingForm.paymentReason === 'company_expense' &&
+        !(COMPANY_EXPENSE_TYPES as readonly string[]).includes(outgoingForm.expenseType)
+      ) {
+        setFormError('Firma masrafı için masraf tipi seçiniz.');
+        return;
+      }
+    }
     try {
       const payload =
         mode === 'incoming'
           ? {
               ...incomingForm,
+              paymentSourceId: incomingForm.paymentSourceId || null,
               paymentAmount: Number(incomingForm.paymentAmount),
               role: currentUser.role
             }
           : {
-              ...outgoingForm,
+              paymentDate: outgoingForm.paymentDate,
               paymentAmount: Number(outgoingForm.paymentAmount),
+              currency: outgoingForm.currency,
+              paymentType: outgoingForm.paymentType,
+              paymentReason: outgoingForm.paymentReason,
+              expenseType:
+                outgoingForm.paymentReason === 'company_expense' ? outgoingForm.expenseType || null : null,
+              description1: outgoingForm.description1,
+              userId: outgoingForm.userId || null,
               role: currentUser.role
             };
       const isEdit = !!editingId;
@@ -320,6 +399,11 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
     }
   };
 
+  const closeFormView = () => {
+    setShowForm(false);
+    resetForm();
+  };
+
   if (!isAdmin) {
     return (
       <div className="bg-white border border-gray-100 rounded-xl p-6 text-gray-600">
@@ -351,6 +435,230 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
           </button>
         </div>
       </div>
+
+      {showForm && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+            <h3 className="font-semibold text-gray-900">{editingId ? 'Kaydı Düzenle' : 'Yeni Kayıt'}</h3>
+            <button type="button" onClick={closeFormView} className="p-1 rounded hover:bg-gray-100">
+              <X size={18} />
+            </button>
+          </div>
+          <form onSubmit={submitForm} className="p-4 space-y-4">
+            {mode === 'incoming' ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-sm mb-1">Ödeme Tarihi</label>
+                  <input
+                    required
+                    type="date"
+                    value={incomingForm.paymentDate}
+                    onChange={e => setIncomingForm(prev => ({ ...prev, paymentDate: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm mb-1">Ödeme Miktarı</label>
+                  <input
+                    required
+                    type="number"
+                    step="0.01"
+                    value={incomingForm.paymentAmount}
+                    onChange={e => setIncomingForm(prev => ({ ...prev, paymentAmount: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm mb-1">Ödeme Kaynağı</label>
+                  <select
+                    required
+                    value={incomingForm.paymentSourceId}
+                    onChange={e => {
+                      const selectedId = e.target.value;
+                      const selected = paymentSources.find(ps => ps.id === selectedId);
+                      setIncomingForm(prev => ({
+                        ...prev,
+                        paymentSourceId: selectedId,
+                        paymentSource: selected?.name || ''
+                      }));
+                    }}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2"
+                  >
+                    <option value="" disabled>Seçiniz…</option>
+                    {paymentSources.map(ps => (
+                      <option key={ps.id} value={ps.id}>{ps.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm mb-1">Ödeme Türü</label>
+                  <select
+                    value={incomingForm.paymentType}
+                    onChange={e => setIncomingForm(prev => ({ ...prev, paymentType: e.target.value as 'Cash' | 'Bank' }))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2"
+                  >
+                    <option value="Cash">Nakit</option>
+                    <option value="Bank">Banka</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm mb-1">Currency</label>
+                  <select
+                    value={incomingForm.currency}
+                    onChange={e => setIncomingForm(prev => ({ ...prev, currency: e.target.value as CurrencyCode }))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2"
+                  >
+                    <option value="USD">USD</option>
+                    <option value="TRY">TRY</option>
+                    <option value="EUR">EUR</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm mb-1">Açıklama 1</label>
+                  <input
+                    value={incomingForm.description1}
+                    onChange={e => setIncomingForm(prev => ({ ...prev, description1: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm mb-1">Açıklama 2</label>
+                  <input
+                    value={incomingForm.description2}
+                    onChange={e => setIncomingForm(prev => ({ ...prev, description2: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-sm mb-1">Ödeme Tarihi</label>
+                  <input
+                    required
+                    type="date"
+                    value={outgoingForm.paymentDate}
+                    onChange={e => setOutgoingForm(prev => ({ ...prev, paymentDate: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm mb-1">Ödeme Miktarı</label>
+                  <input
+                    required
+                    type="number"
+                    step="0.01"
+                    value={outgoingForm.paymentAmount}
+                    onChange={e => setOutgoingForm(prev => ({ ...prev, paymentAmount: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm mb-1">Currency</label>
+                  <select
+                    value={outgoingForm.currency}
+                    onChange={e => setOutgoingForm(prev => ({ ...prev, currency: e.target.value as CurrencyCode }))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2"
+                  >
+                    <option value="USD">USD</option>
+                    <option value="TRY">TRY</option>
+                    <option value="EUR">EUR</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm mb-1">Ödeme Türü</label>
+                  <select
+                    value={outgoingForm.paymentType}
+                    onChange={e => setOutgoingForm(prev => ({ ...prev, paymentType: e.target.value as 'Cash' | 'Bank' }))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2"
+                  >
+                    <option value="Cash">Nakit</option>
+                    <option value="Bank">Banka</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm mb-1">Ödeme Sebebi</label>
+                  <select
+                    required
+                    value={outgoingForm.paymentReason}
+                    onChange={e => {
+                      const v = e.target.value as OutgoingPaymentReasonCode | '';
+                      setOutgoingForm(prev => ({
+                        ...prev,
+                        paymentReason: v,
+                        expenseType: v === 'company_expense' ? prev.expenseType : ''
+                      }));
+                    }}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2"
+                  >
+                    <option value="" disabled>Seçiniz…</option>
+                    {OUTGOING_PAYMENT_REASONS.map(code => (
+                      <option key={code} value={code}>
+                        {OUTGOING_PAYMENT_REASON_LABELS[code]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm mb-1">Masraf Tipi</label>
+                  <select
+                    required={outgoingForm.paymentReason === 'company_expense'}
+                    disabled={outgoingForm.paymentReason !== 'company_expense'}
+                    value={outgoingForm.expenseType}
+                    onChange={e =>
+                      setOutgoingForm(prev => ({
+                        ...prev,
+                        expenseType: e.target.value as CompanyExpenseTypeCode | ''
+                      }))
+                    }
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2"
+                  >
+                    <option value="" disabled>Seçiniz…</option>
+                    {COMPANY_EXPENSE_TYPES.map(code => (
+                      <option key={code} value={code}>
+                        {COMPANY_EXPENSE_TYPE_LABELS[code]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm mb-1">Kullanıcı (opsiyonel)</label>
+                  <select
+                    value={outgoingForm.userId}
+                    onChange={e => setOutgoingForm(prev => ({ ...prev, userId: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2"
+                  >
+                    <option value="">Seçimsiz</option>
+                    {assignableUsers.map((user) => (
+                      <option key={user.id} value={user.id}>
+                        {user.name} ({String(user.role || '').toLowerCase()})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm mb-1">Açıklama 1</label>
+                  <input
+                    value={outgoingForm.description1}
+                    onChange={e => setOutgoingForm(prev => ({ ...prev, description1: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2"
+                  />
+                </div>
+              </div>
+            )}
+
+            {formError && <p className="text-sm text-red-600">{formError}</p>}
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button type="button" onClick={closeFormView} className="px-3 py-2 rounded-lg border border-gray-200">
+                İptal
+              </button>
+              <button type="submit" className="px-3 py-2 rounded-lg bg-blue-600 text-white">
+                {editingId ? 'Güncelle' : 'Kaydet'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 space-y-3">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -401,6 +709,15 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
                 onChange={e => setFilters(prev => ({ ...prev, amountMax: e.target.value }))}
                 className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
               />
+              <select
+                value={filters.paymentType}
+                onChange={e => setFilters(prev => ({ ...prev, paymentType: e.target.value }))}
+                className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
+              >
+                <option value="">Ödeme Türü (Tümü)</option>
+                <option value="Cash">Nakit</option>
+                <option value="Bank">Banka</option>
+              </select>
               <input
                 placeholder="Ödeme Kaynağı"
                 value={filters.paymentSource}
@@ -441,12 +758,16 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
                 <option value="Cash">Nakit</option>
                 <option value="Bank">Banka</option>
               </select>
-              <input
-                placeholder="Ödeme Sebebi"
+              <select
                 value={filters.paymentReason}
                 onChange={e => setFilters(prev => ({ ...prev, paymentReason: e.target.value }))}
                 className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
-              />
+              >
+                <option value="">Ödeme sebebi (tümü)</option>
+                {OUTGOING_PAYMENT_REASONS.map((code) => (
+                  <option key={code} value={code}>{OUTGOING_PAYMENT_REASON_LABELS[code]}</option>
+                ))}
+              </select>
               <input
                 placeholder="Açıklama Ara"
                 value={filters.descriptionQuery}
@@ -478,6 +799,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
                   <>
                     <th className="px-4 py-3">Ödeme Miktarı</th>
                     <th className="px-4 py-3">Currency</th>
+                    <th className="px-4 py-3">Ödeme Türü</th>
                     <th className="px-4 py-3">Ödeme Kaynağı</th>
                     <th className="px-4 py-3">Açıklama 1</th>
                     <th className="px-4 py-3">Açıklama 2</th>
@@ -488,6 +810,8 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
                     <th className="px-4 py-3">Currency</th>
                     <th className="px-4 py-3">Ödeme Türü</th>
                     <th className="px-4 py-3">Ödeme Sebebi</th>
+                    <th className="px-4 py-3">Masraf Tipi</th>
+                    <th className="px-4 py-3">Kullanıcı</th>
                     <th className="px-4 py-3">Açıklama 1</th>
                   </>
                 )}
@@ -498,7 +822,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
               {!loading && filteredRows.length === 0 && (
                 <tr>
                   <td
-                    colSpan={mode === 'incoming' ? 9 : 9}
+                    colSpan={mode === 'incoming' ? 10 : 11}
                     className="px-4 py-8 text-center text-gray-500"
                   >
                     Kayıt bulunamadı.
@@ -506,9 +830,18 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
                 </tr>
               )}
               {filteredRows.map((row) => (
-                <tr key={row.id}>
+                <tr
+                  key={row.id}
+                  onClick={() => openEdit(row)}
+                  className="cursor-pointer hover:bg-gray-50"
+                >
                   <td className="px-4 py-3">
-                    <input type="checkbox" checked={selectedIds.has(row.id)} onChange={() => toggleRow(row.id)} />
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(row.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={() => toggleRow(row.id)}
+                    />
                   </td>
                   <td className="px-4 py-3 font-mono">{row.sequenceNumber}</td>
                   <td className="px-4 py-3">{row.paymentDate}</td>
@@ -516,6 +849,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
                     <>
                       <td className="px-4 py-3">{(row as IncomingPaymentRow).paymentAmount}</td>
                       <td className="px-4 py-3">{(row as IncomingPaymentRow).currency}</td>
+                      <td className="px-4 py-3">{(row as IncomingPaymentRow).paymentType === 'Cash' ? 'Nakit' : 'Banka'}</td>
                       <td className="px-4 py-3">{(row as IncomingPaymentRow).paymentSource}</td>
                       <td className="px-4 py-3">{(row as IncomingPaymentRow).description1 || '—'}</td>
                       <td className="px-4 py-3">{(row as IncomingPaymentRow).description2 || '—'}</td>
@@ -526,15 +860,34 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
                       <td className="px-4 py-3">{(row as OutgoingPaymentRow).currency}</td>
                       <td className="px-4 py-3">{(row as OutgoingPaymentRow).paymentType === 'Cash' ? 'Nakit' : 'Banka'}</td>
                       <td className="px-4 py-3">{(row as OutgoingPaymentRow).paymentReason}</td>
+                      <td className="px-4 py-3">
+                        {(row as OutgoingPaymentRow).userName
+                          ? `${(row as OutgoingPaymentRow).userName} (${((row as OutgoingPaymentRow).userRole || '').toLowerCase()})`
+                          : '—'}
+                      </td>
                       <td className="px-4 py-3">{(row as OutgoingPaymentRow).description1 || '—'}</td>
                     </>
                   )}
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-2">
-                      <button type="button" onClick={() => openEdit(row)} className="p-2 rounded hover:bg-gray-100 text-gray-700">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openEdit(row);
+                        }}
+                        className="p-2 rounded hover:bg-gray-100 text-gray-700"
+                      >
                         <Pencil size={16} />
                       </button>
-                      <button type="button" onClick={() => removeRow(row.id)} className="p-2 rounded hover:bg-red-50 text-red-600">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeRow(row.id);
+                        }}
+                        className="p-2 rounded hover:bg-red-50 text-red-600"
+                      >
                         <Trash2 size={16} />
                       </button>
                     </div>
@@ -545,157 +898,6 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
           </table>
         </div>
       </div>
-
-      {showForm && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div className="w-full max-w-2xl bg-white rounded-xl shadow-xl border border-gray-200 overflow-hidden">
-            <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-              <h3 className="font-semibold text-gray-900">{editingId ? 'Kaydı Düzenle' : 'Yeni Kayıt'}</h3>
-              <button type="button" onClick={() => { setShowForm(false); resetForm(); }} className="p-1 rounded hover:bg-gray-100">
-                <X size={18} />
-              </button>
-            </div>
-            <form onSubmit={submitForm} className="p-4 space-y-3">
-              {mode === 'incoming' ? (
-                <>
-                  <div>
-                    <label className="block text-sm mb-1">Ödeme Tarihi</label>
-                    <input
-                      required
-                      type="date"
-                      value={incomingForm.paymentDate}
-                      onChange={e => setIncomingForm(prev => ({ ...prev, paymentDate: e.target.value }))}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm mb-1">Ödeme Miktarı</label>
-                    <input
-                      required
-                      type="number"
-                      step="0.01"
-                      value={incomingForm.paymentAmount}
-                      onChange={e => setIncomingForm(prev => ({ ...prev, paymentAmount: e.target.value }))}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm mb-1">Ödeme Kaynağı</label>
-                    <input
-                      required
-                      value={incomingForm.paymentSource}
-                      onChange={e => setIncomingForm(prev => ({ ...prev, paymentSource: e.target.value }))}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm mb-1">Currency</label>
-                    <select
-                      value={incomingForm.currency}
-                      onChange={e => setIncomingForm(prev => ({ ...prev, currency: e.target.value as CurrencyCode }))}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2"
-                    >
-                      <option value="USD">USD</option>
-                      <option value="TRY">TRY</option>
-                      <option value="EUR">EUR</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm mb-1">Açıklama 1</label>
-                    <input
-                      value={incomingForm.description1}
-                      onChange={e => setIncomingForm(prev => ({ ...prev, description1: e.target.value }))}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm mb-1">Açıklama 2</label>
-                    <input
-                      value={incomingForm.description2}
-                      onChange={e => setIncomingForm(prev => ({ ...prev, description2: e.target.value }))}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2"
-                    />
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div>
-                    <label className="block text-sm mb-1">Ödeme Tarihi</label>
-                    <input
-                      required
-                      type="date"
-                      value={outgoingForm.paymentDate}
-                      onChange={e => setOutgoingForm(prev => ({ ...prev, paymentDate: e.target.value }))}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm mb-1">Ödeme Miktarı</label>
-                    <input
-                      required
-                      type="number"
-                      step="0.01"
-                      value={outgoingForm.paymentAmount}
-                      onChange={e => setOutgoingForm(prev => ({ ...prev, paymentAmount: e.target.value }))}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm mb-1">Currency</label>
-                    <select
-                      value={outgoingForm.currency}
-                      onChange={e => setOutgoingForm(prev => ({ ...prev, currency: e.target.value as CurrencyCode }))}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2"
-                    >
-                      <option value="USD">USD</option>
-                      <option value="TRY">TRY</option>
-                      <option value="EUR">EUR</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm mb-1">Ödeme Türü</label>
-                    <select
-                      value={outgoingForm.paymentType}
-                      onChange={e => setOutgoingForm(prev => ({ ...prev, paymentType: e.target.value as 'Cash' | 'Bank' }))}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2"
-                    >
-                      <option value="Cash">Nakit</option>
-                      <option value="Bank">Banka</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm mb-1">Ödeme Sebebi</label>
-                    <input
-                      required
-                      value={outgoingForm.paymentReason}
-                      onChange={e => setOutgoingForm(prev => ({ ...prev, paymentReason: e.target.value }))}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm mb-1">Açıklama 1</label>
-                    <input
-                      value={outgoingForm.description1}
-                      onChange={e => setOutgoingForm(prev => ({ ...prev, description1: e.target.value }))}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2"
-                    />
-                  </div>
-                </>
-              )}
-
-              {formError && <p className="text-sm text-red-600">{formError}</p>}
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button type="button" onClick={() => { setShowForm(false); resetForm(); }} className="px-3 py-2 rounded-lg border border-gray-200">
-                  İptal
-                </button>
-                <button type="submit" className="px-3 py-2 rounded-lg bg-blue-600 text-white">
-                  {editingId ? 'Güncelle' : 'Kaydet'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

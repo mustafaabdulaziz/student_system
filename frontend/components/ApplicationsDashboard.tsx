@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Application, Student, Program, University, User } from '../types';
+import { Application, Student, Program, University, User, UserRole, ApplicationStatus } from '../types';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { useTranslation } from '../hooks/useTranslation';
 import { Filter, DollarSign, ChevronDown, X } from 'lucide-react';
@@ -205,6 +205,7 @@ interface ApplicationsDashboardProps {
   programs: Program[];
   universities: University[];
   users: User[];
+  currentUser: User | null;
 }
 
 export const ApplicationsDashboard: React.FC<ApplicationsDashboardProps> = ({
@@ -212,7 +213,8 @@ export const ApplicationsDashboard: React.FC<ApplicationsDashboardProps> = ({
   students,
   programs,
   universities,
-  users
+  users,
+  currentUser
 }) => {
   const { t, translateStatus } = useTranslation();
   const defaultRange = getMonthStartEnd();
@@ -223,9 +225,16 @@ export const ApplicationsDashboard: React.FC<ApplicationsDashboardProps> = ({
   const [filterStatus, setFilterStatus] = useState<string[]>([]);
   const [filterUniversity, setFilterUniversity] = useState<string[]>([]);
   const [filterProgram, setFilterProgram] = useState<string[]>([]);
+  const [filterDegree, setFilterDegree] = useState<string[]>([]);
   const [filterCountry, setFilterCountry] = useState<string[]>([]);
   const [filterCurrency, setFilterCurrency] = useState<string[]>([]);
 
+  const scopedApplications = useMemo(() => {
+    if (currentUser?.role === UserRole.AGENT) {
+      return applications.filter((app) => app.userId === currentUser.id);
+    }
+    return applications;
+  }, [applications, currentUser]);
 
   const applyDatePreset = (presetId: string) => {
     const { from, to } = getDatePreset(presetId);
@@ -241,24 +250,24 @@ export const ApplicationsDashboard: React.FC<ApplicationsDashboardProps> = ({
   const getResponsibleName = (app: Application) => app.responsibleName || (app.responsibleId && users.find((u) => u.id === app.responsibleId)?.name) || '—';
 
   const filteredApplications = useMemo(() => {
-    return applications.filter((app) => {
+    return scopedApplications.filter((app) => {
       const d = dateOnly(app.createdAt);
       if (fromDate && toDate && (!d || d < fromDate || d > toDate)) return false;
       const student = getStudent(app.studentId);
       const program = getProgram(app.programId);
-      const uni = program ? getUni(program.universityId) : null;
 
       if (filterResponsible.length > 0 && !filterResponsible.includes(getResponsibleName(app))) return false;
       if (filterAgent.length > 0 && !filterAgent.includes(getAgentName(app))) return false;
       if (filterStatus.length > 0 && !filterStatus.includes(app.status)) return false;
       if (filterUniversity.length > 0 && (!program || !filterUniversity.includes(program.universityId))) return false;
       if (filterProgram.length > 0 && (!program || !filterProgram.includes(program.id))) return false;
+      if (filterDegree.length > 0 && (!program || !filterDegree.includes(program.degree))) return false;
       if (filterCountry.length > 0 && (!student || !filterCountry.includes(student.nationality))) return false;
       if (filterCurrency.length > 0 && !filterCurrency.includes((app.currency || 'USD').toUpperCase())) return false;
       return true;
     });
   }, [
-    applications,
+    scopedApplications,
     fromDate,
     toDate,
     filterResponsible,
@@ -266,6 +275,7 @@ export const ApplicationsDashboard: React.FC<ApplicationsDashboardProps> = ({
     filterStatus,
     filterUniversity,
     filterProgram,
+    filterDegree,
     filterCountry,
     filterCurrency,
     students,
@@ -292,20 +302,6 @@ export const ApplicationsDashboard: React.FC<ApplicationsDashboardProps> = ({
     return Object.entries(map).map(([name, count]) => ({ name, count, value: count }));
   }, [filteredApplications, users]);
 
-  const STATUS_KEYS = ['Draft', 'Missing Documents', 'Under Review', 'Accepted', 'Rejected'] as const;
-  const chartByStatus = useMemo(() => {
-    const map: Record<string, number> = {};
-    filteredApplications.forEach((app) => {
-      const s = app.status || 'Draft';
-      map[s] = (map[s] || 0) + 1;
-    });
-    return STATUS_KEYS.filter((k) => (map[k] ?? 0) > 0).map((k) => ({
-      name: translateStatus(k),
-      count: map[k] ?? 0,
-      value: map[k] ?? 0
-    }));
-  }, [filteredApplications]);
-
   const topNWithOthers = (items: { name: string; count: number }[], othersLabel: string) => {
     const sorted = [...items].sort((a, b) => b.count - a.count);
     let result: { name: string; count: number }[];
@@ -317,6 +313,32 @@ export const ApplicationsDashboard: React.FC<ApplicationsDashboardProps> = ({
     }
     return result.reverse();
   };
+
+  const availableStatuses = useMemo(() => {
+    const set = new Set<string>(Object.values(ApplicationStatus));
+    scopedApplications.forEach((app) => {
+      if (app.status) set.add(app.status);
+    });
+    return Array.from(set);
+  }, [scopedApplications]);
+
+  const chartByStatus = useMemo(() => {
+    const map: Record<string, number> = {};
+    filteredApplications.forEach((app) => {
+      const s = app.status || ApplicationStatus.DRAFT;
+      map[s] = (map[s] || 0) + 1;
+    });
+    const items = Object.entries(map).map(([status, count]) => ({
+      name: translateStatus(status),
+      count,
+      value: count
+    }));
+    return topNWithOthers(items.map((i) => ({ name: i.name, count: i.count })), t.others).map((i) => ({
+      name: i.name,
+      count: i.count,
+      value: i.count
+    }));
+  }, [filteredApplications, t.others, translateStatus]);
 
   const chartByUniversity = useMemo(() => {
     const map: Record<string, number> = {};
@@ -352,6 +374,17 @@ export const ApplicationsDashboard: React.FC<ApplicationsDashboardProps> = ({
     return topNWithOthers(items, t.others);
   }, [filteredApplications, students, t.others]);
 
+  const chartByDegree = useMemo(() => {
+    const map: Record<string, number> = {};
+    filteredApplications.forEach((app) => {
+      const program = getProgram(app.programId);
+      const name = program?.degree || '—';
+      map[name] = (map[name] || 0) + 1;
+    });
+    const items = Object.entries(map).map(([name, count]) => ({ name, count }));
+    return topNWithOthers(items, t.others);
+  }, [filteredApplications, programs, t.others]);
+
   const totals = useMemo(() => {
     let annualPayment = 0,
       netCommission = 0,
@@ -385,31 +418,39 @@ export const ApplicationsDashboard: React.FC<ApplicationsDashboardProps> = ({
 
   const uniqueResponsibles = useMemo(() => {
     const set = new Set<string>();
-    applications.forEach((app) => {
+    scopedApplications.forEach((app) => {
       const n = getResponsibleName(app);
       if (n && n !== '—') set.add(n);
     });
     return Array.from(set).sort();
-  }, [applications, users]);
+  }, [scopedApplications, users]);
   const uniqueAgents = useMemo(() => {
     const set = new Set<string>();
-    applications.forEach((app) => {
+    scopedApplications.forEach((app) => {
       const n = getAgentName(app);
       if (n && n !== '—') set.add(n);
     });
     return Array.from(set).sort();
-  }, [applications, users]);
+  }, [scopedApplications, users]);
+  const uniqueDegrees = useMemo(() => {
+    const set = new Set<string>();
+    scopedApplications.forEach((app) => {
+      const program = getProgram(app.programId);
+      if (program?.degree) set.add(program.degree);
+    });
+    return Array.from(set).sort();
+  }, [scopedApplications, programs]);
   const uniqueCountries = useMemo(() => {
     const set = new Set(students.map((s) => s.nationality).filter(Boolean));
     return Array.from(set).sort();
   }, [students]);
   const uniqueCurrencies = useMemo(() => {
     const set = new Set<string>(['USD', 'TRY', 'EUR']);
-    applications.forEach((app) => {
+    scopedApplications.forEach((app) => {
       if (app.currency) set.add(String(app.currency).toUpperCase());
     });
     return Array.from(set);
-  }, [applications]);
+  }, [scopedApplications]);
 
   const toggleFilter = (arr: string[], set: (v: string[]) => void, value: string) => {
     if (arr.includes(value)) set(arr.filter((x) => x !== value));
@@ -492,7 +533,7 @@ export const ApplicationsDashboard: React.FC<ApplicationsDashboardProps> = ({
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">{t.applicationStatus}</label>
             <MultiSelect
-              options={['Draft', 'Missing Documents', 'Under Review', 'Accepted', 'Rejected'].map((st) => ({
+              options={availableStatuses.map((st) => ({
                 value: st,
                 label: translateStatus(st)
               }))}
@@ -528,6 +569,20 @@ export const ApplicationsDashboard: React.FC<ApplicationsDashboardProps> = ({
               options={programs.map((p) => ({ value: p.id, label: p.name }))}
               value={filterProgram}
               onChange={setFilterProgram}
+              placeholder={t.filterAll}
+              selectedCountLabel={t.selectedCountLabel}
+              noOptionsLabel={t.noOptions}
+              clearTitle={t.clearFilter}
+              searchable
+              searchPlaceholder={t.search}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">{t.programDegree}</label>
+            <MultiSelect
+              options={uniqueDegrees.map((d) => ({ value: d, label: d }))}
+              value={filterDegree}
+              onChange={setFilterDegree}
               placeholder={t.filterAll}
               selectedCountLabel={t.selectedCountLabel}
               noOptionsLabel={t.noOptions}
@@ -640,26 +695,16 @@ export const ApplicationsDashboard: React.FC<ApplicationsDashboardProps> = ({
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
           <h3 className="font-bold text-gray-800 mb-4">{t.byStatus}</h3>
           {chartByStatus.length > 0 ? (
-            <ResponsiveContainer width="100%" height={280}>
-              <PieChart>
-                <Pie
-                  data={chartByStatus}
-                  dataKey="value"
-                  nameKey="name"
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={100}
-                  label={({ name, value }) => `${name}: ${value}`}
-                >
-                  {chartByStatus.map((_, i) => (
-                    <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                  ))}
-                </Pie>
+            <ResponsiveContainer width="100%" height={320}>
+              <BarChart data={chartByStatus} layout="vertical" margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                <XAxis type="number" allowDecimals={false} />
+                <YAxis type="category" dataKey="name" width={180} tick={{ fontSize: 11 }} />
                 <Tooltip />
-              </PieChart>
+                <Bar dataKey="count" fill="#3b82f6" name={t.totalApplications} radius={[0, 4, 4, 0]} />
+              </BarChart>
             </ResponsiveContainer>
           ) : (
-            <div className="h-[280px] flex items-center justify-center text-gray-400">{t.noApplications}</div>
+            <div className="h-[320px] flex items-center justify-center text-gray-400">{t.noApplications}</div>
           )}
         </div>
       </div>
@@ -724,6 +769,25 @@ export const ApplicationsDashboard: React.FC<ApplicationsDashboardProps> = ({
                 <YAxis type="category" dataKey="name" width={140} tick={{ fontSize: 11 }} />
                 <Tooltip />
                 <Bar dataKey="count" fill="#f59e0b" name={t.totalApplications} radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-[320px] flex items-center justify-center text-gray-400">{t.noApplications}</div>
+          )}
+        </div>
+      </div>
+
+      {/* Row 4: Dereceye göre */}
+      <div className="grid grid-cols-1 gap-6">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <h3 className="font-bold text-gray-800 mb-4">{t.programDegree}</h3>
+          {chartByDegree.length > 0 ? (
+            <ResponsiveContainer width="100%" height={320}>
+              <BarChart data={chartByDegree} layout="vertical" margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                <XAxis type="number" allowDecimals={false} />
+                <YAxis type="category" dataKey="name" width={140} tick={{ fontSize: 11 }} />
+                <Tooltip />
+                <Bar dataKey="count" fill="#14b8a6" name={t.totalApplications} radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
           ) : (

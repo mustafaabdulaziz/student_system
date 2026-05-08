@@ -21,6 +21,18 @@ export const useTranslation = () => {
             'Missing Documents': t.missingDocs,
             'UNDER_REVIEW': t.underReview,
             'Under Review': t.underReview,
+            'Taslak': 'Taslak',
+            'Eksik Evrak': 'Eksik Evrak',
+            'Teklif Mektubu Bekleniyor': 'Teklif Mektubu Bekleniyor',
+            'Kabul Mektubu Bekleniyor': 'Kabul Mektubu Bekleniyor',
+            'Ogrenci Belgesi Bekleniyor': 'Ogrenci Belgesi Bekleniyor',
+            'Yillik Odemesi Tamamlamasi Bekleniyor': 'Yillik Odemesi Tamamlamasi Bekleniyor',
+            'Kayit Bekleniyor': 'Kayit Bekleniyor',
+            'Reddedildi': 'Reddedildi',
+            'Baska Acenta Uzerinden Kayitli': 'Baska Acenta Uzerinden Kayitli',
+            'Odeme Red Edildi': 'Odeme Red Edildi',
+            'Kota Dolu': 'Kota Dolu',
+            'Onaylandi': 'Onaylandi'
         };
         return statusMap[status] || status;
     };

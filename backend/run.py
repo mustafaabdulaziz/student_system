@@ -57,6 +57,21 @@ if __name__ == '__main__':
                     conn.execute(text("ALTER TABLE universities ADD COLUMN city VARCHAR NOT NULL DEFAULT ''"))
                 except Exception:
                     pass
+            try:
+                uni_cols2 = [c['name'] for c in inspector.get_columns('universities')]
+            except Exception:
+                uni_cols2 = uni_cols
+            for col, typ in [
+                ('education_vat_rate', 'INTEGER'),
+                ('commission_kind', 'VARCHAR'),
+                ('commission_value', 'FLOAT')
+            ]:
+                if col not in uni_cols2:
+                    try:
+                        conn.execute(text(f'ALTER TABLE universities ADD COLUMN {col} {typ}'))
+                        conn.commit()
+                    except Exception:
+                        pass
             conn.commit()
             # Add name_in_arabic to programs if not exists
             try:
@@ -75,7 +90,7 @@ if __name__ == '__main__':
                     conn.commit()
                 except Exception:
                     pass
-            for col, typ in [('period_id', 'VARCHAR'), ('fee_before_discount', 'FLOAT'), ('deposit', 'FLOAT'), ('cash_price', 'FLOAT'), ('country', 'VARCHAR')]:
+            for col, typ in [('period_id', 'VARCHAR'), ('fee_before_discount', 'FLOAT'), ('deposit', 'FLOAT'), ('cash_price', 'FLOAT')]:
                 if col not in prog_cols:
                     try:
                         conn.execute(text(f'ALTER TABLE programs ADD COLUMN {col} {typ}'))
@@ -98,6 +113,37 @@ if __name__ == '__main__':
                         conn.commit()
             except Exception as e:
                 print('Periods active column check:', e)
+            # Ensure agency_companies table exists
+            try:
+                table_names = inspector.get_table_names()
+                if 'agency_companies' not in table_names:
+                    conn.execute(text('CREATE TABLE agency_companies (id VARCHAR PRIMARY KEY, name VARCHAR NOT NULL)'))
+                    conn.commit()
+            except Exception as e:
+                print('Agency companies table check:', e)
+            # Ensure payment_sources table exists
+            try:
+                table_names = inspector.get_table_names()
+                if 'payment_sources' not in table_names:
+                    conn.execute(text('CREATE TABLE payment_sources (id VARCHAR PRIMARY KEY, name VARCHAR NOT NULL)'))
+                    conn.commit()
+            except Exception as e:
+                print('Payment sources table check:', e)
+            # Ensure user_university_commissions table exists
+            try:
+                table_names = inspector.get_table_names()
+                if 'user_university_commissions' not in table_names:
+                    conn.execute(text(
+                        'CREATE TABLE user_university_commissions ('
+                        'id VARCHAR PRIMARY KEY, '
+                        'user_id VARCHAR NOT NULL, '
+                        'university_id VARCHAR NOT NULL, '
+                        'commission_kind VARCHAR NOT NULL, '
+                        'commission_value FLOAT NOT NULL)'
+                    ))
+                    conn.commit()
+            except Exception as e:
+                print('User university commissions table check:', e)
             # Ensure applications table has period_id column
             try:
                 if 'applications' in inspector.get_table_names():
@@ -112,10 +158,19 @@ if __name__ == '__main__':
                                 conn.commit()
                             except Exception:
                                 pass
+                    for col, typ in [('agency_company_id', 'VARCHAR')]:
+                        if col not in app_cols:
+                            try:
+                                conn.execute(text(f'ALTER TABLE applications ADD COLUMN {col} {typ}'))
+                                conn.commit()
+                            except Exception:
+                                pass
                     finance_cols = [
                         ('annual_payment', 'FLOAT'),
+                        ('education_vat_rate', 'FLOAT'),
                         ('education_vat', 'FLOAT'),
                         ('gross_commission', 'FLOAT'),
+                        ('abroad_vat_rate', 'FLOAT'),
                         ('abroad_vat', 'FLOAT'),
                         ('net_commission', 'FLOAT'),
                         ('bonus_max', 'FLOAT'),
@@ -130,6 +185,9 @@ if __name__ == '__main__':
                         ('currency', 'VARCHAR'),
                         ('remaining_min', 'FLOAT'),
                         ('remaining_max', 'FLOAT'),
+                        ('payment_deserved', 'BOOLEAN NOT NULL DEFAULT FALSE'),
+                        ('payment_date', 'VARCHAR'),
+                        ('payment_month', 'VARCHAR'),
                     ]
                     for col, typ in finance_cols:
                         if col not in app_cols:
@@ -196,10 +254,22 @@ if __name__ == '__main__':
                     if 'payment_amount' not in incoming_cols:
                         conn.execute(text("ALTER TABLE incoming_payments ADD COLUMN payment_amount FLOAT"))
                         conn.commit()
+                    if 'payment_type' not in incoming_cols:
+                        conn.execute(text("ALTER TABLE incoming_payments ADD COLUMN payment_type VARCHAR NOT NULL DEFAULT 'Cash'"))
+                        conn.commit()
+                    if 'payment_source_id' not in incoming_cols:
+                        conn.execute(text("ALTER TABLE incoming_payments ADD COLUMN payment_source_id VARCHAR"))
+                        conn.commit()
                 if 'outgoing_payments' in table_names:
                     outgoing_cols = [c['name'] for c in inspector.get_columns('outgoing_payments')]
                     if 'currency' not in outgoing_cols:
                         conn.execute(text("ALTER TABLE outgoing_payments ADD COLUMN currency VARCHAR NOT NULL DEFAULT 'USD'"))
+                        conn.commit()
+                    if 'user_id' not in outgoing_cols:
+                        conn.execute(text("ALTER TABLE outgoing_payments ADD COLUMN user_id VARCHAR"))
+                        conn.commit()
+                    if 'expense_type' not in outgoing_cols:
+                        conn.execute(text('ALTER TABLE outgoing_payments ADD COLUMN expense_type VARCHAR'))
                         conn.commit()
             except Exception as e:
                 print('Payments currency column check:', e)

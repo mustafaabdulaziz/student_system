@@ -13,7 +13,9 @@ import {
   CalendarRange,
   BarChart2,
   Newspaper,
-  HandCoins
+  HandCoins,
+  Building2,
+  Settings
 } from 'lucide-react';
 import { User, UserRole } from '../types';
 import { NotificationDropdown } from './NotificationDropdown';
@@ -38,6 +40,8 @@ export const Layout: React.FC<LayoutProps> = ({
   onLogout
 }) => {
   const [isSidebarOpen, setSidebarOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [paymentsOpen, setPaymentsOpen] = useState(false);
   const { t, dir } = useLanguage();
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -50,24 +54,62 @@ export const Layout: React.FC<LayoutProps> = ({
 
   const navItems = [
     { id: 'dashboard', label: t.dashboard, icon: LayoutDashboard },
-    ...(currentUser?.role === UserRole.ADMIN
+    ...((currentUser?.role === UserRole.ADMIN || currentUser?.role === UserRole.AGENT)
       ? [{ id: 'applications-dashboard' as const, label: t.applicationsDashboard, icon: BarChart2 }]
       : []),
     { id: 'universities', label: t.universities, icon: School },
     { id: 'programs', label: t.programs, icon: BookOpen },
     { id: 'students', label: t.students, icon: Users },
     { id: 'applications', label: t.applications, icon: FileText },
-    ...(currentUser?.role === UserRole.ADMIN
-      ? [
-          { id: 'incoming-payments' as const, label: 'Gelen Ödemeler', icon: HandCoins },
-          { id: 'outgoing-payments' as const, label: 'Giden Ödemeler', icon: HandCoins },
-          { id: 'periods' as const, label: t.period, icon: CalendarRange },
-          { id: 'users' as const, label: t.usersTitle, icon: UserCog }
-        ]
-      : []),
     { id: 'news', label: t.newsAndUpdates, icon: Newspaper },
     { id: 'account', label: t.account, icon: UserCircle }
   ];
+
+  const settingsSubItems =
+    currentUser?.role === UserRole.ADMIN
+      ? [
+          { id: 'users', label: t.usersTitle, icon: UserCog },
+          { id: 'periods', label: t.period, icon: CalendarRange },
+          { id: 'agency-companies', label: 'Aracı Firma Listesi', icon: Building2 },
+          { id: 'payment-sources', label: 'Ödeme Kaynağı Listesi', icon: Building2 }
+        ]
+      : [];
+
+  const paymentsSubItems =
+    currentUser?.role === UserRole.ADMIN
+      ? [
+          { id: 'incoming-payments', label: 'Gelen Ödemeler', icon: HandCoins },
+          { id: 'outgoing-payments', label: 'Giden Ödemeler', icon: HandCoins },
+          { id: 'payment-dashboard', label: 'Ödeme Panosu', icon: BarChart2 }
+        ]
+      : [];
+
+  const isSettingsPage =
+    activePage === 'users' ||
+    activePage === 'periods' ||
+    activePage === 'agency-companies' ||
+    activePage === 'payment-sources';
+  const isPaymentsPage = activePage === 'incoming-payments' || activePage === 'outgoing-payments' || activePage === 'payment-dashboard';
+
+  useEffect(() => {
+    if (currentUser?.role !== UserRole.ADMIN) {
+      setSettingsOpen(false);
+      return;
+    }
+    if (isSettingsPage) {
+      setSettingsOpen(true);
+    }
+  }, [activePage, currentUser?.role, isSettingsPage]);
+
+  useEffect(() => {
+    if (currentUser?.role !== UserRole.ADMIN) {
+      setPaymentsOpen(false);
+      return;
+    }
+    if (isPaymentsPage) {
+      setPaymentsOpen(true);
+    }
+  }, [activePage, currentUser?.role, isPaymentsPage]);
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden" dir={dir}>
@@ -113,22 +155,107 @@ export const Layout: React.FC<LayoutProps> = ({
 
           <nav className="layout-sidebar-nav flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 py-6 space-y-2">
             {navItems.map((item) => (
-              <button
-                key={item.id}
-                onClick={() => {
-                  onNavigate(item.id);
-                  setSidebarOpen(false);
-                }}
-                className={`w-full flex items-center gap-1.5 px-3 py-3 rounded-lg transition-colors duration-200
-                  ${activePage === item.id
-                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
-                    : 'text-slate-300 hover:bg-slate-800 hover:text-white'}
-                `}
-              >
-                <item.icon size={20} className="flex-shrink-0 w-5 h-5" />
-                <span className="font-medium text-left">{item.label}</span>
-              </button>
+              <React.Fragment key={item.id}>
+                <button
+                  onClick={() => {
+                    onNavigate(item.id);
+                    setSidebarOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-1.5 px-3 py-3 rounded-lg transition-colors duration-200
+                    ${activePage === item.id
+                      ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
+                      : 'text-slate-300 hover:bg-slate-800 hover:text-white'}
+                  `}
+                >
+                  <item.icon size={20} className="flex-shrink-0 w-5 h-5" />
+                  <span className="font-medium text-left">{item.label}</span>
+                </button>
+
+                {item.id === 'applications' && paymentsSubItems.length > 0 && (
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setPaymentsOpen((prev) => !prev)}
+                      className={`w-full flex items-center justify-between gap-1.5 px-3 py-3 rounded-lg ${
+                        paymentsSubItems.some((subItem) => subItem.id === activePage)
+                          ? 'bg-slate-800 text-white'
+                          : 'text-slate-300'
+                      }`}
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <HandCoins size={20} className="flex-shrink-0 w-5 h-5" />
+                        <span className="font-medium text-left">Ödemeler</span>
+                      </span>
+                      <span className="text-xs">{paymentsOpen ? '▾' : '▸'}</span>
+                    </button>
+
+                    {paymentsOpen && (
+                      <div className="mt-1 space-y-1">
+                        {paymentsSubItems.map((subItem) => (
+                          <button
+                            key={subItem.id}
+                            onClick={() => {
+                              onNavigate(subItem.id);
+                              setSidebarOpen(false);
+                            }}
+                            className={`w-full flex items-center gap-1.5 px-3 py-2 rounded-lg transition-colors duration-200 ${
+                              activePage === subItem.id
+                                ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
+                                : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                            }`}
+                          >
+                            <subItem.icon size={18} className="flex-shrink-0 w-4 h-4 ms-5" />
+                            <span className="font-medium text-left text-sm">{subItem.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </React.Fragment>
             ))}
+
+            {settingsSubItems.length > 0 && (
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={() => setSettingsOpen((prev) => !prev)}
+                  className={`w-full flex items-center justify-between gap-1.5 px-3 py-3 rounded-lg ${
+                    settingsSubItems.some((item) => item.id === activePage)
+                      ? 'bg-slate-800 text-white'
+                      : 'text-slate-300'
+                  }`}
+                >
+                  <span className="flex items-center gap-1.5">
+                    <Settings size={20} className="flex-shrink-0 w-5 h-5" />
+                    <span className="font-medium text-left">Ayarlar</span>
+                  </span>
+                  <span className="text-xs">{settingsOpen ? '▾' : '▸'}</span>
+                </button>
+
+                {settingsOpen && (
+                  <div className="mt-1 space-y-1">
+                    {settingsSubItems.map((item) => (
+                      <button
+                        key={item.id}
+                        onClick={() => {
+                          onNavigate(item.id);
+                          setSidebarOpen(false);
+                        }}
+                        className={`w-full flex items-center gap-1.5 px-3 py-2 rounded-lg transition-colors duration-200 ${
+                          activePage === item.id
+                            ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
+                            : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                        }`}
+                      >
+                        <item.icon size={18} className="flex-shrink-0 w-4 h-4 ms-5" />
+                        <span className="font-medium text-left text-sm">{item.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </nav>
 
           <div className="p-4 border-t border-slate-800 flex-shrink-0">
@@ -179,7 +306,7 @@ export const Layout: React.FC<LayoutProps> = ({
           </div>
         </header>
 
-        <div ref={contentRef} className="flex-1 overflow-auto p-4 lg:p-8">
+        <div id="app-scroll-container" ref={contentRef} className="flex-1 overflow-auto p-4 lg:p-8">
           {children}
         </div>
       </main>
