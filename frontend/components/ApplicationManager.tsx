@@ -1,9 +1,9 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Application, Student, Program, University, ApplicationStatus, User, Period } from '../types';
+import { Application, Student, Program, University, ApplicationStatus, User, Period, AgencyCompany } from '../types';
 import {
-  Plus, Filter, FileText, CheckCircle, XCircle, AlertCircle,
+  Plus, Filter, FileText,
   MessageSquare, User as UserIcon, GraduationCap,
-  Clock, Send, Upload, Paperclip, ChevronLeft, MapPin, Trash2, Mail, Phone, FileEdit,
+  Send, Upload, Paperclip, ChevronLeft, MapPin, Trash2, Mail, Phone, FileEdit,
   List, LayoutGrid, Search, X, ChevronDown, ChevronUp, ChevronRight
 } from 'lucide-react';
 import { useTranslation } from '../hooks/useTranslation';
@@ -134,6 +134,7 @@ interface ApplicationManagerProps {
   programs: Program[];
   universities: University[];
   periods?: Period[];
+  agencyCompanies?: AgencyCompany[];
   users?: User[];
   onAddApplication: (app: Application, files?: FileList | null) => Promise<string | null> | void;
   onUpdateStatus: (id: string, status: ApplicationStatus) => void;
@@ -142,22 +143,16 @@ interface ApplicationManagerProps {
     responsibleId?: string | null;
     userId?: string | null;
     annualPayment?: number | null;
-    educationVat?: number | null;
+    educationVatRate?: number | null;
+    abroadVatRate?: number | null;
     grossCommission?: number | null;
-    abroadVat?: number | null;
-    netCommission?: number | null;
     bonusMax?: number | null;
     bonusMin?: number | null;
     agencyCommission?: number | null;
     agencyBonus?: number | null;
-    agencyContractAmount?: number | null;
-    agencyPaidContractAmount?: number | null;
-    agencyPaidContractDescription?: string | null;
-    agencyPaidContractDescriptionDate?: string | null;
-    agencyPaidContractPaymentMethod?: string | null;
+    agencyCompanyId?: string | null;
     currency?: string | null;
-    remainingMin?: number | null;
-    remainingMax?: number | null;
+    paymentDeserved?: boolean;
   }) => void | Promise<void>;
   onSyncApplicationTimestamps?: (payload: {
     applicationId: string;
@@ -169,17 +164,23 @@ interface ApplicationManagerProps {
   clearInitialStudent?: () => void;
   targetApplicationId?: string | null;
   clearTargetApplication?: () => void;
+  onOpenStudent?: (studentId: string) => void;
   currentUser?: { role: string; name?: string; id?: string; email?: string };
 }
 
 export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
-  applications, students, programs, universities, periods = [], users = [], onAddApplication, onUpdateStatus, onUpdateApplication,
+  applications, students, programs, universities, periods = [], agencyCompanies = [], users = [], onAddApplication, onUpdateStatus, onUpdateApplication,
   onSyncApplicationTimestamps,
-  initialStudentId, clearInitialStudent, targetApplicationId, clearTargetApplication, currentUser
+  initialStudentId, clearInitialStudent, targetApplicationId, clearTargetApplication, onOpenStudent, currentUser
 }) => {
   const { t, translateStatus, translateDegree } = useTranslation();
   const { language } = useLanguage();
   const dateLocale = { ar: 'ar-EG', en: 'en-GB', tr: 'tr-TR' }[language] || 'en-GB';
+  const scrollContentTop = () => {
+    const container = document.getElementById('app-scroll-container');
+    if (container) container.scrollTo({ top: 0, behavior: 'auto' });
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'auto' });
+  };
 
   const [view, setView] = useState<'list' | 'create' | 'detail'>('list');
   const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
@@ -187,6 +188,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const [searchApplicationNumber, setSearchApplicationNumber] = useState('');
   const [searchStudentName, setSearchStudentName] = useState('');
   const [filterAgents, setFilterAgents] = useState<string[]>([]);
+  const [filterResponsibles, setFilterResponsibles] = useState<string[]>([]);
   const [filterUniversities, setFilterUniversities] = useState<string[]>([]);
   const [filterStatuses, setFilterStatuses] = useState<string[]>([]);
   const [filterDegrees, setFilterDegrees] = useState<string[]>([]);
@@ -202,8 +204,38 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const applicationColumnKeys = useMemo(() => ['number', 'status', 'agent', 'responsible', 'student', 'program', 'createdAt', 'updatedAt'], []);
   const [visibleTreeColumns, setVisibleTreeColumns] = useState<string[]>(applicationColumnKeys);
 
+  const normalizeStatusValue = (status: string | undefined | null): string => {
+    const raw = String(status || '').trim().toLocaleLowerCase('tr');
+    const aliases: Record<string, string> = {
+      draft: ApplicationStatus.DRAFT,
+      taslak: ApplicationStatus.DRAFT,
+      'eksik belgeler iste': ApplicationStatus.MISSING_DOCS,
+      'eksik belgeler i̇ste': ApplicationStatus.MISSING_DOCS,
+      'eksik evrak': ApplicationStatus.MISSING_DOCS,
+      'under review': ApplicationStatus.UNDER_REVIEW,
+      underreview: ApplicationStatus.UNDER_REVIEW,
+      'teklif mektubu bekleniyor': ApplicationStatus.UNDER_REVIEW,
+      'kabul mektubu bekleniyor': ApplicationStatus.ACCEPTANCE_LETTER_WAITING,
+      'ogrenci belgesi bekleniyor': ApplicationStatus.STUDENT_CERT_WAITING,
+      'ögrenci belgesi bekleniyor': ApplicationStatus.STUDENT_CERT_WAITING,
+      'yillik odemesi tamamlamasi bekleniyor': ApplicationStatus.ANNUAL_PAYMENT_WAITING,
+      'kayit bekleniyor': ApplicationStatus.REGISTRATION_WAITING,
+      reddedildi: ApplicationStatus.REJECTED,
+      rejected: ApplicationStatus.REJECTED,
+      'baska acenta uzerinden kayitli': ApplicationStatus.REGISTERED_WITH_OTHER_AGENCY,
+      'baska acenta üzerinden kayitli': ApplicationStatus.REGISTERED_WITH_OTHER_AGENCY,
+      'odeme red edildi': ApplicationStatus.PAYMENT_REJECTED,
+      'ödeme red edildi': ApplicationStatus.PAYMENT_REJECTED,
+      'kota dolu': ApplicationStatus.QUOTA_FULL,
+      onaylandi: ApplicationStatus.ACCEPTED,
+      approved: ApplicationStatus.ACCEPTED
+    };
+    return aliases[raw] || String(status || '');
+  };
+
   const [messages, setMessages] = React.useState<Array<{ id: string; sender: string; message: string; createdAt: string; senderName?: string | null }>>([]);
   const [newMessage, setNewMessage] = React.useState('');
+  const chatMessagesRef = useRef<HTMLDivElement>(null);
   const [detailFiles, setDetailFiles] = React.useState<Array<{ url: string; name: string; filename?: string }>>([]);
   const [attachFiles, setAttachFiles] = React.useState<FileList | null>(null);
 
@@ -211,11 +243,13 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const [selectedStudent, setSelectedStudent] = useState('');
   const [selectedAgentId, setSelectedAgentId] = useState('');
   const [selectedResponsibleId, setSelectedResponsibleId] = useState('');
+  const [selectedAgencyCompanyId, setSelectedAgencyCompanyId] = useState('');
 
   // Inline edit in detail: financial fields (admin only), synced when app changes
   const [detailFinance, setDetailFinance] = useState({
     annualPayment: '',
-    educationVat: '',
+    educationVatRate: '',
+    abroadVatRate: '10',
     grossCommission: '',
     abroadVat: '',
     netCommission: '',
@@ -224,18 +258,18 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     agencyCommission: '',
     agencyBonus: '',
     agencyContractAmount: '',
-    agencyPaidContractAmount: '',
-    agencyPaidContractDescription: '',
-    agencyPaidContractDescriptionDate: '',
-    agencyPaidContractPaymentMethod: '',
     currency: 'USD',
     remainingMin: '',
-    remainingMax: ''
+    remainingMax: '',
+    paymentDeserved: false,
+    paymentDate: '',
+    paymentMonth: ''
   });
   const [detailEditMode, setDetailEditMode] = useState(false);
-  const [detailLeftTab, setDetailLeftTab] = useState<'general' | 'files'>('general');
   const [editFormAgentId, setEditFormAgentId] = useState('');
   const [editFormResponsibleId, setEditFormResponsibleId] = useState('');
+  const [editFormAgencyCompanyId, setEditFormAgencyCompanyId] = useState('');
+  const [editFormStatus, setEditFormStatus] = useState<ApplicationStatus>(ApplicationStatus.DRAFT);
 
   const agentUsers = useMemo(() => users.filter(u => (u.role || '').toString().toLowerCase() === 'agent'), [users]);
   const responsibleUsers = useMemo(() => users.filter(u => { const r = (u.role || '').toString().toUpperCase(); return r === 'ADMIN' || r === 'USER'; }), [users]);
@@ -255,7 +289,8 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const getPeriod = (id: string | undefined) => (id ? periods.find(p => p.id === id) : null);
   const financeFromApplication = (app: Application) => ({
     annualPayment: app.annualPayment != null ? String(app.annualPayment) : '',
-    educationVat: app.educationVat != null ? String(app.educationVat) : '',
+    educationVatRate: app.educationVatRate != null ? String(app.educationVatRate) : '',
+    abroadVatRate: app.abroadVatRate != null ? String(app.abroadVatRate) : '10',
     grossCommission: app.grossCommission != null ? String(app.grossCommission) : '',
     abroadVat: app.abroadVat != null ? String(app.abroadVat) : '',
     netCommission: app.netCommission != null ? String(app.netCommission) : '',
@@ -264,15 +299,49 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     agencyCommission: app.agencyCommission != null ? String(app.agencyCommission) : '',
     agencyBonus: app.agencyBonus != null ? String(app.agencyBonus) : '',
     agencyContractAmount: app.agencyContractAmount != null ? String(app.agencyContractAmount) : '',
-    agencyPaidContractAmount: app.agencyPaidContractAmount != null ? String(app.agencyPaidContractAmount) : '',
-    agencyPaidContractDescription: app.agencyPaidContractDescription || '',
-    agencyPaidContractDescriptionDate: app.agencyPaidContractDescriptionDate || '',
-    agencyPaidContractPaymentMethod: app.agencyPaidContractPaymentMethod || '',
     currency: (app.currency && ['USD', 'TRY', 'EUR'].includes(app.currency)) ? app.currency : 'USD',
     remainingMin: app.remainingMin != null ? String(app.remainingMin) : '',
-    remainingMax: app.remainingMax != null ? String(app.remainingMax) : ''
+    remainingMax: app.remainingMax != null ? String(app.remainingMax) : '',
+    paymentDeserved: app.paymentDeserved === true,
+    paymentDate: app.paymentDate || '',
+    paymentMonth: app.paymentMonth || ''
   });
-
+  const numOrZero = (v: string) => {
+    const n = parseFloat(v);
+    return Number.isNaN(n) ? 0 : n;
+  };
+  const computedEducationVatAmount = useMemo(() => {
+    const annual = parseFloat(detailFinance.annualPayment);
+    const rate = parseFloat(detailFinance.educationVatRate);
+    if (Number.isNaN(annual) || Number.isNaN(rate)) return '';
+    return String((annual * rate) / 100);
+  }, [detailFinance.annualPayment, detailFinance.educationVatRate]);
+  const computedAgencyContractAmount = useMemo(() => {
+    const total = numOrZero(detailFinance.agencyCommission) + numOrZero(detailFinance.agencyBonus);
+    return String(total);
+  }, [detailFinance.agencyCommission, detailFinance.agencyBonus]);
+  const computedAbroadVatAmount = useMemo(() => {
+    const gross = numOrZero(detailFinance.grossCommission);
+    const rate = numOrZero(detailFinance.abroadVatRate);
+    return String((gross * rate) / 100);
+  }, [detailFinance.grossCommission, detailFinance.abroadVatRate]);
+  const computedNetCommission = useMemo(() => {
+    const gross = numOrZero(detailFinance.grossCommission);
+    const abroad = numOrZero(computedAbroadVatAmount);
+    return String(gross - abroad);
+  }, [detailFinance.grossCommission, computedAbroadVatAmount]);
+  const computedRemainingMin = useMemo(() => {
+    const net = numOrZero(computedNetCommission);
+    const bonusMin = numOrZero(detailFinance.bonusMin);
+    const contract = numOrZero(computedAgencyContractAmount);
+    return String((net + bonusMin) - contract);
+  }, [computedNetCommission, detailFinance.bonusMin, computedAgencyContractAmount]);
+  const computedRemainingMax = useMemo(() => {
+    const net = numOrZero(computedNetCommission);
+    const bonusMax = numOrZero(detailFinance.bonusMax);
+    const contract = numOrZero(computedAgencyContractAmount);
+    return String((net + bonusMax) - contract);
+  }, [computedNetCommission, detailFinance.bonusMax, computedAgencyContractAmount]);
   // Derived filters: first by period (active only), then by degree
   const availablePrograms = useMemo(() => {
     return programs.filter(p =>
@@ -350,12 +419,13 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
         createdAt: new Date().toISOString().split('T')[0],
         files: [],
         userId: agentId || undefined,
-        ...(selectedResponsibleId && { responsibleId: selectedResponsibleId })
+        ...(selectedResponsibleId && { responsibleId: selectedResponsibleId }),
+        ...(selectedAgencyCompanyId && { agencyCompanyId: selectedAgencyCompanyId })
       }, files);
       if (newId) {
         setSelectedAppId(newId);
         setView('detail');
-        setSelectedStudent(''); setFilterPeriod(''); setFilterDegree(''); setFilterName(''); setFilterLang(''); setFilterUni(''); setFiles(null); setSelectedAgentId(''); setSelectedResponsibleId('');
+        setSelectedStudent(''); setFilterPeriod(''); setFilterDegree(''); setFilterName(''); setFilterLang(''); setFilterUni(''); setFiles(null); setSelectedAgentId(''); setSelectedResponsibleId(''); setSelectedAgencyCompanyId('');
       }
     }
   };
@@ -364,6 +434,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     if (initialStudentId) {
       setSelectedStudent(initialStudentId);
       setView('create');
+      scrollContentTop();
       if (typeof clearInitialStudent === 'function') clearInitialStudent();
     }
   }, [initialStudentId, clearInitialStudent]);
@@ -372,9 +443,16 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     if (targetApplicationId) {
       setSelectedAppId(targetApplicationId);
       setView('detail');
+      scrollContentTop();
       if (typeof clearTargetApplication === 'function') clearTargetApplication();
     }
   }, [targetApplicationId, clearTargetApplication]);
+
+  useEffect(() => {
+    if (view === 'create' || view === 'detail') {
+      scrollContentTop();
+    }
+  }, [view, selectedAppId]);
 
   // Sync inline financial fields when detail app changes; exit edit mode when app changes
   useEffect(() => {
@@ -384,10 +462,20 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
       setDetailFinance(financeFromApplication(app));
       setEditFormAgentId(app.userId || '');
       setEditFormResponsibleId(app.responsibleId || '');
+      setEditFormAgencyCompanyId(app.agencyCompanyId || '');
+      setEditFormStatus(app.status);
     }
     setDetailEditMode(false);
-    setDetailLeftTab('general');
   }, [selectedAppId, applications]);
+
+  useEffect(() => {
+    if (view !== 'detail') return;
+    const el = chatMessagesRef.current;
+    if (!el) return;
+    requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+    });
+  }, [messages, selectedAppId, view]);
 
   // Load messages when opening a detail view
   React.useEffect(() => {
@@ -439,6 +527,15 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     return Array.from(names).sort();
   }, [applications, users]);
 
+  const uniqueResponsibles = useMemo(() => {
+    const names = new Set<string>();
+    applications.forEach(app => {
+      const name = getResponsibleLabel(app);
+      if (name && name !== '—') names.add(name);
+    });
+    return Array.from(names).sort();
+  }, [applications, users]);
+
   const filteredApplications = useMemo(() => {
     const list = applications.filter(app => {
       const s = getStudent(app.studentId);
@@ -449,22 +546,26 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
       const matchName = !searchName || studentName.includes(searchName) ||
         ((s?.firstName || '').toLowerCase().includes(searchName) || (s?.lastName || '').toLowerCase().includes(searchName));
       const agentName = getAgentName(app);
+      const responsibleName = getResponsibleLabel(app);
       const matchAgent = filterAgents.length === 0 || filterAgents.includes(agentName);
+      const matchResponsible = filterResponsibles.length === 0 || filterResponsibles.includes(responsibleName);
       const matchUniversity = filterUniversities.length === 0 || (p?.universityId && filterUniversities.includes(p.universityId));
-      const matchStatus = filterStatuses.length === 0 || filterStatuses.includes(app.status);
+      const appStatusNorm = normalizeStatusValue(app.status);
+      const selectedNorm = filterStatuses.map((s) => normalizeStatusValue(s));
+      const matchStatus = filterStatuses.length === 0 || selectedNorm.includes(appStatusNorm);
       const matchDegree = filterDegrees.length === 0 || (p?.degree && filterDegrees.includes(p.degree));
       const matchCreated = matchesCreatedAtRange(app.createdAt, filterAppCreatedFrom, filterAppCreatedTo);
-      return matchNumber && matchName && matchAgent && matchUniversity && matchStatus && matchDegree && matchCreated;
+      return matchNumber && matchName && matchAgent && matchResponsible && matchUniversity && matchStatus && matchDegree && matchCreated;
     });
     return list;
-  }, [applications, students, programs, universities, users, searchApplicationNumber, searchStudentName, filterAgents, filterUniversities, filterStatuses, filterDegrees, filterAppCreatedFrom, filterAppCreatedTo]);
+  }, [applications, students, programs, universities, users, searchApplicationNumber, searchStudentName, filterAgents, filterResponsibles, filterUniversities, filterStatuses, filterDegrees, filterAppCreatedFrom, filterAppCreatedTo]);
 
   const sortedApplications = useMemo(() => {
     const list = [...filteredApplications];
     if (!sortBy) {
       list.sort((a, b) => {
-        const tA = new Date(a.updatedAt || a.createdAt || 0).getTime();
-        const tB = new Date(b.updatedAt || b.createdAt || 0).getTime();
+        const tA = new Date(a.createdAt || 0).getTime();
+        const tB = new Date(b.createdAt || 0).getTime();
         return tB - tA;
       });
       return list;
@@ -522,7 +623,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   useEffect(() => {
     setTreePage(1);
     setKanbanPage(1);
-  }, [searchApplicationNumber, searchStudentName, filterAgents, filterUniversities, filterStatuses, filterDegrees, filterAppCreatedFrom, filterAppCreatedTo, sortBy, sortDir, listViewMode]);
+  }, [searchApplicationNumber, searchStudentName, filterAgents, filterResponsibles, filterUniversities, filterStatuses, filterDegrees, filterAppCreatedFrom, filterAppCreatedTo, sortBy, sortDir, listViewMode]);
   const applicationColumnOptions = [
     { key: 'number', label: t.number },
     { key: 'status', label: t.applicationStatus },
@@ -635,6 +736,22 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
               <option value="">{t.selectResponsible}</option>
               {responsibleUsers.map(u => (
                 <option key={u.id} value={u.id}>{u.name} {u.email ? `(${u.email})` : ''}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {isAdminOrUser && (
+          <div>
+            <label className="block font-semibold mb-2 text-gray-700">Aracı Firma</label>
+            <select
+              className="w-full p-3 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 bg-white border-gray-200 transition-all"
+              value={selectedAgencyCompanyId}
+              onChange={e => setSelectedAgencyCompanyId(e.target.value)}
+            >
+              <option value="">Aracı firma seç</option>
+              {agencyCompanies.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </select>
           </div>
@@ -829,21 +946,18 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     };
 
     // --- Status Bar Steps ---
-    const getStatusStep = (status: ApplicationStatus) => {
-      if (status === ApplicationStatus.ACCEPTED) return 4;
-      if (status === ApplicationStatus.REJECTED) return 4;
-      if (status === ApplicationStatus.MISSING_DOCS) return 2;
-      if (status === ApplicationStatus.UNDER_REVIEW) return 3;
-      return 1; // Draft
+    const getStatusBadgeClass = (status: ApplicationStatus) => {
+      if (status === ApplicationStatus.ACCEPTED) return 'bg-green-50 text-green-700 border-green-100';
+      if (status === ApplicationStatus.REJECTED || status === ApplicationStatus.PAYMENT_REJECTED) return 'bg-red-50 text-red-700 border-red-100';
+      if (status === ApplicationStatus.MISSING_DOCS || status === ApplicationStatus.QUOTA_FULL) return 'bg-orange-50 text-orange-700 border-orange-100';
+      if (status === ApplicationStatus.DRAFT) return 'bg-gray-50 text-gray-700 border-gray-200';
+      return 'bg-blue-50 text-blue-700 border-blue-100';
     };
 
-    const currentStep = getStatusStep(app.status);
-    const isError = app.status === ApplicationStatus.REJECTED || app.status === ApplicationStatus.MISSING_DOCS;
-
     return (
-      <div className="max-w-6xl mx-auto space-y-6 animate-in slide-in-from-bottom duration-500">
+      <div className="max-w-[1400px] mx-auto space-y-3 -mt-1 animate-in slide-in-from-bottom duration-500">
         {/* Header Actions */}
-        <div className="bg-white px-4 py-2 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between gap-3">
+        <div className="bg-white px-3 py-1.5 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between gap-2">
           <div className="flex items-center">
             <button onClick={() => setView('list')} className="flex items-center gap-2 text-gray-500 hover:text-blue-600 transition-colors font-bold">
               <ChevronLeft size={20} />
@@ -851,7 +965,24 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
             </button>
           </div>
           <div className="flex-1 flex justify-start pl-4">
-            <span className="font-mono font-bold text-gray-800 text-xl">#{app.id}</span>
+            <div className="flex flex-wrap items-center gap-4">
+              <span className="font-mono font-bold text-gray-800 text-xl">#{app.id}</span>
+              {detailEditMode && onUpdateApplication ? (
+                <select
+                  value={editFormStatus}
+                  onChange={(e) => setEditFormStatus(e.target.value as ApplicationStatus)}
+                  className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                >
+                  {Object.values(ApplicationStatus).map((st) => (
+                    <option key={st} value={st}>{translateStatus(st)}</option>
+                  ))}
+                </select>
+              ) : (
+                <span className={`px-3 py-1 rounded-full text-xs font-bold border ${getStatusBadgeClass(app.status)}`}>
+                  {translateStatus(app.status)}
+                </span>
+              )}
+            </div>
           </div>
           <div className="flex items-center justify-end gap-3">
             {(isAdminOrUser || isAdmin) && onUpdateApplication && (
@@ -863,6 +994,8 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                       setDetailFinance(financeFromApplication(app));
                       setEditFormAgentId(app.userId || '');
                       setEditFormResponsibleId(app.responsibleId || '');
+                      setEditFormAgencyCompanyId(app.agencyCompanyId || '');
+                      setEditFormStatus(app.status);
                       setDetailEditMode(false);
                     }}
                     className="px-4 py-2 rounded-xl font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors text-sm whitespace-nowrap"
@@ -874,25 +1007,20 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                     onClick={() => {
                       const num = (v: string) => { const n = parseFloat(v); return (v === '' || Number.isNaN(n)) ? null : n; };
                       onUpdateApplication(app.id, {
+                        status: editFormStatus,
                         userId: editFormAgentId || null,
                         responsibleId: editFormResponsibleId || null,
+                        agencyCompanyId: editFormAgencyCompanyId || null,
                         annualPayment: num(detailFinance.annualPayment),
-                        educationVat: num(detailFinance.educationVat),
+                        educationVatRate: num(detailFinance.educationVatRate),
+                        abroadVatRate: num(detailFinance.abroadVatRate),
                         grossCommission: num(detailFinance.grossCommission),
-                        abroadVat: num(detailFinance.abroadVat),
-                        netCommission: num(detailFinance.netCommission),
                         bonusMax: num(detailFinance.bonusMax),
                         bonusMin: num(detailFinance.bonusMin),
                         agencyCommission: num(detailFinance.agencyCommission),
                         agencyBonus: num(detailFinance.agencyBonus),
-                        agencyContractAmount: num(detailFinance.agencyContractAmount),
-                        agencyPaidContractAmount: num(detailFinance.agencyPaidContractAmount),
-                        agencyPaidContractDescription: detailFinance.agencyPaidContractDescription.trim() || null,
-                        agencyPaidContractDescriptionDate: detailFinance.agencyPaidContractDescriptionDate || null,
-                        agencyPaidContractPaymentMethod: detailFinance.agencyPaidContractPaymentMethod.trim() || null,
                         currency: ['USD', 'TRY', 'EUR'].includes(detailFinance.currency) ? detailFinance.currency : 'USD',
-                        remainingMin: num(detailFinance.remainingMin),
-                        remainingMax: num(detailFinance.remainingMax)
+                        paymentDeserved: detailFinance.paymentDeserved
                       });
                       setDetailEditMode(false);
                     }}
@@ -913,421 +1041,370 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
               )
             )}
             <div className="flex items-center gap-2 whitespace-nowrap">
-              <span className="text-xs bg-gray-100 px-3 py-1.5 rounded-full text-gray-600 font-medium" title={t.createdAt}>
+              <span className="text-xs bg-gray-100 px-3 py-1 rounded-full text-gray-600 font-medium" title={t.createdAt}>
                 {t.createdAt}: {app.createdAt ? new Date(app.createdAt).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
               </span>
-              <span className="text-xs bg-blue-50 px-3 py-1.5 rounded-full text-blue-800 font-medium" title={t.lastUpdatedAt}>
+              <span className="text-xs bg-blue-50 px-3 py-1 rounded-full text-blue-800 font-medium" title={t.lastUpdatedAt}>
                 {t.lastUpdatedAt}: {(app.updatedAt || app.createdAt) ? new Date(app.updatedAt || app.createdAt).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
               </span>
             </div>
           </div>
         </div>
 
-        {/* 1. APP STATUS MANAGEMENT BAR (ERP Style) */}
-        {(currentUser?.role === 'ADMIN' || currentUser?.role === 'USER') && (
-          <div className="bg-white p-2 rounded-2xl shadow-sm border border-gray-100 flex flex-wrap gap-2">
-            {[
-              { id: ApplicationStatus.DRAFT, label: t.draft, icon: <FileEdit size={16} />, activeColor: 'bg-gray-600 text-white', inactiveColor: 'bg-gray-50 text-gray-700 border-gray-100 hover:bg-gray-100' },
-              { id: ApplicationStatus.MISSING_DOCS, label: t.missingDocs, icon: <AlertCircle size={16} />, activeColor: 'bg-orange-600 text-white', inactiveColor: 'bg-orange-50 text-orange-700 border-orange-100 hover:bg-orange-100' },
-              { id: ApplicationStatus.UNDER_REVIEW, label: t.underReview, icon: <Clock size={16} />, activeColor: 'bg-blue-600 text-white', inactiveColor: 'bg-blue-50 text-blue-700 border-blue-100 hover:bg-blue-100' },
-              { id: ApplicationStatus.ACCEPTED, label: t.approved, icon: <CheckCircle size={16} />, activeColor: 'bg-green-600 text-white', inactiveColor: 'bg-green-50 text-green-700 border-green-100 hover:bg-green-100' },
-              { id: ApplicationStatus.REJECTED, label: t.rejected, icon: <XCircle size={16} />, activeColor: 'bg-red-600 text-white', inactiveColor: 'bg-red-50 text-red-700 border-red-100 hover:bg-red-100' },
-            ].map((btn) => {
-              const isActive = app.status === btn.id;
-              return (
-                <button
-                  key={btn.id}
-                  onClick={() => onUpdateStatus(app.id, btn.id)}
-                  className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold text-sm transition-all border
-                    ${isActive ? btn.activeColor + ' border-transparent shadow-lg scale-105' : btn.inactiveColor + ' border-transparent opacity-60 hover:opacity-100'}
-                  `}
-                >
-                  {btn.icon}
-                  {btn.label}
-                  {isActive && <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />}
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Status Indicator for Agent/Student (non-admin) */}
-        {!(currentUser?.role === 'ADMIN' || currentUser?.role === 'USER') && (
-          <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <span className="text-gray-400 font-bold text-sm">{t.currentApplicationStatus}:</span>
-              <span className={`px-6 py-2 rounded-xl text-sm font-bold shadow-sm border
-                ${app.status === ApplicationStatus.ACCEPTED ? 'bg-green-50 text-green-700 border-green-100' :
-                  app.status === ApplicationStatus.REJECTED ? 'bg-red-50 text-red-700 border-red-100' :
-                    app.status === ApplicationStatus.MISSING_DOCS ? 'bg-orange-50 text-orange-700 border-orange-100' :
-                      app.status === ApplicationStatus.DRAFT ? 'bg-gray-50 text-gray-700 border-gray-200' :
-                        'bg-blue-50 text-blue-700 border-blue-100'}`}>
-                {translateStatus(app.status)}
-              </span>
-            </div>
-            {(currentUser?.role === 'AGENT' || currentUser?.role === 'agent') && app.status === ApplicationStatus.DRAFT && (
-              <button
-                type="button"
-                onClick={() => onUpdateStatus(app.id, ApplicationStatus.UNDER_REVIEW)}
-                className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 transition-colors shadow-sm"
-              >
-                <Clock size={18} />
-                {t.sendToReview}
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* 2. Main Body: left info/files, right chat */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-5 flex flex-col gap-6">
-            <div className="bg-white rounded-2xl p-1 border border-gray-100 shadow-sm grid grid-cols-2 gap-1">
-              <button
-                type="button"
-                onClick={() => setDetailLeftTab('general')}
-                className={`px-3 py-2 rounded-xl text-sm font-medium transition-colors ${detailLeftTab === 'general' ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-50'}`}
-              >
-                {t.generalInfo}
-              </button>
-              <button
-                type="button"
-                onClick={() => setDetailLeftTab('files')}
-                className={`px-3 py-2 rounded-xl text-sm font-medium transition-colors ${detailLeftTab === 'files' ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-50'}`}
-              >
-                {`${t.uploadFiles} (${detailFiles.length})`}
-              </button>
-            </div>
-
-            {detailLeftTab === 'general' ? (
-              <>
-                {/* Program Card */}
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
-                  <div className="flex items-start gap-4 mb-4">
-                    <div className="bg-purple-50 p-4 rounded-xl text-purple-600 shrink-0">
-                      <GraduationCap size={24} />
-                    </div>
-                    <div className="min-w-0">
-                      <h3 className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-1">{t.programsTitle}</h3>
-                      <p className="text-xl font-bold text-gray-800 leading-tight">{program?.name}</p>
-                    </div>
-                  </div>
-                  <div className="space-y-2 text-sm">
-                    {(getPeriod(app.periodId || program?.periodId)?.name) && (
-                      <div className="flex items-center gap-2 text-gray-600">
-                        <span className="text-gray-500">{t.period}:</span>
-                        <span className="font-medium text-gray-800">{getPeriod(app.periodId || program?.periodId)?.name}</span>
-                      </div>
-                    )}
-                    <div className="flex items-center gap-2 text-gray-600 min-w-0">
-                      <GraduationCap size={16} className="text-purple-400 shrink-0" />
-                      <span className="text-blue-600 font-semibold">{university?.name || '—'}</span>
-                    </div>
-                    <div className="flex flex-wrap gap-x-4 gap-y-1">
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-purple-50 text-purple-700 font-medium">{translateDegree(program?.degree || '')}</span>
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-700 font-medium">{program?.language || '—'}</span>
-                    </div>
-                  </div>
+        {/* 2. Main Body: left general info, right files + chat */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-1 flex flex-col gap-6">
+            {/* Program Card */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
+              <div className="flex items-start gap-4 mb-4">
+                <div className="bg-purple-50 p-4 rounded-xl text-purple-600 shrink-0">
+                  <GraduationCap size={24} />
                 </div>
-
-                {/* Student Card */}
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
-                  <div className="flex items-start gap-4 mb-4">
-                    <div className="bg-blue-50 p-4 rounded-xl text-blue-600 shrink-0">
-                      <UserIcon size={24} />
-                    </div>
-                    <div className="min-w-0">
-                      <h3 className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-1">{t.studentInfo}</h3>
-                      <p className="text-xl font-bold text-gray-800 leading-tight">{student?.firstName} {student?.lastName}</p>
-                    </div>
-                  </div>
-                  <div className="flex flex-col gap-3 text-sm">
-                    <div className="flex items-center gap-2 text-gray-600">
-                      <Mail size={16} className="text-gray-400 shrink-0" />
-                      <span className="min-w-0 truncate" title={student?.email || undefined}>{student?.email || '—'}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-gray-600">
-                      <Phone size={16} className="text-gray-400 shrink-0" />
-                      <span className="min-w-0 truncate" title={student?.phone || undefined}>{student?.phone || '—'}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-gray-600">
-                      <FileText size={16} className="text-gray-400 shrink-0" />
-                      <span className="font-mono min-w-0 truncate">{student?.passportNumber || '—'}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-gray-600">
-                      <MapPin size={16} className="text-gray-400 shrink-0" />
-                      <span>{t.nationality}: {student?.nationality || '—'}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-gray-600">
-                      <MapPin size={16} className="text-gray-400 shrink-0" />
-                      <span>{t.residenceCountry}: {student?.residenceCountry || '—'}</span>
-                    </div>
-                  </div>
+                <div className="min-w-0">
+                  <h3 className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-1">{t.programsTitle}</h3>
+                  <p className="text-xl font-bold text-gray-800 leading-tight">{program?.name}</p>
                 </div>
-
-                {/* Responsible/Agent card */}
-                {isAdminOrUser && (
-                  <div className="bg-white p-6 rounded-2xl shadow-sm border border-orange-100 hover:shadow-md transition-shadow">
-                    <div className="flex items-start gap-4 mb-4">
-                      <div className="bg-orange-50 p-4 rounded-xl text-orange-600 shrink-0">
-                        <UserIcon size={24} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h3 className="text-orange-400 text-xs font-bold uppercase tracking-wider mb-3">{t.hostAgent}</h3>
-                        <div className="space-y-3">
-                          <div>
-                            <p className="text-xs font-medium text-gray-500 mb-1">{t.agent}</p>
-                            {detailEditMode && onUpdateApplication ? (
-                              <select
-                                value={editFormAgentId}
-                                onChange={(e) => setEditFormAgentId(e.target.value)}
-                                className="w-full max-w-xs p-2.5 border border-gray-200 rounded-xl text-gray-800 font-medium focus:ring-2 focus:ring-blue-500 outline-none bg-white"
-                              >
-                                <option value="">{t.selectAgent}</option>
-                                {agentUsers.map(u => (
-                                  <option key={u.id} value={u.id}>{u.name} {u.email ? `(${u.email})` : ''}</option>
-                                ))}
-                              </select>
-                            ) : (
-                              <p className="text-lg font-bold text-gray-800 leading-tight">{getAgentName(app)}</p>
-                            )}
-                            {!detailEditMode && (app.agentPhone || (app.userId && users.find(u => u.id === app.userId)?.phone)) && (
-                              <p className="text-sm text-orange-600 font-mono mt-0.5">
-                                {app.agentCountryCode || (app.userId && users.find(u => u.id === app.userId)?.countryCode) || ''}{' '}
-                                {app.agentPhone || (app.userId && users.find(u => u.id === app.userId)?.phone)}
-                              </p>
-                            )}
-                          </div>
-                          <div>
-                            <p className="text-xs font-medium text-gray-500 mb-1">{t.responsible}</p>
-                            {detailEditMode && onUpdateApplication ? (
-                              <select
-                                value={editFormResponsibleId}
-                                onChange={(e) => setEditFormResponsibleId(e.target.value)}
-                                className="w-full max-w-xs p-2.5 border border-gray-200 rounded-xl text-gray-800 font-medium focus:ring-2 focus:ring-blue-500 outline-none bg-white"
-                              >
-                                <option value="">{t.selectResponsible}</option>
-                                {responsibleUsers.map(u => (
-                                  <option key={u.id} value={u.id}>{u.name}</option>
-                                ))}
-                              </select>
-                            ) : (
-                              <p className="text-lg font-bold text-gray-800 leading-tight">{app.responsibleName || '—'}</p>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+              </div>
+              <div className="space-y-2 text-sm">
+                {(getPeriod(app.periodId || program?.periodId)?.name) && (
+                  <div className="flex items-center gap-2 text-gray-600">
+                    <span className="text-gray-500">{t.period}:</span>
+                    <span className="font-medium text-gray-800">{getPeriod(app.periodId || program?.periodId)?.name}</span>
                   </div>
                 )}
-              </>
-            ) : (
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                <div className="flex items-center gap-2 mb-4">
-                  <Paperclip size={18} className="text-gray-400" />
-                  <h4 className="font-bold text-gray-800 text-sm">{t.uploadFiles} ({detailFiles.length})</h4>
+                <div className="flex items-center gap-2 text-gray-600 min-w-0">
+                  <GraduationCap size={16} className="text-purple-400 shrink-0" />
+                  <span className="text-blue-600 font-semibold">{university?.name || '—'}</span>
                 </div>
+                <div className="flex flex-wrap gap-x-4 gap-y-1">
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-purple-50 text-purple-700 font-medium">{translateDegree(program?.degree || '')}</span>
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-700 font-medium">{program?.language || '—'}</span>
+                </div>
+              </div>
+            </div>
 
-                {detailFiles.length > 0 ? (
-                  <div className="space-y-2 mb-4">
-                    {detailFiles.map((f, i) => (
-                      <div key={i} className="flex items-center gap-2 p-3 bg-gray-50 rounded-xl hover:bg-blue-50 transition-all group">
-                        <a
-                          href={f.url} target="_blank" rel="noreferrer"
-                          className="flex-1 flex items-center gap-3 min-w-0"
-                        >
-                          <div className="w-8 h-8 rounded-lg bg-white border border-gray-200 flex items-center justify-center text-gray-400 group-hover:text-blue-500 group-hover:border-blue-100 shrink-0">
-                            <FileText size={16} />
-                          </div>
-                          <div className="flex-1 min-w-0 pr-2 text-right">
-                            <p className="text-[11px] font-bold text-gray-700 truncate" dir="ltr">{f.name}</p>
-                            <span className="text-[9px] text-gray-400 uppercase">View File</span>
-                          </div>
-                        </a>
-                        {f.filename && (
-                          <button
-                            onClick={async (e) => {
-                              e.preventDefault();
-                              if (!window.confirm(t.confirmDelete)) return;
-                              try {
-                                const r = await fetch(`/api/applications/${selectedAppId}/files/${f.filename}`, { method: 'DELETE' });
-                                let delData: { message?: string; updatedAt?: string; studentId?: string; studentUpdatedAt?: string | null } = {};
-                                try { delData = await r.json(); } catch { /* empty body */ }
-                                if (r.ok) {
-                                  setDetailFiles(prev => prev.filter(file => file.filename !== f.filename));
-                                  if (delData.updatedAt && onSyncApplicationTimestamps) {
-                                    onSyncApplicationTimestamps({
-                                      applicationId: selectedAppId!,
-                                      applicationUpdatedAt: delData.updatedAt,
-                                      studentId: delData.studentId,
-                                      studentUpdatedAt: delData.studentUpdatedAt ?? undefined
-                                    });
-                                  }
-                                } else {
-                                  alert(delData.message || t.errorDelete);
-                                }
-                              } catch (err) {
-                                alert(t.errorConnection);
-                              }
-                            }}
-                            className="w-8 h-8 rounded-lg bg-red-50 border border-red-100 flex items-center justify-center text-red-500 hover:bg-red-500 hover:text-white transition-all shrink-0"
-                            title={t.delete}
+            {/* Student Card */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
+              <div className="flex items-start gap-4 mb-4">
+                <div className="bg-blue-50 p-4 rounded-xl text-blue-600 shrink-0">
+                  <UserIcon size={24} />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-1">{t.studentInfo}</h3>
+                  {student?.id && onOpenStudent ? (
+                    <button
+                      type="button"
+                      onClick={() => onOpenStudent(student.id)}
+                      className="text-xl font-bold text-blue-700 leading-tight hover:text-blue-800 hover:underline text-left"
+                    >
+                      {student.firstName} {student.lastName}
+                    </button>
+                  ) : (
+                    <p className="text-xl font-bold text-gray-800 leading-tight">{student?.firstName} {student?.lastName}</p>
+                  )}
+                </div>
+              </div>
+              <div className="flex flex-col gap-3 text-sm">
+                <div className="flex items-center gap-2 text-gray-600">
+                  <Mail size={16} className="text-gray-400 shrink-0" />
+                  <span className="min-w-0 truncate" title={student?.email || undefined}>{student?.email || '—'}</span>
+                </div>
+                <div className="flex items-center gap-2 text-gray-600">
+                  <Phone size={16} className="text-gray-400 shrink-0" />
+                  <span className="min-w-0 truncate" title={student?.phone || undefined}>{student?.phone || '—'}</span>
+                </div>
+                <div className="flex items-center gap-2 text-gray-600">
+                  <FileText size={16} className="text-gray-400 shrink-0" />
+                  <span className="font-mono min-w-0 truncate">{student?.passportNumber || '—'}</span>
+                </div>
+                <div className="flex items-center gap-2 text-gray-600">
+                  <MapPin size={16} className="text-gray-400 shrink-0" />
+                  <span>{t.nationality}: {student?.nationality || '—'}</span>
+                </div>
+                <div className="flex items-center gap-2 text-gray-600">
+                  <MapPin size={16} className="text-gray-400 shrink-0" />
+                  <span>{t.residenceCountry}: {student?.residenceCountry || '—'}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Responsible/Agent card */}
+            {isAdminOrUser && (
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-orange-100 hover:shadow-md transition-shadow">
+                <div className="flex items-start gap-4 mb-4">
+                  <div className="bg-orange-50 p-4 rounded-xl text-orange-600 shrink-0">
+                    <UserIcon size={24} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-orange-400 text-xs font-bold uppercase tracking-wider mb-3">{t.hostAgent}</h3>
+                    <div className="space-y-3">
+                      <div>
+                        <p className="text-xs font-medium text-gray-500 mb-1">{t.agent}</p>
+                        {detailEditMode && onUpdateApplication ? (
+                          <select
+                            value={editFormAgentId}
+                            onChange={(e) => setEditFormAgentId(e.target.value)}
+                            className="w-full max-w-xs p-2.5 border border-gray-200 rounded-xl text-gray-800 font-medium focus:ring-2 focus:ring-blue-500 outline-none bg-white"
                           >
-                            <Trash2 size={14} />
-                          </button>
+                            <option value="">{t.selectAgent}</option>
+                            {agentUsers.map(u => (
+                              <option key={u.id} value={u.id}>{u.name} {u.email ? `(${u.email})` : ''}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <p className="text-lg font-bold text-gray-800 leading-tight">{getAgentName(app)}</p>
+                        )}
+                        {!detailEditMode && (app.agentPhone || (app.userId && users.find(u => u.id === app.userId)?.phone)) && (
+                          <p className="text-sm text-orange-600 font-mono mt-0.5">
+                            {app.agentCountryCode || (app.userId && users.find(u => u.id === app.userId)?.countryCode) || ''}{' '}
+                            {app.agentPhone || (app.userId && users.find(u => u.id === app.userId)?.phone)}
+                          </p>
                         )}
                       </div>
-                    ))}
+                      <div>
+                        <p className="text-xs font-medium text-gray-500 mb-1">{t.responsible}</p>
+                        {detailEditMode && onUpdateApplication ? (
+                          <select
+                            value={editFormResponsibleId}
+                            onChange={(e) => setEditFormResponsibleId(e.target.value)}
+                            className="w-full max-w-xs p-2.5 border border-gray-200 rounded-xl text-gray-800 font-medium focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                          >
+                            <option value="">{t.selectResponsible}</option>
+                            {responsibleUsers.map(u => (
+                              <option key={u.id} value={u.id}>{u.name}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <p className="text-lg font-bold text-gray-800 leading-tight">{app.responsibleName || '—'}</p>
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium text-gray-500 mb-1">Aracı Firma</p>
+                        {detailEditMode && onUpdateApplication ? (
+                          <select
+                            value={editFormAgencyCompanyId}
+                            onChange={(e) => setEditFormAgencyCompanyId(e.target.value)}
+                            className="w-full max-w-xs p-2.5 border border-gray-200 rounded-xl text-gray-800 font-medium focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                          >
+                            <option value="">Aracı firma seç</option>
+                            {agencyCompanies.map(c => (
+                              <option key={c.id} value={c.id}>{c.name}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <p className="text-lg font-bold text-gray-800 leading-tight">{app.agencyCompanyName || '—'}</p>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                ) : (
-                  <div className="py-8 text-center border-2 border-dashed border-gray-100 rounded-2xl mb-4">
-                    <FileText className="mx-auto opacity-10 mb-2" size={32} />
-                    <p className="text-xs text-gray-400">{t.noAttachments}</p>
-                  </div>
-                )}
-
-                <div className="space-y-2">
-                  <input
-                    type="file" id="attach-files-det" multiple accept=".pdf,.jpg,.jpeg,.png"
-                    className="hidden" onChange={e => setAttachFiles(e.target.files)}
-                  />
-                  <label
-                    htmlFor="attach-files-det"
-                    className="flex flex-col items-center justify-center border border-dashed border-gray-200 rounded-xl p-3 cursor-pointer hover:border-blue-300 hover:bg-blue-50/20 transition-all"
-                  >
-                    <span className="text-[11px] font-bold text-blue-600">
-                      {attachFiles && attachFiles.length > 0
-                        ? `${attachFiles.length} ${t.filesSelected}`
-                        : t.attachAdditionalFiles
-                      }
-                    </span>
-                  </label>
-                  <button
-                    onClick={async () => {
-                      if (!attachFiles || !selectedAppId) return;
-                      const fd = new FormData();
-                      Array.from(attachFiles as FileList).forEach(f => fd.append('files', f));
-                      if (currentUser?.id) fd.append('user_id', currentUser.id);
-                      try {
-                        const r = await fetch(`/api/applications/${selectedAppId}/files`, { method: 'POST', body: fd });
-                        const data = await r.json();
-                        if (r.ok) {
-                          setDetailFiles(data.files.map((x: any) => ({ url: x.url, name: x.name || x.url.split('/').pop(), filename: x.filename })));
-                          setAttachFiles(null);
-                          const inp = document.getElementById('attach-files-det') as HTMLInputElement;
-                          if (inp) inp.value = '';
-                          if (data.updatedAt && onSyncApplicationTimestamps) {
-                            onSyncApplicationTimestamps({
-                              applicationId: selectedAppId,
-                              applicationUpdatedAt: data.updatedAt,
-                              studentId: data.studentId,
-                              studentUpdatedAt: data.studentUpdatedAt ?? undefined
-                            });
-                          }
-                        } else { alert(data.message || t.uploadFailed); }
-                      } catch { alert(t.errorConnection); }
-                    }}
-                    disabled={!attachFiles}
-                    className="w-full py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-30 disabled:grayscale"
-                  >
-                    <span className="flex items-center justify-center gap-2"><Upload size={14} /> {t.uploadNow}</span>
-                  </button>
                 </div>
               </div>
             )}
           </div>
 
-          {/* Chat on right */}
-          <div className="lg:col-span-7 flex flex-col bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden h-[700px]">
-            <div className="p-4 border-b border-gray-50 bg-gray-50/50 flex justify-between items-center">
-              <div className="flex items-center gap-2">
-                <MessageSquare className="text-blue-600" size={20} />
-                <h3 className="font-bold text-gray-800">{t.chat}</h3>
+          <div className="lg:col-span-2 grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Files on right (desktop), above chat on mobile */}
+            <div className="order-1 lg:order-2 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+              <div className="flex items-center gap-2 mb-4">
+                <Paperclip size={18} className="text-gray-400" />
+                <h4 className="font-bold text-gray-800 text-sm">{t.uploadFiles} ({detailFiles.length})</h4>
               </div>
-              {/* WhatsApp Helper */}
-              {app.agentPhone && currentUser?.id !== app.userId ? (
-                <a
-                  href={`https://wa.me/${(app.agentCountryCode || '').replace('+', '')}${app.agentPhone}?text=${encodeURIComponent(`السلام عليكم، بخصوص الطلب رقم #${app.id}`)}`}
-                  target="_blank" rel="noreferrer"
-                  className="flex items-center gap-1.5 text-green-600 hover:text-green-700 bg-green-50 px-4 py-1.5 rounded-full text-xs font-bold transition-all border border-green-100"
-                >
-                  <MessageSquare size={14} />
-                  <span>{t.whatsappAgent}</span>
-                </a>
-              ) : (
-                <a
-                  href={`https://wa.me/?text=${encodeURIComponent(`تفاصيل الطلب #${app.id}`)}`}
-                  target="_blank" rel="noreferrer"
-                  className="flex items-center gap-1.5 text-gray-500 hover:text-green-600 bg-gray-50 px-4 py-1.5 rounded-full text-xs font-bold transition-all border border-gray-100"
-                >
-                  <MessageSquare size={14} />
-                  <span>{t.uploadToWhatsApp}</span>
-                </a>
-              )}
-            </div>
 
-            {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-gray-50/30">
-              {messages.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-gray-300 space-y-2">
-                  <MessageSquare size={48} className="opacity-10" />
-                  <p className="text-sm">{t.noMessages}</p>
+              {detailFiles.length > 0 ? (
+                <div className="space-y-2 mb-4">
+                  {detailFiles.map((f, i) => (
+                    <div key={i} className="flex items-center gap-2 p-3 bg-gray-50 rounded-xl hover:bg-blue-50 transition-all group">
+                      <a
+                        href={f.url} target="_blank" rel="noreferrer"
+                        className="flex-1 flex items-center gap-3 min-w-0"
+                      >
+                        <div className="w-8 h-8 rounded-lg bg-white border border-gray-200 flex items-center justify-center text-gray-400 group-hover:text-blue-500 group-hover:border-blue-100 shrink-0">
+                          <FileText size={16} />
+                        </div>
+                        <div className="flex-1 min-w-0 pr-2 text-right">
+                          <p className="text-[11px] font-bold text-gray-700 truncate" dir="ltr">{f.name}</p>
+                          <span className="text-[9px] text-gray-400 uppercase">View File</span>
+                        </div>
+                      </a>
+                      {f.filename && (
+                        <button
+                          onClick={async (e) => {
+                            e.preventDefault();
+                            if (!window.confirm(t.confirmDelete)) return;
+                            try {
+                              const r = await fetch(`/api/applications/${selectedAppId}/files/${f.filename}`, { method: 'DELETE' });
+                              let delData: { message?: string; updatedAt?: string; studentId?: string; studentUpdatedAt?: string | null } = {};
+                              try { delData = await r.json(); } catch { /* empty body */ }
+                              if (r.ok) {
+                                setDetailFiles(prev => prev.filter(file => file.filename !== f.filename));
+                                if (delData.updatedAt && onSyncApplicationTimestamps) {
+                                  onSyncApplicationTimestamps({
+                                    applicationId: selectedAppId!,
+                                    applicationUpdatedAt: delData.updatedAt,
+                                    studentId: delData.studentId,
+                                    studentUpdatedAt: delData.studentUpdatedAt ?? undefined
+                                  });
+                                }
+                              } else {
+                                alert(delData.message || t.errorDelete);
+                              }
+                            } catch (err) {
+                              alert(t.errorConnection);
+                            }
+                          }}
+                          className="w-8 h-8 rounded-lg bg-red-50 border border-red-100 flex items-center justify-center text-red-500 hover:bg-red-500 hover:text-white transition-all shrink-0"
+                          title={t.delete}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
                 </div>
               ) : (
-                messages.map(m => {
-                  const isAdmin = m.sender === 'ADMIN';
-                  const isUser = m.sender === 'USER'; // Student owner / Agent
-                  return (
-                    <div key={m.id} className={`flex w-full ${isAdmin ? 'justify-end' : isUser ? 'justify-center font-bold' : 'justify-start'}`}>
-                      <div className={`max-w-[80%] flex flex-col ${isAdmin ? 'items-end' : isUser ? 'items-center' : 'items-start'}`}>
-                        {/* Meta */}
-                        <div className="flex items-center gap-2 mb-1 px-1">
-                          <span className={`text-[10px] font-bold uppercase tracking-widest ${isAdmin ? 'text-blue-400' : isUser ? 'text-orange-400' : 'text-gray-400'}`}>
-                            {m.senderName != null && m.senderName !== ''
-                              ? m.senderName
-                              : isAdmin
-                                ? (currentUser?.name || 'Admin')
-                                : isUser
-                                  ? 'Applicant'
-                                  : (getAgentName(app) !== '—' ? getAgentName(app) : 'Temsilci')}
-                          </span>
-                          <span className="text-[10px] text-gray-300">{new Date(m.createdAt).toLocaleTimeString(dateLocale, { hour: '2-digit', minute: '2-digit' })}</span>
-                        </div>
-                        {/* Bubble */}
-                        <div
-                          className={`px-4 py-3 rounded-2xl shadow-sm text-sm break-words leading-relaxed
-                            ${isAdmin
-                              ? 'bg-blue-600 text-white rounded-br-none shadow-blue-100'
-                              : isUser
-                                ? 'bg-orange-50 text-orange-900 border border-orange-100 rounded-2xl text-center italic'
-                                : 'bg-white text-gray-800 border border-gray-100 rounded-bl-none'}`}
-                          dir="auto"
-                        >
-                          {m.message}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })
+                <div className="py-8 text-center border-2 border-dashed border-gray-100 rounded-2xl mb-4">
+                  <FileText className="mx-auto opacity-10 mb-2" size={32} />
+                  <p className="text-xs text-gray-400">{t.noAttachments}</p>
+                </div>
               )}
+
+              <div className="space-y-2">
+                <input
+                  type="file" id="attach-files-det" multiple accept=".pdf,.jpg,.jpeg,.png"
+                  className="hidden" onChange={e => setAttachFiles(e.target.files)}
+                />
+                <label
+                  htmlFor="attach-files-det"
+                  className="flex flex-col items-center justify-center border border-dashed border-gray-200 rounded-xl p-3 cursor-pointer hover:border-blue-300 hover:bg-blue-50/20 transition-all"
+                >
+                  <span className="text-[11px] font-bold text-blue-600">
+                    {attachFiles && attachFiles.length > 0
+                      ? `${attachFiles.length} ${t.filesSelected}`
+                      : t.attachAdditionalFiles
+                    }
+                  </span>
+                </label>
+                <button
+                  onClick={async () => {
+                    if (!attachFiles || !selectedAppId) return;
+                    const fd = new FormData();
+                    Array.from(attachFiles as FileList).forEach(f => fd.append('files', f));
+                    if (currentUser?.id) fd.append('user_id', currentUser.id);
+                    try {
+                      const r = await fetch(`/api/applications/${selectedAppId}/files`, { method: 'POST', body: fd });
+                      const data = await r.json();
+                      if (r.ok) {
+                        setDetailFiles(data.files.map((x: any) => ({ url: x.url, name: x.name || x.url.split('/').pop(), filename: x.filename })));
+                        setAttachFiles(null);
+                        const inp = document.getElementById('attach-files-det') as HTMLInputElement;
+                        if (inp) inp.value = '';
+                        if (data.updatedAt && onSyncApplicationTimestamps) {
+                          onSyncApplicationTimestamps({
+                            applicationId: selectedAppId,
+                            applicationUpdatedAt: data.updatedAt,
+                            studentId: data.studentId,
+                            studentUpdatedAt: data.studentUpdatedAt ?? undefined
+                          });
+                        }
+                      } else { alert(data.message || t.uploadFailed); }
+                    } catch { alert(t.errorConnection); }
+                  }}
+                  disabled={!attachFiles}
+                  className="w-full py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-30 disabled:grayscale"
+                >
+                  <span className="flex items-center justify-center gap-2"><Upload size={14} /> {t.uploadNow}</span>
+                </button>
+              </div>
             </div>
 
-            {/* Input Area */}
-            <div className="p-4 border-t border-gray-100 bg-white">
-              <div className="flex gap-2 items-center bg-gray-50 p-1 rounded-2xl border border-gray-200 focus-within:border-blue-300 focus-within:ring-2 focus-within:ring-blue-100 transition-all">
-                <input
-                  value={newMessage}
-                  onChange={e => setNewMessage(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), sendMessage())}
-                  className="flex-1 bg-transparent p-3 outline-none text-sm placeholder:text-gray-400"
-                  placeholder={t.typeMessage}
-                />
-                <button
-                  onClick={sendMessage}
-                  disabled={!newMessage.trim()}
-                  className="bg-blue-600 text-white p-3 rounded-xl hover:bg-blue-700 disabled:opacity-30 disabled:hover:bg-blue-600 transition-all active:scale-90"
-                >
-                  <Send size={18} />
-                </button>
+            {/* Chat in middle (desktop), bottom on mobile */}
+            <div className="order-2 lg:order-1 flex flex-col bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden h-[390px] lg:h-[530px]">
+              <div className="p-4 border-b border-gray-50 bg-gray-50/50 flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <MessageSquare className="text-blue-600" size={20} />
+                  <h3 className="font-bold text-gray-800">{t.chat}</h3>
+                </div>
+                {app.agentPhone && currentUser?.id !== app.userId ? (
+                  <a
+                    href={`https://wa.me/${(app.agentCountryCode || '').replace('+', '')}${app.agentPhone}?text=${encodeURIComponent(`السلام عليكم، بخصوص الطلب رقم #${app.id}`)}`}
+                    target="_blank" rel="noreferrer"
+                    className="flex items-center gap-1.5 text-green-600 hover:text-green-700 bg-green-50 px-4 py-1.5 rounded-full text-xs font-bold transition-all border border-green-100"
+                  >
+                    <MessageSquare size={14} />
+                    <span>{t.whatsappAgent}</span>
+                  </a>
+                ) : (
+                  <a
+                    href={`https://wa.me/?text=${encodeURIComponent(`تفاصيل الطلب #${app.id}`)}`}
+                    target="_blank" rel="noreferrer"
+                    className="flex items-center gap-1.5 text-gray-500 hover:text-green-600 bg-gray-50 px-4 py-1.5 rounded-full text-xs font-bold transition-all border border-gray-100"
+                  >
+                    <MessageSquare size={14} />
+                    <span>{t.uploadToWhatsApp}</span>
+                  </a>
+                )}
+              </div>
+
+              <div ref={chatMessagesRef} className="flex-1 min-h-0 overflow-y-auto p-6 space-y-4 bg-gray-50/30">
+                {messages.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-gray-300 space-y-2">
+                    <MessageSquare size={48} className="opacity-10" />
+                    <p className="text-sm">{t.noMessages}</p>
+                  </div>
+                ) : (
+                  messages.map(m => {
+                    const isAdmin = m.sender === 'ADMIN';
+                    const isUser = m.sender === 'USER';
+                    return (
+                      <div key={m.id} className={`flex w-full ${isAdmin ? 'justify-end' : isUser ? 'justify-center font-bold' : 'justify-start'}`}>
+                        <div className={`max-w-[80%] flex flex-col ${isAdmin ? 'items-end' : isUser ? 'items-center' : 'items-start'}`}>
+                          <div className="flex items-center gap-2 mb-1 px-1">
+                            <span className={`text-[10px] font-bold uppercase tracking-widest ${isAdmin ? 'text-blue-400' : isUser ? 'text-orange-400' : 'text-gray-400'}`}>
+                              {m.senderName != null && m.senderName !== ''
+                                ? m.senderName
+                                : isAdmin
+                                  ? (currentUser?.name || 'Admin')
+                                  : isUser
+                                    ? 'Applicant'
+                                    : (getAgentName(app) !== '—' ? getAgentName(app) : 'Temsilci')}
+                            </span>
+                            <span className="text-[10px] text-gray-300">{new Date(m.createdAt).toLocaleTimeString(dateLocale, { hour: '2-digit', minute: '2-digit' })}</span>
+                          </div>
+                          <div
+                            className={`px-4 py-3 rounded-2xl shadow-sm text-sm break-words leading-relaxed
+                              ${isAdmin
+                                ? 'bg-blue-600 text-white rounded-br-none shadow-blue-100'
+                                : isUser
+                                  ? 'bg-orange-50 text-orange-900 border border-orange-100 rounded-2xl text-center italic'
+                                  : 'bg-white text-gray-800 border border-gray-100 rounded-bl-none'}`}
+                            dir="auto"
+                          >
+                            {m.message}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              <div className="p-4 border-t border-gray-100 bg-white">
+                <div className="flex gap-2 items-center bg-gray-50 p-1 rounded-2xl border border-gray-200 focus-within:border-blue-300 focus-within:ring-2 focus-within:ring-blue-100 transition-all">
+                  <input
+                    value={newMessage}
+                    onChange={e => setNewMessage(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), sendMessage())}
+                    className="flex-1 bg-transparent p-3 outline-none text-sm placeholder:text-gray-400"
+                    placeholder={t.typeMessage}
+                  />
+                  <button
+                    onClick={sendMessage}
+                    disabled={!newMessage.trim()}
+                    className="bg-blue-600 text-white p-3 rounded-xl hover:bg-blue-700 disabled:opacity-30 disabled:hover:bg-blue-600 transition-all active:scale-90"
+                  >
+                    <Send size={18} />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -1351,13 +1428,23 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                     />
                   </div>
                   <div className="min-w-0 flex flex-col gap-1">
-                    <label className="text-gray-500 text-xs font-medium">Eğitim KDV</label>
+                    <label className="text-gray-500 text-xs font-medium">Eğitim KDV Oranı (%)</label>
                     <input
                       type="number"
                       step="any"
-                      value={detailFinance.educationVat}
-                      onChange={(e) => setDetailFinance(prev => ({ ...prev, educationVat: e.target.value }))}
+                      value={detailFinance.educationVatRate}
+                      onChange={(e) => setDetailFinance(prev => ({ ...prev, educationVatRate: e.target.value }))}
                       className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                    />
+                  </div>
+                  <div className="min-w-0 flex flex-col gap-1">
+                    <label className="text-gray-500 text-xs font-medium">Eğitim KDV Tutarı</label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={computedEducationVatAmount}
+                      readOnly
+                      className="w-full min-w-0 p-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-600 cursor-not-allowed outline-none"
                     />
                   </div>
                   <div className="min-w-0 flex flex-col gap-1">
@@ -1371,12 +1458,16 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                     />
                   </div>
                   <div className="min-w-0 flex flex-col gap-1">
-                    <label className="text-gray-500 text-xs font-medium">Yurtdışı KDV</label>
-                    <input type="number" step="any" value={detailFinance.abroadVat} onChange={(e) => setDetailFinance(prev => ({ ...prev, abroadVat: e.target.value }))} className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                    <label className="text-gray-500 text-xs font-medium">Yurtdışı KDV Oranı (%)</label>
+                    <input type="number" step="any" value={detailFinance.abroadVatRate} onChange={(e) => setDetailFinance(prev => ({ ...prev, abroadVatRate: e.target.value }))} className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                  </div>
+                  <div className="min-w-0 flex flex-col gap-1">
+                    <label className="text-gray-500 text-xs font-medium">Yurtdışı KDV Tutarı</label>
+                    <input type="number" step="any" value={computedAbroadVatAmount} readOnly className="w-full min-w-0 p-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-600 cursor-not-allowed outline-none" />
                   </div>
                   <div className="min-w-0 flex flex-col gap-1">
                     <label className="text-gray-500 text-xs font-medium">Net Komisyon</label>
-                    <input type="number" step="any" value={detailFinance.netCommission} onChange={(e) => setDetailFinance(prev => ({ ...prev, netCommission: e.target.value }))} className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                    <input type="number" step="any" value={computedNetCommission} readOnly className="w-full min-w-0 p-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-600 cursor-not-allowed outline-none" />
                   </div>
                   <div className="min-w-0 flex flex-col gap-1">
                     <label className="text-gray-500 text-xs font-medium">Bonus Max</label>
@@ -1396,23 +1487,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                   </div>
                   <div className="min-w-0 flex flex-col gap-1">
                     <label className="text-gray-500 text-xs font-medium">Acenta Anlaşma Miktarı</label>
-                    <input type="number" step="any" value={detailFinance.agencyContractAmount} onChange={(e) => setDetailFinance(prev => ({ ...prev, agencyContractAmount: e.target.value }))} className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
-                  </div>
-                  <div className="min-w-0 flex flex-col gap-1">
-                    <label className="text-gray-500 text-xs font-medium">Acenta Ödenmiş Anlaşma Miktarı</label>
-                    <input type="number" step="any" value={detailFinance.agencyPaidContractAmount} onChange={(e) => setDetailFinance(prev => ({ ...prev, agencyPaidContractAmount: e.target.value }))} className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
-                  </div>
-                  <div className="min-w-0 flex flex-col gap-1 lg:col-span-2">
-                    <label className="text-gray-500 text-xs font-medium">Acenta Ödenmiş Anlaşma Miktarı Açıklaması</label>
-                    <input type="text" value={detailFinance.agencyPaidContractDescription} onChange={(e) => setDetailFinance(prev => ({ ...prev, agencyPaidContractDescription: e.target.value }))} className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
-                  </div>
-                  <div className="min-w-0 flex flex-col gap-1">
-                    <label className="text-gray-500 text-xs font-medium">Açıklama Tarihi</label>
-                    <input type="date" value={detailFinance.agencyPaidContractDescriptionDate} onChange={(e) => setDetailFinance(prev => ({ ...prev, agencyPaidContractDescriptionDate: e.target.value }))} className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
-                  </div>
-                  <div className="min-w-0 flex flex-col gap-1">
-                    <label className="text-gray-500 text-xs font-medium">Ödeme Şekli</label>
-                    <input type="text" value={detailFinance.agencyPaidContractPaymentMethod} onChange={(e) => setDetailFinance(prev => ({ ...prev, agencyPaidContractPaymentMethod: e.target.value }))} className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                    <input type="number" step="any" value={computedAgencyContractAmount} readOnly className="w-full min-w-0 p-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-600 cursor-not-allowed outline-none" />
                   </div>
                   <div className="min-w-0 flex flex-col gap-1">
                     <label className="text-gray-500 text-xs font-medium">Currency</label>
@@ -1428,11 +1503,53 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                   </div>
                   <div className="min-w-0 flex flex-col gap-1">
                     <label className="text-gray-500 text-xs font-medium">Kalan Min</label>
-                    <input type="number" step="any" value={detailFinance.remainingMin} onChange={(e) => setDetailFinance(prev => ({ ...prev, remainingMin: e.target.value }))} className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                    <input type="number" step="any" value={computedRemainingMin} readOnly className="w-full min-w-0 p-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-600 cursor-not-allowed outline-none" />
                   </div>
                   <div className="min-w-0 flex flex-col gap-1">
                     <label className="text-gray-500 text-xs font-medium">Kalan Max</label>
-                    <input type="number" step="any" value={detailFinance.remainingMax} onChange={(e) => setDetailFinance(prev => ({ ...prev, remainingMax: e.target.value }))} className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                    <input type="number" step="any" value={computedRemainingMax} readOnly className="w-full min-w-0 p-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-600 cursor-not-allowed outline-none" />
+                  </div>
+                  <div className="min-w-0 flex flex-col gap-1 sm:col-span-2 lg:col-span-4">
+                    <span className="text-gray-500 text-xs font-medium">Ödemeyi hak etti</span>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={detailFinance.paymentDeserved}
+                        aria-label="Ödemeyi hak etti"
+                        onClick={() => setDetailFinance(prev => ({ ...prev, paymentDeserved: !prev.paymentDeserved }))}
+                        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 transition-colors duration-200 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 ${
+                          detailFinance.paymentDeserved ? 'border-blue-600 bg-blue-600' : 'border-gray-300 bg-white'
+                        }`}
+                      >
+                        <span
+                          className={`pointer-events-none absolute left-0.5 top-1/2 h-5 w-5 -translate-y-1/2 rounded-full shadow-sm transition-transform duration-200 ease-out ${
+                            detailFinance.paymentDeserved ? 'translate-x-5 bg-white' : 'translate-x-0 bg-gray-900'
+                          }`}
+                        />
+                      </button>
+                      <span className="text-sm font-medium text-gray-800 tabular-nums">
+                        {detailFinance.paymentDeserved ? 'Açık' : 'Kapalı'}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="min-w-0 flex flex-col gap-1">
+                    <label className="text-gray-500 text-xs font-medium">Ödeme Tarihi</label>
+                    <input
+                      type="text"
+                      value={detailFinance.paymentDate}
+                      readOnly
+                      className="w-full min-w-0 p-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-600 cursor-not-allowed outline-none"
+                    />
+                  </div>
+                  <div className="min-w-0 flex flex-col gap-1">
+                    <label className="text-gray-500 text-xs font-medium">Ödeme Ayı</label>
+                    <input
+                      type="text"
+                      value={detailFinance.paymentMonth}
+                      readOnly
+                      className="w-full min-w-0 p-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-600 cursor-not-allowed outline-none"
+                    />
                   </div>
                 </>
               ) : (
@@ -1442,7 +1559,11 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                     <p className="font-medium text-gray-900 mt-0.5">{app.annualPayment != null ? Number(app.annualPayment) : '—'}</p>
                   </div>
                   <div className="min-w-0 py-1">
-                    <p className="text-gray-500 text-xs font-medium">Eğitim KDV</p>
+                    <p className="text-gray-500 text-xs font-medium">Eğitim KDV Oranı (%)</p>
+                    <p className="font-medium text-gray-900 mt-0.5">{app.educationVatRate != null ? Number(app.educationVatRate) : '—'}</p>
+                  </div>
+                  <div className="min-w-0 py-1">
+                    <p className="text-gray-500 text-xs font-medium">Eğitim KDV Tutarı</p>
                     <p className="font-medium text-gray-900 mt-0.5">{app.educationVat != null ? Number(app.educationVat) : '—'}</p>
                   </div>
                   <div className="min-w-0 py-1">
@@ -1450,7 +1571,11 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                     <p className="font-medium text-gray-900 mt-0.5">{app.grossCommission != null ? Number(app.grossCommission) : '—'}</p>
                   </div>
                   <div className="min-w-0 py-1">
-                    <p className="text-gray-500 text-xs font-medium">Yurtdışı KDV</p>
+                    <p className="text-gray-500 text-xs font-medium">Yurtdışı KDV Oranı (%)</p>
+                    <p className="font-medium text-gray-900 mt-0.5">{app.abroadVatRate != null ? Number(app.abroadVatRate) : 10}</p>
+                  </div>
+                  <div className="min-w-0 py-1">
+                    <p className="text-gray-500 text-xs font-medium">Yurtdışı KDV Tutarı</p>
                     <p className="font-medium text-gray-900 mt-0.5">{app.abroadVat != null ? Number(app.abroadVat) : '—'}</p>
                   </div>
                   <div className="min-w-0 py-1">
@@ -1462,13 +1587,35 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                   <div className="min-w-0 py-1"><p className="text-gray-500 text-xs font-medium">Acenta Komisyon</p><p className="font-medium text-gray-900 mt-0.5">{app.agencyCommission != null ? Number(app.agencyCommission) : '—'}</p></div>
                   <div className="min-w-0 py-1"><p className="text-gray-500 text-xs font-medium">Acenta Bonus</p><p className="font-medium text-gray-900 mt-0.5">{app.agencyBonus != null ? Number(app.agencyBonus) : '—'}</p></div>
                   <div className="min-w-0 py-1"><p className="text-gray-500 text-xs font-medium">Acenta Anlaşma Miktarı</p><p className="font-medium text-gray-900 mt-0.5">{app.agencyContractAmount != null ? Number(app.agencyContractAmount) : '—'}</p></div>
-                  <div className="min-w-0 py-1"><p className="text-gray-500 text-xs font-medium">Acenta Ödenmiş Anlaşma Miktarı</p><p className="font-medium text-gray-900 mt-0.5">{app.agencyPaidContractAmount != null ? Number(app.agencyPaidContractAmount) : '—'}</p></div>
-                  <div className="min-w-0 py-1 lg:col-span-2"><p className="text-gray-500 text-xs font-medium">Acenta Ödenmiş Anlaşma Miktarı Açıklaması</p><p className="font-medium text-gray-900 mt-0.5 break-words">{app.agencyPaidContractDescription || '—'}</p></div>
-                  <div className="min-w-0 py-1"><p className="text-gray-500 text-xs font-medium">Açıklama Tarihi</p><p className="font-medium text-gray-900 mt-0.5">{app.agencyPaidContractDescriptionDate || '—'}</p></div>
-                  <div className="min-w-0 py-1"><p className="text-gray-500 text-xs font-medium">Ödeme Şekli</p><p className="font-medium text-gray-900 mt-0.5">{app.agencyPaidContractPaymentMethod || '—'}</p></div>
                   <div className="min-w-0 py-1"><p className="text-gray-500 text-xs font-medium">Currency</p><p className="font-medium text-gray-900 mt-0.5">{app.currency || 'USD'}</p></div>
                   <div className="min-w-0 py-1"><p className="text-gray-500 text-xs font-medium">Kalan Min</p><p className="font-medium text-gray-900 mt-0.5">{app.remainingMin != null ? Number(app.remainingMin) : '—'}</p></div>
                   <div className="min-w-0 py-1"><p className="text-gray-500 text-xs font-medium">Kalan Max</p><p className="font-medium text-gray-900 mt-0.5">{app.remainingMax != null ? Number(app.remainingMax) : '—'}</p></div>
+                  <div className="min-w-0 py-1 sm:col-span-2 lg:col-span-4">
+                    <p className="text-gray-500 text-xs font-medium">Ödemeyi hak etti</p>
+                    <div className="mt-1 flex items-center gap-3">
+                      <span
+                        aria-hidden
+                        className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 ${
+                          app.paymentDeserved === true ? 'border-blue-600 bg-blue-600' : 'border-gray-300 bg-white'
+                        }`}
+                      >
+                        <span
+                          className={`pointer-events-none absolute left-0.5 top-1/2 h-5 w-5 -translate-y-1/2 rounded-full shadow-sm ${
+                            app.paymentDeserved === true ? 'translate-x-5 bg-white' : 'translate-x-0 bg-gray-900'
+                          }`}
+                        />
+                      </span>
+                      <span className="text-sm font-medium text-gray-900">{app.paymentDeserved === true ? 'Açık' : 'Kapalı'}</span>
+                    </div>
+                  </div>
+                  <div className="min-w-0 py-1">
+                    <p className="text-gray-500 text-xs font-medium">Ödeme Tarihi</p>
+                    <p className="font-medium text-gray-900 mt-0.5">{app.paymentDate || '—'}</p>
+                  </div>
+                  <div className="min-w-0 py-1">
+                    <p className="text-gray-500 text-xs font-medium">Ödeme Ayı</p>
+                    <p className="font-medium text-gray-900 mt-0.5">{app.paymentMonth || '—'}</p>
+                  </div>
                 </>
               )}
             </div>
@@ -1509,10 +1656,10 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                   <Filter size={18} className="text-purple-500" />
                   <span className="text-sm font-medium">{t.filter}</span>
                 </div>
-                {(searchApplicationNumber || searchStudentName || filterAgents.length > 0 || filterUniversities.length > 0 || filterStatuses.length > 0 || filterDegrees.length > 0 || filterAppCreatedFrom || filterAppCreatedTo) && (
+                {(searchApplicationNumber || searchStudentName || filterAgents.length > 0 || filterResponsibles.length > 0 || filterUniversities.length > 0 || filterStatuses.length > 0 || filterDegrees.length > 0 || filterAppCreatedFrom || filterAppCreatedTo) && (
                   <button
                     type="button"
-                    onClick={() => { setSearchApplicationNumber(''); setSearchStudentName(''); setFilterAgents([]); setFilterUniversities([]); setFilterStatuses([]); setFilterDegrees([]); setFilterAppCreatedFrom(''); setFilterAppCreatedTo(''); }}
+                    onClick={() => { setSearchApplicationNumber(''); setSearchStudentName(''); setFilterAgents([]); setFilterResponsibles([]); setFilterUniversities([]); setFilterStatuses([]); setFilterDegrees([]); setFilterAppCreatedFrom(''); setFilterAppCreatedTo(''); }}
                     className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors"
                   >
                     <X size={14} />
@@ -1588,8 +1735,6 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                 placeholder={`${t.agent} (${t.filterAll})`}
                 searchPlaceholder={t.search}
               />
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full mt-3">
               <MultiSelectFilter
                 selected={filterUniversities}
                 onChange={setFilterUniversities}
@@ -1601,14 +1746,8 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
               <MultiSelectFilter
                 selected={filterStatuses}
                 onChange={setFilterStatuses}
-                options={[ApplicationStatus.DRAFT, ApplicationStatus.MISSING_DOCS, ApplicationStatus.UNDER_REVIEW, ApplicationStatus.ACCEPTED, ApplicationStatus.REJECTED]}
-                optionLabels={{
-                  [ApplicationStatus.DRAFT]: t.draft,
-                  [ApplicationStatus.MISSING_DOCS]: t.missingDocs,
-                  [ApplicationStatus.UNDER_REVIEW]: t.underReview,
-                  [ApplicationStatus.ACCEPTED]: t.approved,
-                  [ApplicationStatus.REJECTED]: t.rejected,
-                }}
+                options={Object.values(ApplicationStatus)}
+                optionLabels={Object.fromEntries(Object.values(ApplicationStatus).map((st) => [st, translateStatus(st)]))}
                 placeholder={`${t.applicationStatus} (${t.filterAll})`}
                 searchPlaceholder={t.search}
               />
@@ -1620,7 +1759,17 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                 searchPlaceholder={t.search}
               />
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full mt-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full mt-3">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">{t.responsible}</label>
+                <MultiSelectFilter
+                  selected={filterResponsibles}
+                  onChange={setFilterResponsibles}
+                  options={uniqueResponsibles}
+                  placeholder={`${t.responsible} (${t.filterAll})`}
+                  searchPlaceholder={t.search}
+                />
+              </div>
               <div>
                 <label className="block text-xs text-gray-500 mb-1">{t.filterCreatedFrom}</label>
                 <input
@@ -1666,6 +1815,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
               <table className="w-full text-right text-sm">
                 <thead style={{ fontWeight: 700 }} className="bg-gray-50/50 text-gray-900 border-b border-gray-100">
                   <tr>
+                    <th className="px-6 py-5"></th>
                     {visibleTreeColumns.includes('number') && <SortTh colKey="number" label={t.number} />}
                     {visibleTreeColumns.includes('status') && <SortTh colKey="status" label={t.applicationStatus} className="text-center" />}
                     {canSeeAgentColumn && visibleTreeColumns.includes('agent') && <SortTh colKey="agent" label={t.agent} />}
@@ -1674,7 +1824,6 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                     {visibleTreeColumns.includes('program') && <SortTh colKey="program" label={t.program} />}
                     {visibleTreeColumns.includes('createdAt') && <SortTh colKey="createdAt" label={t.createdAt} />}
                     {visibleTreeColumns.includes('updatedAt') && <SortTh colKey="updatedAt" label={t.lastUpdatedAt} />}
-                    <th className="px-6 py-5"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -1700,6 +1849,23 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                           className="hover:bg-blue-50/30 cursor-pointer transition-colors group"
                           onClick={() => { setSelectedAppId(app.id); setView('detail'); }}
                         >
+                          <td className="px-6 py-4 text-left" onClick={e => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setExpandedAppIds(prev => {
+                                  const next = new Set(prev);
+                                  if (next.has(app.id)) next.delete(app.id);
+                                  else next.add(app.id);
+                                  return next;
+                                });
+                              }}
+                              className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all border ${isExpanded ? 'bg-blue-600 text-white border-blue-600' : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100'}`}
+                              aria-expanded={isExpanded}
+                            >
+                              <ChevronDown size={18} className={`transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
+                            </button>
+                          </td>
                           {visibleTreeColumns.includes('number') && (
                             <td className="px-6 py-4">
                               <span className="font-mono font-bold text-gray-900 group-hover:text-blue-600 transition-colors">#{app.id}</span>
@@ -1710,8 +1876,8 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                               <div className="flex justify-center">
                                 <span className={`px-4 py-1.5 rounded-full text-xs font-bold ring-1
                                   ${app.status === ApplicationStatus.ACCEPTED ? 'bg-green-50 text-green-700 ring-green-100' :
-                                    app.status === ApplicationStatus.REJECTED ? 'bg-red-50 text-red-700 ring-red-100' :
-                                      app.status === ApplicationStatus.MISSING_DOCS ? 'bg-orange-50 text-orange-700 ring-orange-100' :
+                                    app.status === ApplicationStatus.REJECTED || app.status === ApplicationStatus.PAYMENT_REJECTED ? 'bg-red-50 text-red-700 ring-red-100' :
+                                      app.status === ApplicationStatus.MISSING_DOCS || app.status === ApplicationStatus.QUOTA_FULL ? 'bg-orange-50 text-orange-700 ring-orange-100' :
                                         app.status === ApplicationStatus.DRAFT ? 'bg-gray-50 text-gray-700 ring-gray-200' :
                                           'bg-blue-50 text-blue-700 ring-blue-100'}`}>
                                   {translateStatus(app.status)}
@@ -1739,23 +1905,6 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                               {(app.updatedAt || app.createdAt) ? new Date(app.updatedAt || app.createdAt).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
                             </td>
                           )}
-                          <td className="px-6 py-4 text-left" onClick={e => e.stopPropagation()}>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setExpandedAppIds(prev => {
-                                  const next = new Set(prev);
-                                  if (next.has(app.id)) next.delete(app.id);
-                                  else next.add(app.id);
-                                  return next;
-                                });
-                              }}
-                              className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all border ${isExpanded ? 'bg-blue-600 text-white border-blue-600' : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100'}`}
-                              aria-expanded={isExpanded}
-                            >
-                              <ChevronDown size={18} className={`transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
-                            </button>
-                          </td>
                         </tr>
                         {isExpanded && (
                           <tr className="bg-slate-50/90 border-b border-gray-100">
@@ -1852,8 +2001,8 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                         </p>
                         <span className={`inline-block mt-2 px-2 py-0.5 rounded-full text-[10px] font-medium
                           ${app.status === ApplicationStatus.ACCEPTED ? 'bg-green-50 text-green-700' :
-                            app.status === ApplicationStatus.REJECTED ? 'bg-red-50 text-red-700' :
-                              app.status === ApplicationStatus.MISSING_DOCS ? 'bg-orange-50 text-orange-700' :
+                            app.status === ApplicationStatus.REJECTED || app.status === ApplicationStatus.PAYMENT_REJECTED ? 'bg-red-50 text-red-700' :
+                              app.status === ApplicationStatus.MISSING_DOCS || app.status === ApplicationStatus.QUOTA_FULL ? 'bg-orange-50 text-orange-700' :
                                 app.status === ApplicationStatus.DRAFT ? 'bg-gray-100 text-gray-600' :
                                   'bg-blue-50 text-blue-700'}`}>
                           {translateStatus(app.status)}

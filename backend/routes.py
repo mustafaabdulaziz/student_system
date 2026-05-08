@@ -1,6 +1,6 @@
 
 from flask import Blueprint, request, jsonify, session, current_app, send_from_directory, url_for
-from models import db, Student, University, Program, Application, User, Notification, Period, NewsItem, IncomingPayment, OutgoingPayment
+from models import db, Student, University, Program, Application, User, Notification, Period, NewsItem, IncomingPayment, OutgoingPayment, AgencyCompany, UserUniversityCommission, PaymentSource
 import os
 import uuid
 from datetime import datetime
@@ -10,6 +10,9 @@ api_bp = Blueprint('api', __name__)
 
 # Uploads at project root: student_system/uploads (when backend is in student_system/backend)
 UPLOADS_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'uploads'))
+
+OUTGOING_PAYMENT_REASONS = frozenset({'commission', 'debt', 'company_expense'})
+COMPANY_EXPENSE_TYPES = frozenset({'rateb', 'kira', 'terwij', 'ulasim', 'yemek', 'others'})
 
 
 def _iso_timestamp():
@@ -107,7 +110,6 @@ def _serialize_program(p):
         'deposit': getattr(p, 'deposit', None),
         'cashPrice': getattr(p, 'cash_price', None),
         'currency': getattr(p, 'currency', 'USD'),
-        'country': getattr(p, 'country', None),
         'description': p.description,
         'isOpen': bool(getattr(p, 'is_open', True))
     }
@@ -141,9 +143,13 @@ def _serialize_application(a, program_by_id):
         'agentCountryCode': a.user.country_code if a.user else None,
         'responsibleId': getattr(a, 'responsible_id', None),
         'responsibleName': a.responsible.name if getattr(a, 'responsible', None) and a.responsible else None,
+        'agencyCompanyId': getattr(a, 'agency_company_id', None),
+        'agencyCompanyName': a.agency_company.name if getattr(a, 'agency_company', None) and a.agency_company else None,
         'annualPayment': getattr(a, 'annual_payment', None),
+        'educationVatRate': getattr(a, 'education_vat_rate', None),
         'educationVat': getattr(a, 'education_vat', None),
         'grossCommission': getattr(a, 'gross_commission', None),
+        'abroadVatRate': getattr(a, 'abroad_vat_rate', 10.0),
         'abroadVat': getattr(a, 'abroad_vat', None),
         'netCommission': getattr(a, 'net_commission', None),
         'bonusMax': getattr(a, 'bonus_max', None),
@@ -151,14 +157,22 @@ def _serialize_application(a, program_by_id):
         'agencyCommission': getattr(a, 'agency_commission', None),
         'agencyBonus': getattr(a, 'agency_bonus', None),
         'agencyContractAmount': getattr(a, 'agency_contract_amount', None),
-        'agencyPaidContractAmount': getattr(a, 'agency_paid_contract_amount', None),
-        'agencyPaidContractDescription': getattr(a, 'agency_paid_contract_description', None),
-        'agencyPaidContractDescriptionDate': getattr(a, 'agency_paid_contract_description_date', None),
-        'agencyPaidContractPaymentMethod': getattr(a, 'agency_paid_contract_payment_method', None),
         'currency': getattr(a, 'currency', None) or 'USD',
         'remainingMin': getattr(a, 'remaining_min', None),
-        'remainingMax': getattr(a, 'remaining_max', None)
+        'remainingMax': getattr(a, 'remaining_max', None),
+        'paymentDeserved': bool(getattr(a, 'payment_deserved', False)),
+        'paymentDate': getattr(a, 'payment_date', None),
+        'paymentMonth': getattr(a, 'payment_month', None)
     }
+
+
+def _apply_acceptance_payment_markers(application):
+    """When status is 'Acceptance Letter Waiting', stamp payment date/month."""
+    status_norm = (application.status or '').strip().lower()
+    if status_norm == 'kabul mektubu bekleniyor':
+        now = datetime.utcnow()
+        application.payment_date = now.strftime('%Y-%m-%d')
+        application.payment_month = now.strftime('%Y-%m')
 
 
 def _request_role_value():
@@ -180,6 +194,125 @@ def _next_sequence(model_cls):
     max_value = db.session.query(db.func.max(model_cls.sequence_number)).scalar()
     return int(max_value or 0) + 1
 
+
+def _normalize_agent_commissions(rows):
+    out = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        university_id = (row.get('universityId') or '').strip()
+        commission_kind = (row.get('commissionKind') or '').strip()
+        if commission_kind not in ('rate', 'amount') or not university_id:
+            continue
+        try:
+            commission_value = float(row.get('commissionValue'))
+        except (TypeError, ValueError):
+            continue
+        out.append({
+            'universityId': university_id,
+            'commissionKind': commission_kind,
+            'commissionValue': commission_value
+        })
+    return out
+
+
+def _replace_user_agent_commissions(user_id, rows):
+    UserUniversityCommission.query.filter_by(user_id=user_id).delete()
+    for row in rows:
+        db.session.add(UserUniversityCommission(
+            id=str(uuid.uuid4()),
+            user_id=user_id,
+            university_id=row['universityId'],
+            commission_kind=row['commissionKind'],
+            commission_value=row['commissionValue']
+        ))
+
+
+def _agent_commission_for_user_university(user_id, university_id):
+    if not user_id or not university_id:
+        return None
+    row = UserUniversityCommission.query.filter_by(user_id=user_id, university_id=university_id).first()
+    if not row:
+        return None
+    return {
+        'kind': row.commission_kind,
+        'value': float(row.commission_value)
+    }
+
+
+def _compute_application_finance(application, prefer_user_agency_commission=False):
+    program = Program.query.get(application.program_id) if application.program_id else None
+    university = University.query.get(program.university_id) if program and program.university_id else None
+
+    # Defaults from program/university
+    if application.annual_payment is None and program:
+        application.annual_payment = getattr(program, 'fee', None)
+    if (not application.currency) and program:
+        application.currency = getattr(program, 'currency', None) or 'USD'
+    if application.education_vat_rate is None and university:
+        uv = getattr(university, 'education_vat_rate', None)
+        application.education_vat_rate = float(uv) if uv is not None else None
+
+    annual = float(application.annual_payment) if application.annual_payment is not None else None
+    edu_rate = float(application.education_vat_rate) if application.education_vat_rate is not None else None
+
+    # education kdv tutarı
+    application.education_vat = (annual * edu_rate / 100.0) if (annual is not None and edu_rate is not None) else None
+    edu_amount = float(application.education_vat) if application.education_vat is not None else 0.0
+
+    # brüt komisyon: üniversiteye göre
+    gross = None
+    if university:
+        ck = getattr(university, 'commission_kind', None)
+        cv = getattr(university, 'commission_value', None)
+        if ck == 'rate' and cv is not None and annual is not None:
+            gross = (annual - edu_amount) * float(cv) / 100.0
+        elif ck == 'amount' and cv is not None:
+            gross = float(cv)
+    application.gross_commission = gross
+
+    # yurtdışı kdv oranı default %10
+    if application.abroad_vat_rate is None:
+        application.abroad_vat_rate = 10.0
+    abroad_rate = float(application.abroad_vat_rate) if application.abroad_vat_rate is not None else 10.0
+
+    # yurtdışı kdv tutarı + net komisyon
+    if gross is not None:
+        application.abroad_vat = gross * abroad_rate / 100.0
+        application.net_commission = gross - application.abroad_vat
+    else:
+        application.abroad_vat = None
+        application.net_commission = None
+
+    net = float(application.net_commission) if application.net_commission is not None else None
+
+    # acente komisyonu: kullanıcı/universite eşleşmesine göre default
+    if prefer_user_agency_commission or application.agency_commission is None:
+        agent_cfg = _agent_commission_for_user_university(application.user_id, program.university_id if program else None)
+        if agent_cfg and net is not None:
+            if agent_cfg['kind'] == 'rate':
+                application.agency_commission = net * float(agent_cfg['value']) / 100.0
+            elif agent_cfg['kind'] == 'amount':
+                application.agency_commission = float(agent_cfg['value'])
+
+    agency_bonus = float(application.agency_bonus) if application.agency_bonus is not None else 0.0
+    agency_comm = float(application.agency_commission) if application.agency_commission is not None else 0.0
+
+    # acenta anlaşma miktarı = acenta komisyon + acenta bonus
+    application.agency_contract_amount = agency_comm + agency_bonus
+
+    bonus_min = float(application.bonus_min) if application.bonus_min is not None else 0.0
+    bonus_max = float(application.bonus_max) if application.bonus_max is not None else 0.0
+    contract_amount = float(application.agency_contract_amount) if application.agency_contract_amount is not None else 0.0
+
+    # kalan min/max
+    if net is not None:
+        application.remaining_min = (net + bonus_min) - contract_amount
+        application.remaining_max = (net + bonus_max) - contract_amount
+    else:
+        application.remaining_min = None
+        application.remaining_max = None
+
 # إضافة مستخدم جديد (خاص بالمسؤول)
 @api_bp.route('/users', methods=['POST'])
 def add_user():
@@ -199,6 +332,9 @@ def add_user():
         is_active=True
     )
     db.session.add(user)
+    db.session.flush()
+    if (user.role or '').lower() == 'agent':
+        _replace_user_agent_commissions(user.id, _normalize_agent_commissions(data.get('agentCommissions')))
     db.session.commit()
     return jsonify({'message': 'تمت إضافة المستخدم', 'id': user.id}), 201
 
@@ -243,6 +379,13 @@ def update_profile():
 @api_bp.route('/users', methods=['GET'])
 def get_users():
     users = User.query.all()
+    commissions_by_user = {}
+    for r in UserUniversityCommission.query.all():
+        commissions_by_user.setdefault(r.user_id, []).append({
+            'universityId': r.university_id,
+            'commissionKind': r.commission_kind,
+            'commissionValue': r.commission_value
+        })
     return jsonify([{
         'id': u.id,
         'name': u.name,
@@ -250,7 +393,8 @@ def get_users():
         'role': u.role,
         'phone': u.phone,
         'countryCode': getattr(u, 'country_code', None),
-        'active': getattr(u, 'is_active', True)
+        'active': getattr(u, 'is_active', True),
+        'agentCommissions': commissions_by_user.get(u.id, [])
     } for u in users])
 
 # حذف مستخدم
@@ -259,6 +403,7 @@ def delete_user(user_id):
     user = User.query.get(user_id)
     if not user:
         return jsonify({'message': 'المستخدم غير موجود'}), 404
+    UserUniversityCommission.query.filter_by(user_id=user_id).delete()
     db.session.delete(user)
     db.session.commit()
     return jsonify({'message': 'تم حذف المستخدم'}), 200
@@ -286,8 +431,75 @@ def update_user(user_id):
         user.password = data['password']
     if 'active' in data:
         user.is_active = bool(data['active'])
+    if 'agentCommissions' in data or (user.role or '').lower() == 'agent':
+        rows = _normalize_agent_commissions(data.get('agentCommissions'))
+        _replace_user_agent_commissions(user.id, rows if (user.role or '').lower() == 'agent' else [])
     db.session.commit()
     return jsonify({'message': 'تم تحديث المستخدم', 'id': user.id}), 200
+
+
+@api_bp.route('/users/<user_id>/statement', methods=['GET'])
+def get_user_statement(user_id):
+    guard = _require_admin()
+    if guard:
+        return guard
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({'message': 'User not found'}), 404
+
+    debt_apps = Application.query.filter_by(user_id=user_id).all()
+    debts = []
+    total_debt = 0.0
+    for app in debt_apps:
+        if not bool(getattr(app, 'payment_deserved', False)):
+            continue
+        amount = getattr(app, 'agency_contract_amount', None)
+        if amount is None:
+            continue
+        program = Program.query.get(app.program_id) if app.program_id else None
+        uni = University.query.get(program.university_id) if program and program.university_id else None
+        student = Student.query.get(app.student_id) if app.student_id else None
+        amount_f = float(amount)
+        total_debt += amount_f
+        debts.append({
+            'applicationId': app.id,
+            'studentName': f"{student.first_name} {student.last_name}" if student else None,
+            'universityName': uni.name if uni else None,
+            'date': app.created_at,
+            'amount': amount_f,
+            'currency': getattr(app, 'currency', None) or 'USD'
+        })
+
+    payment_rows = OutgoingPayment.query.filter_by(user_id=user_id).order_by(OutgoingPayment.payment_date.desc()).all()
+    payments = []
+    total_payments = 0.0
+    for p in payment_rows:
+        amount_f = float(p.payment_amount or 0)
+        total_payments += amount_f
+        payments.append({
+            'id': p.id,
+            'sequenceNumber': p.sequence_number,
+            'date': p.payment_date,
+            'amount': amount_f,
+            'currency': getattr(p, 'currency', None) or 'USD',
+            'paymentType': p.payment_type,
+            'paymentReason': p.payment_reason,
+            'expenseType': getattr(p, 'expense_type', None),
+            'description1': p.description_1
+        })
+
+    return jsonify({
+        'user': {
+            'id': user.id,
+            'name': user.name,
+            'email': user.email
+        },
+        'debts': debts,
+        'payments': payments,
+        'totalDebt': total_debt,
+        'totalPayments': total_payments,
+        'balance': total_debt - total_payments
+    }), 200
 
 # Login endpoint
 @api_bp.route('/login', methods=['POST'])
@@ -427,7 +639,10 @@ def get_universities():
         'country': u.country,
         'city': getattr(u, 'city', ''),
         'description': u.description,
-        'logo': getattr(u, 'logo', None)
+        'logo': getattr(u, 'logo', None),
+        'educationVatRate': getattr(u, 'education_vat_rate', None),
+        'commissionKind': getattr(u, 'commission_kind', None),
+        'commissionValue': getattr(u, 'commission_value', None)
     } for u in universities])
 
 @api_bp.route('/universities', methods=['POST'])
@@ -436,6 +651,30 @@ def add_university():
     user_role = data.get('role')
     if user_role == 'agent':
         return jsonify({'message': 'Agents are not allowed to add universities'}), 403
+    evr = data.get('educationVatRate')
+    if evr is not None and evr != '':
+        try:
+            evr = int(evr)
+        except (TypeError, ValueError):
+            return jsonify({'message': 'educationVatRate must be an integer'}), 400
+    else:
+        evr = None
+    ck = (data.get('commissionKind') or '').strip() or None
+    if ck is not None and ck not in ('amount', 'rate'):
+        return jsonify({'message': 'commissionKind must be amount or rate'}), 400
+    cv = data.get('commissionValue')
+    if cv is not None and cv != '':
+        try:
+            cv = float(cv)
+        except (TypeError, ValueError):
+            return jsonify({'message': 'commissionValue must be a number'}), 400
+    else:
+        cv = None
+    if ck and cv is None:
+        return jsonify({'message': 'commissionValue required when commissionKind is set'}), 400
+    if cv is not None and not ck:
+        return jsonify({'message': 'commissionKind required when commissionValue is set'}), 400
+
     university = University(
         id=str(uuid.uuid4()),
         name=data['name'],
@@ -443,7 +682,10 @@ def add_university():
         country=data['country'],
         city=data.get('city', ''),
         description=data['description'],
-        logo=data.get('logo')  # optional logo (base64 or URL)
+        logo=data.get('logo'),  # optional logo (base64 or URL)
+        education_vat_rate=evr,
+        commission_kind=ck,
+        commission_value=cv
     )
     db.session.add(university)
     db.session.commit()
@@ -499,7 +741,6 @@ def add_program():
         deposit=data.get('deposit'),
         cash_price=data.get('cashPrice'),
         currency=data.get('currency') or 'USD',
-        country=data.get('country') or None,
         description=data.get('description') or '',
         is_open=True if data.get('isOpen') is None else bool(data.get('isOpen'))
     )
@@ -552,8 +793,6 @@ def update_program(prog_id):
         program.cash_price = data['cashPrice']
     if 'currency' in data:
         program.currency = data['currency']
-    if 'country' in data:
-        program.country = data['country'] or None
     if 'description' in data:
         program.description = data['description']
     if 'isOpen' in data:
@@ -577,6 +816,35 @@ def update_university(uni_id):
     # logo: allow setting to None (remove), a new value, or keep existing
     if 'logo' in data:
         university.logo = data['logo']  # can be None or a string
+    if 'educationVatRate' in data:
+        evr = data.get('educationVatRate')
+        if evr is None or evr == '':
+            university.education_vat_rate = None
+        else:
+            try:
+                university.education_vat_rate = int(evr)
+            except (TypeError, ValueError):
+                return jsonify({'message': 'educationVatRate must be an integer'}), 400
+    if 'commissionKind' in data:
+        ck = (data.get('commissionKind') or '').strip() or None
+        if ck and ck not in ('amount', 'rate'):
+            return jsonify({'message': 'commissionKind must be amount or rate'}), 400
+        university.commission_kind = ck
+    if 'commissionValue' in data:
+        cv = data.get('commissionValue')
+        if cv is None or cv == '':
+            university.commission_value = None
+        else:
+            try:
+                university.commission_value = float(cv)
+            except (TypeError, ValueError):
+                return jsonify({'message': 'commissionValue must be a number'}), 400
+    ck_final = getattr(university, 'commission_kind', None)
+    cv_final = getattr(university, 'commission_value', None)
+    if ck_final and cv_final is None:
+        return jsonify({'message': 'commissionValue required when commissionKind is set'}), 400
+    if cv_final is not None and not ck_final:
+        return jsonify({'message': 'commissionKind required when commissionValue is set'}), 400
     db.session.commit()
     return jsonify({'message': 'تم تحديث الجامعة', 'id': university.id}), 200
 
@@ -649,6 +917,110 @@ def delete_period(period_id):
     return jsonify({'message': 'Period deleted'})
 
 
+@api_bp.route('/agency-companies', methods=['GET'])
+def get_agency_companies():
+    companies = AgencyCompany.query.order_by(AgencyCompany.name.asc()).all()
+    return jsonify([{
+        'id': c.id,
+        'name': c.name
+    } for c in companies])
+
+
+@api_bp.route('/agency-companies', methods=['POST'])
+def add_agency_company():
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'message': 'Company name is required'}), 400
+    company = AgencyCompany(
+        id=str(uuid.uuid4()),
+        name=name
+    )
+    db.session.add(company)
+    db.session.commit()
+    return jsonify({'message': 'Agency company added', 'id': company.id}), 201
+
+
+@api_bp.route('/agency-companies/<company_id>', methods=['PUT'])
+def update_agency_company(company_id):
+    company = AgencyCompany.query.get(company_id)
+    if not company:
+        return jsonify({'message': 'Agency company not found'}), 404
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'message': 'Company name is required'}), 400
+    company.name = name
+    db.session.commit()
+    return jsonify({'message': 'Agency company updated'}), 200
+
+
+@api_bp.route('/agency-companies/<company_id>', methods=['DELETE'])
+def delete_agency_company(company_id):
+    company = AgencyCompany.query.get(company_id)
+    if not company:
+        return jsonify({'message': 'Agency company not found'}), 404
+    linked_app = Application.query.filter_by(agency_company_id=company_id).first()
+    if linked_app:
+        return jsonify({'message': 'Bu aracı firmaya bağlı başvuru olduğu için silinemez'}), 400
+    db.session.delete(company)
+    db.session.commit()
+    return jsonify({'message': 'Agency company deleted'}), 200
+
+
+@api_bp.route('/payment-sources', methods=['GET'])
+def get_payment_sources():
+    sources = PaymentSource.query.order_by(PaymentSource.name.asc()).all()
+    return jsonify([{
+        'id': s.id,
+        'name': s.name
+    } for s in sources])
+
+
+@api_bp.route('/payment-sources', methods=['POST'])
+def add_payment_source():
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'message': 'Payment source name is required'}), 400
+    source = PaymentSource(
+        id=str(uuid.uuid4()),
+        name=name
+    )
+    db.session.add(source)
+    db.session.commit()
+    return jsonify({'message': 'Payment source added', 'id': source.id}), 201
+
+
+@api_bp.route('/payment-sources/<source_id>', methods=['PUT'])
+def update_payment_source(source_id):
+    source = PaymentSource.query.get(source_id)
+    if not source:
+        return jsonify({'message': 'Payment source not found'}), 404
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'message': 'Payment source name is required'}), 400
+    source.name = name
+    db.session.commit()
+    return jsonify({'message': 'Payment source updated'}), 200
+
+
+@api_bp.route('/payment-sources/<source_id>', methods=['DELETE'])
+def delete_payment_source(source_id):
+    source = PaymentSource.query.get(source_id)
+    if not source:
+        return jsonify({'message': 'Payment source not found'}), 404
+    linked_payment = IncomingPayment.query.filter_by(payment_source_id=source_id).first()
+    if not linked_payment:
+        linked_payment = IncomingPayment.query.filter_by(payment_source=source.name).first()
+    if linked_payment:
+        return jsonify({'message': 'Bu ödeme kaynağına bağlı gelen ödeme olduğu için silinemez'}), 400
+    db.session.delete(source)
+    db.session.commit()
+    return jsonify({'message': 'Payment source deleted'}), 200
+
+
 @api_bp.route('/applications', methods=['GET'])
 def get_applications():
     user_role = request.args.get('role')
@@ -696,6 +1068,7 @@ def add_application():
     user_role = request.form.get('role')
     user_id = request.form.get('user_id')
     responsible_id = request.form.get('responsible_id') or None
+    agency_company_id = request.form.get('agency_company_id') or None
     created_at = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
     saved_files = []
     upload_folder = UPLOADS_DIR
@@ -715,8 +1088,10 @@ def add_application():
         updated_at=created_at,
         files=saved_files,
         user_id=user_id,
-        responsible_id=responsible_id
+        responsible_id=responsible_id,
+        agency_company_id=agency_company_id
     )
+    _compute_application_finance(application, prefer_user_agency_commission=True)
     db.session.add(application)
     stu = Student.query.get(student_id)
     if stu:
@@ -739,6 +1114,8 @@ def add_application():
                 db.session.add(n)
             db.session.commit()
     file_urls = [url_for('api.upload_file', filename=f, _external=False) for f in saved_files]
+    program = Program.query.get(application.program_id) if application.program_id else None
+    program_by_id = {program.id: program} if program else {}
     return jsonify({
         'message': 'Application added',
         'id': application.id,
@@ -746,7 +1123,8 @@ def add_application():
         'createdAt': application.created_at,
         'updatedAt': application.updated_at or application.created_at,
         'studentId': student_id,
-        'studentUpdatedAt': stu.updated_at if stu else None
+        'studentUpdatedAt': stu.updated_at if stu else None,
+        'application': _serialize_application(application, program_by_id)
     }), 201
 
 
@@ -774,6 +1152,7 @@ def add_application_v2():
     period_id = request.form.get('periodId') or None
     status = request.form.get('status')
     semester = request.form.get('semester')
+    agency_company_id = request.form.get('agency_company_id') or None
     created_at = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
     saved_files = []
     upload_folder = UPLOADS_DIR
@@ -791,16 +1170,20 @@ def add_application_v2():
         period_id=period_id,
         status=status,
         semester=semester,
+        agency_company_id=agency_company_id,
         created_at=created_at,
         updated_at=created_at,
         files=saved_files
     )
+    _compute_application_finance(application, prefer_user_agency_commission=True)
     db.session.add(application)
     stu = Student.query.get(student_id)
     if stu:
         stu.updated_at = created_at
     db.session.commit()
     file_urls = [url_for('api.upload_file', filename=f, _external=False) for f in saved_files]
+    program = Program.query.get(application.program_id) if application.program_id else None
+    program_by_id = {program.id: program} if program else {}
     return jsonify({
         'message': 'Application added',
         'id': application.id,
@@ -808,7 +1191,8 @@ def add_application_v2():
         'createdAt': application.created_at,
         'updatedAt': application.updated_at or application.created_at,
         'studentId': student_id,
-        'studentUpdatedAt': _student_updated_at_for_api(stu) if stu else None
+        'studentUpdatedAt': _student_updated_at_for_api(stu) if stu else None,
+        'application': _serialize_application(application, program_by_id)
     }), 201
 
 
@@ -1085,6 +1469,7 @@ def update_application_status(app_id):
         return jsonify({'message': 'Application not found'}), 404
         
     application.status = new_status
+    _apply_acceptance_payment_markers(application)
     _touch_application_and_student(application)
 
     # 5. Notify agent (application owner) when status changes
@@ -1101,7 +1486,7 @@ def update_application_status(app_id):
         db.session.add(notification)
     
     # 6. Notify admin(s) when application is sent to review (e.g. by agent)
-    if new_status in ('Under Review', 'UnderReview', 'UNDER_REVIEW'):
+    if new_status in ('Teklif Mektubu Bekleniyor', 'Under Review', 'UnderReview', 'UNDER_REVIEW'):
         admins = User.query.filter(User.role == 'ADMIN').all()
         for admin in admins:
             n = Notification(
@@ -1120,6 +1505,8 @@ def update_application_status(app_id):
     return jsonify({
         'message': 'Status updated',
         'status': application.status,
+        'paymentDate': application.payment_date,
+        'paymentMonth': application.payment_month,
         'updatedAt': _application_updated_at_for_api(application),
         'studentId': application.student_id,
         'studentUpdatedAt': _student_updated_at_for_api(stu)
@@ -1135,22 +1522,23 @@ def update_application(app_id):
     data = request.get_json() or {}
     if 'status' in data and data['status']:
         application.status = data['status']
+        _apply_acceptance_payment_markers(application)
     if 'userId' in data:
         application.user_id = data['userId'] or None
     if 'responsibleId' in data:
         application.responsible_id = data['responsibleId'] or None
+    if 'agencyCompanyId' in data:
+        application.agency_company_id = data['agencyCompanyId'] or None
     numeric_map = {
         'annualPayment': 'annual_payment',
-        'educationVat': 'education_vat',
+        'educationVatRate': 'education_vat_rate',
         'grossCommission': 'gross_commission',
-        'abroadVat': 'abroad_vat',
-        'netCommission': 'net_commission',
+        'abroadVatRate': 'abroad_vat_rate',
         'bonusMax': 'bonus_max',
         'bonusMin': 'bonus_min',
         'agencyCommission': 'agency_commission',
         'agencyBonus': 'agency_bonus',
         'agencyContractAmount': 'agency_contract_amount',
-        'agencyPaidContractAmount': 'agency_paid_contract_amount',
         'remainingMin': 'remaining_min',
         'remainingMax': 'remaining_max'
     }
@@ -1158,20 +1546,17 @@ def update_application(app_id):
         if api_key in data:
             value = data.get(api_key)
             setattr(application, db_attr, value if value not in (None, '') else None)
+    _compute_application_finance(
+        application,
+        prefer_user_agency_commission=('agencyCommission' not in data)
+    )
 
-    text_map = {
-        'agencyPaidContractDescription': 'agency_paid_contract_description',
-        'agencyPaidContractDescriptionDate': 'agency_paid_contract_description_date',
-        'agencyPaidContractPaymentMethod': 'agency_paid_contract_payment_method'
-    }
-    for api_key, db_attr in text_map.items():
-        if api_key in data:
-            value = data.get(api_key)
-            setattr(application, db_attr, (value.strip() if isinstance(value, str) else value) or None)
     if 'currency' in data:
         value = (data.get('currency') or '').strip().upper()
         if value in ('USD', 'TRY', 'EUR'):
             application.currency = value
+    if 'paymentDeserved' in data:
+        application.payment_deserved = bool(data.get('paymentDeserved'))
     _touch_application_and_student(application)
     db.session.commit()
     stu = Student.query.get(application.student_id)
@@ -1181,9 +1566,13 @@ def update_application(app_id):
         'status': application.status,
         'userId': application.user_id,
         'responsibleId': application.responsible_id,
+        'agencyCompanyId': application.agency_company_id,
+        'agencyCompanyName': application.agency_company.name if application.agency_company else None,
         'annualPayment': application.annual_payment,
+        'educationVatRate': application.education_vat_rate,
         'educationVat': application.education_vat,
         'grossCommission': application.gross_commission,
+        'abroadVatRate': application.abroad_vat_rate if application.abroad_vat_rate is not None else 10.0,
         'abroadVat': application.abroad_vat,
         'netCommission': application.net_commission,
         'bonusMax': application.bonus_max,
@@ -1191,13 +1580,12 @@ def update_application(app_id):
         'agencyCommission': application.agency_commission,
         'agencyBonus': application.agency_bonus,
         'agencyContractAmount': application.agency_contract_amount,
-        'agencyPaidContractAmount': application.agency_paid_contract_amount,
-        'agencyPaidContractDescription': application.agency_paid_contract_description,
-        'agencyPaidContractDescriptionDate': application.agency_paid_contract_description_date,
-        'agencyPaidContractPaymentMethod': application.agency_paid_contract_payment_method,
         'currency': application.currency or 'USD',
         'remainingMin': application.remaining_min,
         'remainingMax': application.remaining_max,
+        'paymentDeserved': application.payment_deserved,
+        'paymentDate': application.payment_date,
+        'paymentMonth': application.payment_month,
         'updatedAt': _application_updated_at_for_api(application),
         'studentId': application.student_id,
         'studentUpdatedAt': _student_updated_at_for_api(stu)
@@ -1214,7 +1602,9 @@ def get_incoming_payments():
         'id': r.id,
         'sequenceNumber': r.sequence_number,
         'paymentDate': r.payment_date,
-        'paymentSource': r.payment_source,
+        'paymentType': getattr(r, 'payment_type', None) or 'Cash',
+        'paymentSource': (r.payment_source_rel.name if getattr(r, 'payment_source_rel', None) else r.payment_source),
+        'paymentSourceId': getattr(r, 'payment_source_id', None),
         'paymentAmount': getattr(r, 'payment_amount', None),
         'currency': getattr(r, 'currency', None) or 'USD',
         'description1': r.description_1,
@@ -1231,7 +1621,15 @@ def add_incoming_payment():
         return guard
     data = request.get_json() or {}
     payment_date = (data.get('paymentDate') or '').strip()
+    payment_type = (data.get('paymentType') or '').strip()
     payment_source = (data.get('paymentSource') or '').strip()
+    payment_source_id = (data.get('paymentSourceId') or '').strip()
+    source_obj = None
+    if payment_source_id:
+        source_obj = PaymentSource.query.get(payment_source_id)
+        if not source_obj:
+            return jsonify({'message': 'Selected payment source not found'}), 400
+        payment_source = source_obj.name
     payment_amount = data.get('paymentAmount')
     currency = (data.get('currency') or 'USD').strip().upper()
     if currency not in ('USD', 'TRY', 'EUR'):
@@ -1240,14 +1638,16 @@ def add_incoming_payment():
         payment_amount = float(payment_amount)
     except (TypeError, ValueError):
         return jsonify({'message': 'paymentAmount must be a number'}), 400
-    if not payment_date or not payment_source:
-        return jsonify({'message': 'paymentDate, paymentSource and paymentAmount are required'}), 400
+    if not payment_date or payment_type not in ('Cash', 'Bank') or not payment_source:
+        return jsonify({'message': 'paymentDate, paymentType (Cash/Bank), paymentSource and paymentAmount are required'}), 400
     now = _iso_timestamp()
     record = IncomingPayment(
         id=str(uuid.uuid4()),
         sequence_number=_next_sequence(IncomingPayment),
         payment_date=payment_date,
+        payment_type=payment_type,
         payment_source=payment_source,
+        payment_source_id=(source_obj.id if source_obj else None),
         payment_amount=payment_amount,
         currency=currency,
         description_1=(data.get('description1') or '').strip() or None,
@@ -1279,6 +1679,21 @@ def update_incoming_payment(payment_id):
         if not value:
             return jsonify({'message': 'paymentSource cannot be empty'}), 400
         record.payment_source = value
+        record.payment_source_id = None
+    if 'paymentSourceId' in data:
+        source_id = (data.get('paymentSourceId') or '').strip()
+        if not source_id:
+            return jsonify({'message': 'paymentSourceId cannot be empty'}), 400
+        source_obj = PaymentSource.query.get(source_id)
+        if not source_obj:
+            return jsonify({'message': 'Selected payment source not found'}), 400
+        record.payment_source_id = source_obj.id
+        record.payment_source = source_obj.name
+    if 'paymentType' in data:
+        value = (data.get('paymentType') or '').strip()
+        if value not in ('Cash', 'Bank'):
+            return jsonify({'message': 'paymentType must be Cash or Bank'}), 400
+        record.payment_type = value
     if 'paymentAmount' in data:
         try:
             record.payment_amount = float(data.get('paymentAmount'))
@@ -1325,7 +1740,11 @@ def get_outgoing_payments():
         'currency': getattr(r, 'currency', None) or 'USD',
         'paymentType': r.payment_type,
         'paymentReason': r.payment_reason,
+        'expenseType': getattr(r, 'expense_type', None),
         'description1': r.description_1,
+        'userId': getattr(r, 'user_id', None),
+        'userName': (r.user.name if getattr(r, 'user', None) else None),
+        'userRole': ((r.user.role or '').lower() if getattr(r, 'user', None) else None),
         'createdAt': r.created_at,
         'updatedAt': r.updated_at
     } for r in records])
@@ -1341,15 +1760,29 @@ def add_outgoing_payment():
     payment_reason = (data.get('paymentReason') or '').strip()
     payment_type = (data.get('paymentType') or '').strip()
     currency = (data.get('currency') or 'USD').strip().upper()
+    user_id = (data.get('userId') or '').strip()
     if currency not in ('USD', 'TRY', 'EUR'):
         currency = 'USD'
     payment_amount = data.get('paymentAmount')
     if not payment_date or not payment_reason or payment_type not in ('Cash', 'Bank'):
         return jsonify({'message': 'paymentDate, paymentType (Cash/Bank), paymentReason are required'}), 400
+    if payment_reason not in OUTGOING_PAYMENT_REASONS:
+        return jsonify({'message': 'paymentReason must be commission, debt or company_expense'}), 400
+    expense_value = None
+    if payment_reason == 'company_expense':
+        expense_value = (data.get('expenseType') or '').strip()
+        if expense_value not in COMPANY_EXPENSE_TYPES:
+            return jsonify({'message': 'expenseType required for Firma masrafı: rateb, kira, terwij, ulasim, yemek, others'}), 400
     try:
         payment_amount = float(payment_amount)
     except (TypeError, ValueError):
         return jsonify({'message': 'paymentAmount must be a number'}), 400
+    user_value = None
+    if user_id:
+        user_obj = User.query.get(user_id)
+        if not user_obj:
+            return jsonify({'message': 'Selected user not found'}), 400
+        user_value = user_obj.id
     now = _iso_timestamp()
     record = OutgoingPayment(
         id=str(uuid.uuid4()),
@@ -1359,7 +1792,9 @@ def add_outgoing_payment():
         currency=currency,
         payment_type=payment_type,
         payment_reason=payment_reason,
+        expense_type=expense_value,
         description_1=(data.get('description1') or '').strip() or None,
+        user_id=user_value,
         created_at=now,
         updated_at=now
     )
@@ -1386,6 +1821,8 @@ def update_outgoing_payment(payment_id):
         value = (data.get('paymentReason') or '').strip()
         if not value:
             return jsonify({'message': 'paymentReason cannot be empty'}), 400
+        if value not in OUTGOING_PAYMENT_REASONS:
+            return jsonify({'message': 'paymentReason must be commission, debt or company_expense'}), 400
         record.payment_reason = value
     if 'paymentType' in data:
         value = (data.get('paymentType') or '').strip()
@@ -1404,6 +1841,24 @@ def update_outgoing_payment(payment_id):
             return jsonify({'message': 'paymentAmount must be a number'}), 400
     if 'description1' in data:
         record.description_1 = (data.get('description1') or '').strip() or None
+    if 'userId' in data:
+        user_id = (data.get('userId') or '').strip()
+        if not user_id:
+            record.user_id = None
+        else:
+            user_obj = User.query.get(user_id)
+            if not user_obj:
+                return jsonify({'message': 'Selected user not found'}), 400
+            record.user_id = user_obj.id
+    if record.payment_reason == 'company_expense':
+        et = (record.expense_type or '').strip()
+        if 'expenseType' in data:
+            et = (data.get('expenseType') or '').strip()
+        if et not in COMPANY_EXPENSE_TYPES:
+            return jsonify({'message': 'expenseType required for company_expense: rateb, kira, terwij, ulasim, yemek, others'}), 400
+        record.expense_type = et
+    else:
+        record.expense_type = None
     record.updated_at = _iso_timestamp()
     db.session.commit()
     return jsonify({'message': 'Outgoing payment updated'})

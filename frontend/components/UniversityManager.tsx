@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { generateUniversityDescription } from '../services/geminiService';
 import { useTranslation } from '../hooks/useTranslation';
+import * as XLSX from 'xlsx';
 
 interface UniversityManagerProps {
   universities: University[];
@@ -17,8 +18,13 @@ interface UniversityManagerProps {
   currentUser?: User | null;
 }
 
-const EMPTY_FORM: Partial<University> = {
-  name: '', website: '', country: 'Turkey', city: '', description: '', logo: undefined
+const EMPTY_FORM: Partial<University> & { educationVatRateInput?: string; commissionValueInput?: string } = {
+  name: '', website: '', country: 'Turkey', city: '', description: '', logo: undefined,
+  educationVatRate: null,
+  commissionKind: null,
+  commissionValue: null,
+  educationVatRateInput: '',
+  commissionValueInput: ''
 };
 
 const DEGREE_COLORS: Record<string, string> = {
@@ -35,12 +41,53 @@ const LANG_COLORS: Record<string, string> = {
   Arabic: 'bg-orange-50 text-orange-700',
 };
 
+const UNIVERSITY_EXCEL_COLUMNS = [
+  'üniversite adı',
+  'ülke',
+  'şehir',
+  'web sitesi',
+  'açıklama',
+  'eğitim kdv oranı',
+  'komisyon türü',
+  'tutar / oran'
+] as const;
+
+const normalizeExcelText = (value: unknown): string => {
+  return String(value ?? '')
+    .trim()
+    .toLocaleLowerCase('tr')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ı/g, 'i')
+    .replace(/\s+/g, ' ');
+};
+
+const parseExcelCountry = (value: unknown): 'Turkey' | 'Cyprus' | null => {
+  const v = normalizeExcelText(value);
+  if (['turkiye', 'turkey'].includes(v)) return 'Turkey';
+  if (['kibris', 'cyprus'].includes(v)) return 'Cyprus';
+  return null;
+};
+
+const parseExcelCommissionKind = (value: unknown): 'amount' | 'rate' | null => {
+  const v = normalizeExcelText(value);
+  if (!v) return null;
+  if (['sabit tutar', 'sabit', 'amount'].includes(v)) return 'amount';
+  if (['oran', 'rate'].includes(v)) return 'rate';
+  return null;
+};
+
 export const UniversityManager: React.FC<UniversityManagerProps> = ({
   universities, programs,
   onAddUniversity, onEditUniversity, onDeleteUniversity, currentUser
 }) => {
   const { t, translateDegree, translateCategory } = useTranslation();
   const isAdmin = currentUser?.role === UserRole.ADMIN;
+  const getCountryLabel = (country?: string) => {
+    if (country === 'Turkey') return t.countryTurkey;
+    if (country === 'Cyprus') return t.countryCyprus;
+    return country || '—';
+  };
 
   /* -------- Modals & View State -------- */
   const [modalMode, setModalMode] = useState<'add' | 'edit' | null>(null);
@@ -48,7 +95,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
   const [detailUni, setDetailUni] = useState<University | null>(null); // inline detail form
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [viewMode, setViewMode] = useState<'tree' | 'kanban'>('kanban');
+  const [viewMode, setViewMode] = useState<'tree' | 'kanban'>('tree');
   const [sortBy, setSortBy] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
@@ -87,7 +134,12 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
   const openEdit = (uni: University, e: React.MouseEvent) => {
     e.stopPropagation();
     setDetailUni(null);
-    setFormData({ ...uni }); setLogoPreview(uni.logo || null); setLogoBase64(uni.logo || null);
+    setFormData({
+      ...uni,
+      educationVatRateInput: uni.educationVatRate != null && !Number.isNaN(uni.educationVatRate) ? String(uni.educationVatRate) : '',
+      commissionValueInput: uni.commissionValue != null && !Number.isNaN(uni.commissionValue) ? String(uni.commissionValue) : ''
+    } as Partial<University> & { educationVatRateInput?: string; commissionValueInput?: string });
+    setLogoPreview(uni.logo || null); setLogoBase64(uni.logo || null);
     setEditingId(uni.id); setModalMode('edit');
   };
   const closeModal = () => {
@@ -106,16 +158,49 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
   };
 
   /* -------- Submit -------- */
+  const parseAdminFinance = (): Pick<University, 'educationVatRate' | 'commissionKind' | 'commissionValue'> => {
+    const ext = formData as Partial<University> & { educationVatRateInput?: string; commissionValueInput?: string };
+    const vatRaw = (ext.educationVatRateInput ?? '').toString().trim();
+    const educationVatRate = vatRaw === '' ? null : parseInt(vatRaw, 10);
+    const kind = (formData.commissionKind || '').toString().trim() as '' | 'amount' | 'rate';
+    const commRaw = (ext.commissionValueInput ?? '').toString().trim();
+    const commissionValue = commRaw === '' ? null : parseFloat(commRaw);
+    const commissionKind = kind === 'amount' || kind === 'rate' ? kind : null;
+    return {
+      educationVatRate: vatRaw === '' || Number.isNaN(educationVatRate as number) ? null : educationVatRate,
+      commissionKind,
+      commissionValue: commRaw === '' || Number.isNaN(commissionValue as number) ? null : commissionValue
+    };
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name || !formData.website || !formData.country || !formData.description) return;
+    const adminFin = isAdmin ? parseAdminFinance() : { educationVatRate: null, commissionKind: null, commissionValue: null };
+    if (isAdmin) {
+      const ext = formData as Partial<University> & { educationVatRateInput?: string; commissionValueInput?: string };
+      const vatRaw = (ext.educationVatRateInput ?? '').toString().trim();
+      if (vatRaw !== '' && adminFin.educationVatRate === null) {
+        alert('Eğitim KDV oranı geçerli bir tam sayı olmalıdır.');
+        return;
+      }
+      if (adminFin.commissionKind && adminFin.commissionValue === null) {
+        alert('Komisyon türü seçildiğinde tutar veya oran değeri girilmelidir.');
+        return;
+      }
+      if (adminFin.commissionValue !== null && !adminFin.commissionKind) {
+        alert('Komisyon değeri için önce tür seçin (tutar veya oran).');
+        return;
+      }
+    }
     const uniData: University = {
       id: editingId || Date.now().toString(),
       name: formData.name, website: formData.website,
       country: formData.country as 'Turkey' | 'Cyprus',
       city: formData.city || '',
       description: formData.description,
-      logo: logoBase64 || undefined
+      logo: logoBase64 || undefined,
+      ...(isAdmin ? adminFin : {})
     };
     if (modalMode === 'edit') {
       onEditUniversity(uniData);
@@ -129,24 +214,127 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
 
   /* -------- Excel Import -------- */
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const exportToExcel = () => {
+    const rows = universities.map((u) => ({
+      'üniversite adı': u.name || '',
+      'ülke': u.country === 'Cyprus' ? 'Kıbrıs' : 'Türkiye',
+      'şehir': u.city || '',
+      'web sitesi': u.website || '',
+      'açıklama': u.description || '',
+      'eğitim kdv oranı': u.educationVatRate ?? '',
+      'komisyon türü': u.commissionKind === 'amount' ? 'Sabit Tutar' : u.commissionKind === 'rate' ? 'Oran' : '',
+      'tutar / oran': u.commissionValue ?? ''
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows, { header: [...UNIVERSITY_EXCEL_COLUMNS] });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Universiteler');
+    XLSX.writeFile(wb, 'universiteler.xlsx');
+  };
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploading(true);
-    const form = new FormData(); form.append('file', file);
     try {
-      const res = await fetch('/api/universities/import', { method: 'POST', body: form });
-      const data = await res.json();
-      if (res.ok) {
-        if (data.added && Array.isArray(data.added)) {
-          data.added.forEach((u: any) => onAddUniversity({
-            id: u.id, name: u.name, website: u.website,
-            country: u.country, city: u.city, description: u.description, logo: u.logo || undefined
-          }));
-          alert(`${t.successAdd}: ${data.added.length} ${t.universities}`);
-        } else { alert(data.message || t.successAdd); }
-      } else { alert(data.message || t.errorAdd); }
-    } catch { alert(t.errorConnection); }
+      const buf = await file.arrayBuffer();
+      const workbook = XLSX.read(buf, { type: 'array' });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as Array<Array<string | number>>;
+
+      if (matrix.length === 0) {
+        alert('Excel dosyası boş.');
+        return;
+      }
+
+      const header = (matrix[0] || []).map(normalizeExcelText);
+      const expected = [...UNIVERSITY_EXCEL_COLUMNS].map(normalizeExcelText);
+      const headerMatches = expected.every((col, idx) => header[idx] === col);
+      if (!headerMatches) {
+        alert(`Sütun sırası hatalı. Beklenen sıra:\n${UNIVERSITY_EXCEL_COLUMNS.join(', ')}`);
+        return;
+      }
+
+      let imported = 0;
+      const errors: string[] = [];
+
+      for (let i = 1; i < matrix.length; i += 1) {
+        const row = matrix[i] || [];
+        const rowNo = i + 1;
+
+        const name = String(row[0] ?? '').trim();
+        const country = parseExcelCountry(row[1]);
+        const city = String(row[2] ?? '').trim();
+        const website = String(row[3] ?? '').trim();
+        const description = String(row[4] ?? '').trim();
+        const educationVatRaw = String(row[5] ?? '').trim();
+        const commissionKind = parseExcelCommissionKind(row[6]);
+        const commissionValueRaw = String(row[7] ?? '').trim();
+
+        const isCompletelyEmpty = [name, row[1], city, website, description, educationVatRaw, row[6], commissionValueRaw]
+          .every((v) => String(v ?? '').trim() === '');
+        if (isCompletelyEmpty) continue;
+
+        if (!name) {
+          errors.push(`Satır ${rowNo}: Üniversite adı boş.`);
+          continue;
+        }
+        if (!country) {
+          errors.push(`Satır ${rowNo}: Ülke Türkiye/Kıbrıs olmalı.`);
+          continue;
+        }
+        if (!website) {
+          errors.push(`Satır ${rowNo}: Web sitesi boş.`);
+          continue;
+        }
+        if (!description) {
+          errors.push(`Satır ${rowNo}: Açıklama boş.`);
+          continue;
+        }
+
+        const educationVatRate =
+          educationVatRaw === '' ? null : Number.isNaN(Number(educationVatRaw)) ? null : parseInt(educationVatRaw, 10);
+        if (educationVatRaw !== '' && educationVatRate === null) {
+          errors.push(`Satır ${rowNo}: Eğitim KDV oranı sayı olmalı.`);
+          continue;
+        }
+
+        const commissionValue =
+          commissionValueRaw === '' ? null : Number.isNaN(Number(commissionValueRaw)) ? null : Number(commissionValueRaw);
+        if (commissionValueRaw !== '' && commissionValue === null) {
+          errors.push(`Satır ${rowNo}: Tutar/Oran sayı olmalı.`);
+          continue;
+        }
+        if (commissionKind && commissionValue == null) {
+          errors.push(`Satır ${rowNo}: Komisyon türü varsa Tutar/Oran gerekli.`);
+          continue;
+        }
+        if (!commissionKind && commissionValue != null) {
+          errors.push(`Satır ${rowNo}: Tutar/Oran varsa Komisyon türü gerekli.`);
+          continue;
+        }
+
+        onAddUniversity({
+          id: `${Date.now()}-${i}`,
+          name,
+          country,
+          city,
+          website,
+          description,
+          educationVatRate,
+          commissionKind,
+          commissionValue
+        });
+        imported += 1;
+      }
+
+      if (errors.length > 0) {
+        alert(`Import tamamlandı.\nBaşarılı: ${imported}\nHatalı: ${errors.length}\n\n${errors.slice(0, 10).join('\n')}`);
+      } else {
+        alert(`${imported} üniversite içe aktarıldı.`);
+      }
+    } catch {
+      alert(t.errorConnection);
+    }
     finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -249,7 +437,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                   <h2 className="text-xl font-bold text-gray-800 truncate">{detailUni.name}</h2>
                   <div className="flex items-center gap-2 text-xs font-medium text-gray-500">
                     <MapPin size={12} className="text-blue-500" />
-                    <span>{detailUni.city ? `${detailUni.city}, ` : ''}{detailUni.country}</span>
+                    <span>{detailUni.city ? `${detailUni.city}, ` : ''}{getCountryLabel(detailUni.country)}</span>
                   </div>
                 </div>
               </div>
@@ -322,6 +510,30 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                   ))}
                 </div>
               </section>
+              {isAdmin && (
+                <section className="rounded-2xl p-6 border border-amber-200 bg-amber-50/50">
+                  <h3 className="font-bold text-amber-950 text-lg mb-3 flex items-center gap-2">
+                    <DollarSign size={20} className="text-amber-700" />
+                    Yönetici — finans
+                  </h3>
+                  <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <dt className="text-xs font-semibold text-amber-900/80 uppercase tracking-wide mb-1">Eğitim KDV oranı</dt>
+                      <dd className="text-gray-900 font-medium">{detailUni.educationVatRate != null ? String(detailUni.educationVatRate) : '—'}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs font-semibold text-amber-900/80 uppercase tracking-wide mb-1">Komisyon</dt>
+                      <dd className="text-gray-900 font-medium">
+                        {detailUni.commissionKind === 'amount' && detailUni.commissionValue != null
+                          ? `Sabit tutar: ${detailUni.commissionValue}`
+                          : detailUni.commissionKind === 'rate' && detailUni.commissionValue != null
+                            ? `Oran: ${detailUni.commissionValue}%`
+                            : '—'}
+                      </dd>
+                    </div>
+                  </dl>
+                </section>
+              )}
             </div>
           </div>
         </div>
@@ -410,6 +622,56 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                 <textarea required rows={5} className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none"
                   value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} />
               </div>
+              {isAdmin && (
+                <div className="border-t border-amber-200 pt-6 mt-2 space-y-4 rounded-xl border border-amber-100 bg-amber-50/40 p-4">
+                  <h3 className="text-sm font-bold text-amber-900 uppercase tracking-wide flex items-center gap-2">
+                    <DollarSign size={18} />
+                    Yönetici — finans
+                  </h3>
+                  <p className="text-xs text-amber-800/90">Bu alanlar yalnızca yönetici hesabında görünür ve kaydedilir.</p>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-800 mb-1">Eğitim KDV oranı (tam sayı)</label>
+                    <input
+                      type="number"
+                      step={1}
+                      className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-amber-500 outline-none bg-white"
+                      placeholder="Örn. 18"
+                      value={(formData as Partial<University> & { educationVatRateInput?: string }).educationVatRateInput ?? ''}
+                      onChange={e => setFormData({ ...formData, educationVatRateInput: e.target.value } as Partial<University> & { educationVatRateInput?: string })}
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-800 mb-1">Komisyon türü</label>
+                      <select
+                        className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-amber-500 outline-none bg-white"
+                        value={(formData.commissionKind || '') as string}
+                        onChange={e => {
+                          const v = e.target.value;
+                          setFormData({ ...formData, commissionKind: (v === '' ? null : v) as 'amount' | 'rate' | null });
+                        }}
+                      >
+                        <option value="">Seçiniz</option>
+                        <option value="amount">Sabit tutar</option>
+                        <option value="rate">Oran</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-800 mb-1">
+                        {(formData.commissionKind === 'rate' ? 'Oran (%)' : formData.commissionKind === 'amount' ? 'Tutar' : 'Tutar / oran değeri')}
+                      </label>
+                      <input
+                        type="number"
+                        step="any"
+                        className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-amber-500 outline-none bg-white"
+                        placeholder={formData.commissionKind === 'rate' ? 'Örn. 12.5' : 'Örn. 5000'}
+                        value={(formData as Partial<University> & { commissionValueInput?: string }).commissionValueInput ?? ''}
+                        onChange={e => setFormData({ ...formData, commissionValueInput: e.target.value } as Partial<University> & { commissionValueInput?: string })}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </form>
         </div>
@@ -463,6 +725,13 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                 className="flex items-center bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700 transition-colors">
                 <span>{uploading ? t.loading : t.import}</span>
               </button>
+              <button
+                type="button"
+                onClick={exportToExcel}
+                className="flex items-center bg-emerald-600 text-white px-3 py-2 rounded-lg hover:bg-emerald-700 transition-colors"
+              >
+                <span>Export Excel</span>
+              </button>
               <button onClick={openAdd}
                 className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors">
                 <Plus size={20} /><span>{t.addUniversity}</span>
@@ -492,7 +761,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                   <LogoBox uni={uni} size="sm" />
                   <div className="flex items-center gap-2">
                     <span className={`text-xs px-2 py-1 rounded-full ${uni.country === 'Turkey' ? 'bg-red-50 text-red-600' : 'bg-orange-50 text-orange-600'}`}>
-                      {uni.country}
+                      {getCountryLabel(uni.country)}
                     </span>
                     {uni.city && (
                       <span className="text-xs px-2 py-1 rounded-full bg-blue-50 text-blue-600">
@@ -562,7 +831,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                     {Object.entries(byCountry).map(([country, list]) => (
                       <li key={country}>
                         <div className="px-4 py-2 bg-gray-50/80 text-xs font-semibold text-gray-900 uppercase tracking-wider border-b border-gray-100">
-                          {country}
+                          {getCountryLabel(country)}
                         </div>
                         <ul className="divide-y divide-gray-50">
                           {list.map(uni => {
@@ -578,7 +847,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                                   <div className="min-w-0">
                                     <p className="font-medium text-gray-900 truncate">{uni.name}</p>
                                   </div>
-                                  <span className="text-sm text-gray-900 truncate">{uni.country}</span>
+                                  <span className="text-sm text-gray-900 truncate">{getCountryLabel(uni.country)}</span>
                                   <span className="text-sm text-gray-900 truncate">{uni.city || '—'}</span>
                                   <a
                                     href={uni.website}

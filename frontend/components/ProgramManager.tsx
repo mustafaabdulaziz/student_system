@@ -2,9 +2,9 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { jsPDF } from 'jspdf';
 import { autoTable } from 'jspdf-autotable';
 import notoSansRegularUrl from '../assets/fonts/NotoSans-Regular.ttf?url';
+import * as XLSX from 'xlsx';
 import { Program, University, User, UserRole, PROGRAM_CATEGORIES, Period } from '../types';
-import { COUNTRIES } from '../constants/countries';
-import { Plus, BookOpen, Clock, DollarSign, Calendar, Trash2, Pencil, Search, Filter, X, ChevronDown, ChevronUp, Eye, ArrowLeft, Printer } from 'lucide-react';
+import { Plus, BookOpen, DollarSign, Trash2, Pencil, Search, Filter, X, ChevronDown, ChevronUp, ArrowLeft, Printer } from 'lucide-react';
 import { useTranslation } from '../hooks/useTranslation';
 
 interface MultiSelectOption {
@@ -116,14 +116,23 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
   const [filterUniversityIds, setFilterUniversityIds] = useState<string[]>([]);
   const [filterDegrees, setFilterDegrees] = useState<string[]>([]);
   const [filterLanguages, setFilterLanguages] = useState<string[]>([]);
-  const [filterCountries, setFilterCountries] = useState<string[]>([]);
+  const [filterFeeMin, setFilterFeeMin] = useState('');
+  const [filterFeeMax, setFilterFeeMax] = useState('');
   const [sortBy, setSortBy] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [columnsOpen, setColumnsOpen] = useState(false);
+  const [importingExcel, setImportingExcel] = useState(false);
+  const [importResult, setImportResult] = useState<{
+    type: 'success' | 'error';
+    title: string;
+    summary: string;
+    details: string[];
+  } | null>(null);
   const columnsRef = useRef<HTMLDivElement>(null);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
   const LANGUAGES = ['English', 'Turkish', 'Arabic'];
   const DEGREES = ['Bachelor', 'Master', 'PhD', 'CombinedPhD', 'Diploma'] as const;
-  const programColumnKeys = useMemo(() => ['name', 'isOpen', 'university', 'degree', 'language', 'fee', 'cashPrice', 'deposit'], []);
+  const programColumnKeys = useMemo(() => ['name', 'university', 'degree', 'language', 'fee', 'cashPrice', 'deposit', 'isOpen'], []);
   const [visibleTreeColumns, setVisibleTreeColumns] = useState<string[]>(programColumnKeys);
   const [formData, setFormData] = useState<Partial<Program>>({
     name: '',
@@ -139,7 +148,6 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
     cashPrice: undefined,
     currency: 'USD',
     periodId: '',
-    country: '',
     description: '',
     isOpen: true as boolean
   });
@@ -149,32 +157,14 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
   const visibleTreeColSpan = visibleTreeColumns.length + 1; // + actions column
   const programColumnOptions = [
     { key: 'name', label: t.programName },
-    { key: 'isOpen', label: t.programAvailability },
     { key: 'university', label: t.universities },
     { key: 'degree', label: t.programDegree },
     { key: 'language', label: t.programLanguage },
     { key: 'fee', label: t.programFee },
     { key: 'cashPrice', label: t.cashPrice },
-    { key: 'deposit', label: t.deposit }
+    { key: 'deposit', label: t.deposit },
+    { key: 'isOpen', label: t.programAvailability }
   ];
-
-  const getProgramCountry = (prog: Program) => {
-    const pc = (prog.country || '').trim();
-    if (pc) return pc;
-    return (universities.find(u => u.id === prog.universityId)?.country || '').trim();
-  };
-
-  const programCountryFilterOptions = useMemo(() => {
-    const set = new Set<string>();
-    programs.forEach(prog => {
-      const c = getProgramCountry(prog);
-      if (c) set.add(c);
-    });
-    if (set.size === 0) {
-      return [...COUNTRIES].sort((a, b) => a.localeCompare(b)).map(c => ({ value: c, label: c }));
-    }
-    return Array.from(set).sort((a, b) => a.localeCompare(b)).map(c => ({ value: c, label: c }));
-  }, [programs, universities]);
 
   const filteredPrograms = useMemo(() => {
     return programs.filter(prog => {
@@ -184,11 +174,14 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
       const matchUniversity = filterUniversityIds.length === 0 || filterUniversityIds.includes(prog.universityId);
       const matchDegree = filterDegrees.length === 0 || filterDegrees.includes(prog.degree);
       const matchLanguage = filterLanguages.length === 0 || filterLanguages.includes(prog.language);
-      const resolvedCountry = getProgramCountry(prog);
-      const matchCountry = filterCountries.length === 0 || (resolvedCountry !== '' && filterCountries.includes(resolvedCountry));
-      return matchName && matchNameAr && matchCategory && matchUniversity && matchDegree && matchLanguage && matchCountry;
+      const feeValue = Number(prog.fee) || 0;
+      const minFee = filterFeeMin.trim() === '' ? null : Number(filterFeeMin);
+      const maxFee = filterFeeMax.trim() === '' ? null : Number(filterFeeMax);
+      const matchMinFee = minFee == null || Number.isNaN(minFee) || feeValue >= minFee;
+      const matchMaxFee = maxFee == null || Number.isNaN(maxFee) || feeValue <= maxFee;
+      return matchName && matchNameAr && matchCategory && matchUniversity && matchDegree && matchLanguage && matchMinFee && matchMaxFee;
     });
-  }, [programs, searchProgramName, searchNameInArabic, filterCategories, filterUniversityIds, filterDegrees, filterLanguages, filterCountries, universities]);
+  }, [programs, searchProgramName, searchNameInArabic, filterCategories, filterUniversityIds, filterDegrees, filterLanguages, filterFeeMin, filterFeeMax]);
 
   let notoSansVfsPromise: Promise<void> | null = null;
   const ensurePdfFont = async (doc: jsPDF) => {
@@ -246,8 +239,9 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
       if (!raw) return;
       const parsed = JSON.parse(raw);
       if (!Array.isArray(parsed)) return;
-      const valid = parsed.filter((k: string) => programColumnKeys.includes(k));
-      if (valid.length > 0) setVisibleTreeColumns(valid);
+      const validSet = new Set(parsed.filter((k: string) => programColumnKeys.includes(k)));
+      const ordered = programColumnKeys.filter(k => validSet.has(k));
+      if (ordered.length > 0) setVisibleTreeColumns(ordered);
     } catch {
       // ignore corrupted localStorage values
     }
@@ -294,23 +288,23 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
     doc.text(new Date().toLocaleDateString(undefined, { dateStyle: 'long' }), 14, 18);
     const head = [
       t.programName,
-      t.programAvailability,
       t.universities,
       t.programDegree,
       t.programLanguage,
       t.programFee,
       t.cashPrice,
-      t.deposit
+      t.deposit,
+      t.programAvailability
     ];
     const body = sortedPrograms.map(p => [
       p.name,
-      p.isOpen === false ? t.programStatusClosed : t.programStatusOpen,
       getUniversityName(p.universityId),
       translateDegree(p.degree),
       p.language,
       p.currency ? `${p.currency} ${(p.fee ?? 0).toLocaleString()}` : `${(p.fee ?? 0).toLocaleString()}`,
       p.cashPrice != null ? (p.currency ? `${p.currency} ${p.cashPrice.toLocaleString()}` : String(p.cashPrice)) : '—',
-      p.deposit != null ? (p.currency ? `${p.currency} ${p.deposit.toLocaleString()}` : String(p.deposit)) : '—'
+      p.deposit != null ? (p.currency ? `${p.currency} ${p.deposit.toLocaleString()}` : String(p.deposit)) : '—',
+      p.isOpen === false ? t.programStatusClosed : t.programStatusOpen
     ]);
     autoTable(doc, {
       head: [head],
@@ -332,7 +326,7 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
     </th>
   );
 
-  const hasActiveFilters = !!(searchProgramName.trim() || searchNameInArabic.trim() || filterCategories.length > 0 || filterUniversityIds.length > 0 || filterDegrees.length > 0 || filterLanguages.length > 0 || filterCountries.length > 0);
+  const hasActiveFilters = !!(searchProgramName.trim() || searchNameInArabic.trim() || filterCategories.length > 0 || filterUniversityIds.length > 0 || filterDegrees.length > 0 || filterLanguages.length > 0 || filterFeeMin.trim() || filterFeeMax.trim());
 
   const clearFilters = () => {
     setSearchProgramName('');
@@ -341,7 +335,296 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
     setFilterUniversityIds([]);
     setFilterDegrees([]);
     setFilterLanguages([]);
-    setFilterCountries([]);
+    setFilterFeeMin('');
+    setFilterFeeMax('');
+  };
+
+  const normalizeText = (value: unknown): string =>
+    String(value ?? '')
+      .trim()
+      .toLocaleLowerCase('tr')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/ı/g, 'i')
+      .replace(/\s+/g, ' ');
+
+  const excelColumns = [
+    'üniversite',
+    'program',
+    'arapça ad',
+    'kategori',
+    'müsaitlik',
+    'derece',
+    'dil',
+    'yıl',
+    'indirim öncesi ücret',
+    'yıllık ücret',
+    'nakit fiyatı',
+    'para birimi',
+    'depozito',
+    'dönem',
+    'açıklama'
+  ] as const;
+
+  const categoryMap = useMemo(() => {
+    const m = new Map<string, Program['category']>();
+    PROGRAM_CATEGORIES.forEach(cat => {
+      m.set(normalizeText(cat), cat);
+      m.set(normalizeText(translateCategory(cat)), cat);
+    });
+    return m;
+  }, [translateCategory]);
+
+  const degreeMap = useMemo(() => {
+    const m = new Map<string, Program['degree']>();
+    const vals: Program['degree'][] = ['Bachelor', 'Master', 'PhD', 'CombinedPhD', 'Diploma'];
+    vals.forEach(v => {
+      m.set(normalizeText(v), v);
+      m.set(normalizeText(translateDegree(v)), v);
+    });
+    m.set(normalizeText('Lisans'), 'Bachelor');
+    m.set(normalizeText('Yuksek Lisans'), 'Master');
+    m.set(normalizeText('Doktora'), 'PhD');
+    m.set(normalizeText('Birlesik Doktora'), 'CombinedPhD');
+    return m;
+  }, [translateDegree]);
+
+  const languageMap = useMemo(() => {
+    const m = new Map<string, Program['language']>();
+    m.set(normalizeText('English'), 'English');
+    m.set(normalizeText('Turkish'), 'Turkish');
+    m.set(normalizeText('Arabic'), 'Arabic');
+    m.set(normalizeText('Ingilizce'), 'English');
+    m.set(normalizeText('Turkce'), 'Turkish');
+    m.set(normalizeText('Arapca'), 'Arabic');
+    return m;
+  }, []);
+
+  const parseNumber = (value: unknown, required = false): number | undefined => {
+    const raw = String(value ?? '').trim();
+    if (raw === '') return required ? undefined : undefined;
+    const parsed = Number(raw.toString().replace(',', '.'));
+    if (Number.isNaN(parsed)) return undefined;
+    return parsed;
+  };
+
+  const exportProgramsToExcel = () => {
+    const rows = sortedPrograms.map((p) => ({
+      üniversite: getUniversityName(p.universityId),
+      Program: p.name,
+      'Arapça ad': p.nameInArabic || '',
+      Kategori: p.category ? translateCategory(p.category) : '',
+      Müsaitlik: p.isOpen === false ? t.programStatusClosed : t.programStatusOpen,
+      Derece: translateDegree(p.degree),
+      Dil: p.language,
+      Yıl: p.years ?? '',
+      'İndirim öncesi ücret': p.feeBeforeDiscount ?? '',
+      'Yıllık ücret': p.fee ?? '',
+      'Nakit fiyatı': p.cashPrice ?? '',
+      'Para Birimi': p.currency || 'USD',
+      Depozito: p.deposit ?? '',
+      Dönem: getPeriodName(p.periodId),
+      Açıklama: p.description || ''
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows, {
+      header: ['üniversite', 'Program', 'Arapça ad', 'Kategori', 'Müsaitlik', 'Derece', 'Dil', 'Yıl', 'İndirim öncesi ücret', 'Yıllık ücret', 'Nakit fiyatı', 'Para Birimi', 'Depozito', 'Dönem', 'Açıklama']
+    });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Programlar');
+    XLSX.writeFile(wb, 'programlar.xlsx');
+  };
+
+  const handleImportProgramsExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportingExcel(true);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as Array<Array<string | number>>;
+      if (matrix.length === 0) {
+        setImportResult({
+          type: 'error',
+          title: 'Import Hatası',
+          summary: 'Excel dosyası boş.',
+          details: []
+        });
+        return;
+      }
+
+      const header = (matrix[0] || []).map(normalizeText);
+      const expected = [...excelColumns].map(normalizeText);
+      const headerOk = expected.every((h, i) => header[i] === h);
+      if (!headerOk) {
+        setImportResult({
+          type: 'error',
+          title: 'Import Hatası',
+          summary: 'Sütun sırası hatalı.',
+          details: [`Beklenen sıra: ${excelColumns.join(', ')}`]
+        });
+        return;
+      }
+
+      const uniMap = new Map(universities.map((u) => [normalizeText(u.name), u]));
+      const periodMap = new Map(periods.map((p) => [normalizeText(p.name), p]));
+
+      const errors: string[] = [];
+      const operations: Array<{ type: 'create' | 'update'; payload: Program }> = [];
+
+      for (let i = 1; i < matrix.length; i += 1) {
+        const row = matrix[i] || [];
+        const rowNo = i + 1;
+        const uniNameRaw = String(row[0] ?? '').trim();
+        const programName = String(row[1] ?? '').trim();
+        const nameAr = String(row[2] ?? '').trim();
+        const categoryRaw = String(row[3] ?? '').trim();
+        const availabilityRaw = String(row[4] ?? '').trim();
+        const degreeRaw = String(row[5] ?? '').trim();
+        const languageRaw = String(row[6] ?? '').trim();
+        const yearsRaw = row[7];
+        const feeBeforeRaw = row[8];
+        const feeRaw = row[9];
+        const cashRaw = row[10];
+        const currencyRaw = String(row[11] ?? '').trim();
+        const depositRaw = row[12];
+        const periodRaw = String(row[13] ?? '').trim();
+        const description = String(row[14] ?? '').trim();
+
+        const isEmpty = [uniNameRaw, programName, nameAr, categoryRaw, availabilityRaw, degreeRaw, languageRaw, yearsRaw, feeBeforeRaw, feeRaw, cashRaw, currencyRaw, depositRaw, periodRaw, description]
+          .every((v) => String(v ?? '').trim() === '');
+        if (isEmpty) continue;
+
+        const uni = uniMap.get(normalizeText(uniNameRaw));
+        if (!uni) {
+          errors.push(`Satır ${rowNo}: Üniversite bulunamadı (${uniNameRaw}).`);
+          continue;
+        }
+        if (!programName) {
+          errors.push(`Satır ${rowNo}: Program adı boş.`);
+          continue;
+        }
+
+        const category = categoryRaw ? categoryMap.get(normalizeText(categoryRaw)) : undefined;
+        if (categoryRaw && !category) {
+          errors.push(`Satır ${rowNo}: Kategori geçersiz (${categoryRaw}).`);
+          continue;
+        }
+
+        const availabilityNorm = normalizeText(availabilityRaw);
+        const isOpen =
+          availabilityNorm === normalizeText(t.programStatusOpen) || availabilityNorm === normalizeText('acik') || availabilityNorm === normalizeText('open')
+            ? true
+            : availabilityNorm === normalizeText(t.programStatusClosed) || availabilityNorm === normalizeText('kapali') || availabilityNorm === normalizeText('closed')
+              ? false
+              : null;
+        if (isOpen === null) {
+          errors.push(`Satır ${rowNo}: Müsaitlik Açık/Kapalı olmalı.`);
+          continue;
+        }
+
+        const degree = degreeMap.get(normalizeText(degreeRaw));
+        if (!degree) {
+          errors.push(`Satır ${rowNo}: Derece geçersiz (${degreeRaw}).`);
+          continue;
+        }
+
+        const language = languageMap.get(normalizeText(languageRaw));
+        if (!language) {
+          errors.push(`Satır ${rowNo}: Dil geçersiz (${languageRaw}).`);
+          continue;
+        }
+
+        const currency = String(currencyRaw).toUpperCase();
+        if (!['USD', 'EUR', 'TRY'].includes(currency)) {
+          errors.push(`Satır ${rowNo}: Para birimi USD/EUR/TRY olmalı.`);
+          continue;
+        }
+
+        const period = periodRaw ? periodMap.get(normalizeText(periodRaw)) : undefined;
+        if (periodRaw && !period) {
+          errors.push(`Satır ${rowNo}: Dönem bulunamadı (${periodRaw}).`);
+          continue;
+        }
+
+        const years = parseNumber(yearsRaw, true);
+        const fee = parseNumber(feeRaw, true);
+        const feeBeforeDiscount = parseNumber(feeBeforeRaw);
+        const cashPrice = parseNumber(cashRaw);
+        const deposit = parseNumber(depositRaw);
+        if (years == null || Number.isNaN(years)) {
+          errors.push(`Satır ${rowNo}: Yıl sayı olmalı.`);
+          continue;
+        }
+        if (fee == null || Number.isNaN(fee)) {
+          errors.push(`Satır ${rowNo}: Yıllık ücret sayı olmalı.`);
+          continue;
+        }
+
+        const existing = programs.find((p) =>
+          p.universityId === uni.id && normalizeText(p.name) === normalizeText(programName)
+        );
+
+        const payload: Program = {
+          id: existing?.id || `${Date.now()}-${i}`,
+          universityId: uni.id,
+          name: programName,
+          nameInArabic: nameAr || undefined,
+          category,
+          isOpen,
+          degree,
+          language,
+          years,
+          fee,
+          feeBeforeDiscount,
+          cashPrice,
+          currency,
+          deposit,
+          periodId: period?.id,
+          description: description || undefined
+        };
+
+        if (existing && onEditProgram) operations.push({ type: 'update', payload: { ...existing, ...payload } });
+        else operations.push({ type: 'create', payload });
+      }
+
+      if (errors.length > 0) {
+        setImportResult({
+          type: 'error',
+          title: 'Import Başarısız',
+          summary: `Dosyada ${errors.length} hata bulundu. Hiçbir satır içe aktarılmadı.`,
+          details: errors
+        });
+      } else {
+        let created = 0;
+        let updated = 0;
+        operations.forEach((op) => {
+          if (op.type === 'update') {
+            onEditProgram?.(op.payload);
+            updated += 1;
+          } else {
+            onAddProgram(op.payload);
+            created += 1;
+          }
+        });
+        setImportResult({
+          type: 'success',
+          title: 'Import Başarılı',
+          summary: `Yeni: ${created} | Güncellenen: ${updated}`,
+          details: []
+        });
+      }
+    } catch {
+      setImportResult({
+        type: 'error',
+        title: 'Import Hatası',
+        summary: t.errorConnection,
+        details: []
+      });
+    } finally {
+      setImportingExcel(false);
+      if (importInputRef.current) importInputRef.current.value = '';
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -362,13 +645,13 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
         cashPrice: formData.cashPrice,
         currency: formData.currency || 'USD',
         periodId: formData.periodId || undefined,
-        country: formData.country || undefined,
         description: formData.description,
         isOpen: formData.isOpen !== false
       };
 
       if (modalMode === 'edit' && onEditProgram) {
         onEditProgram(progData);
+        setSelectedProgramForView(progData);
       } else {
         onAddProgram(progData);
       }
@@ -382,7 +665,7 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
     setEditingId(null);
     setFormData({
       name: '', nameInArabic: '', universityId: '', category: undefined, degree: 'Bachelor', language: 'English',
-      years: 4, fee: 0, feeBeforeDiscount: undefined, deposit: undefined, cashPrice: undefined, currency: 'USD', periodId: '', country: '', description: '', isOpen: true
+      years: 4, fee: 0, feeBeforeDiscount: undefined, deposit: undefined, cashPrice: undefined, currency: 'USD', periodId: '', description: '', isOpen: true
     });
     setModalOpen(true);
   };
@@ -396,12 +679,21 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
   };
 
   const closeFormModal = () => {
+    const shouldReturnToDetail = modalMode === 'edit';
+    const editedProgram = shouldReturnToDetail && editingId
+      ? programs.find(p => p.id === editingId) || null
+      : null;
+
     setModalOpen(false);
     setEditingId(null);
+    setModalMode('add');
     setFormData({
       name: '', nameInArabic: '', universityId: '', category: undefined, degree: 'Bachelor', language: 'English',
-      years: 4, fee: 0, feeBeforeDiscount: undefined, deposit: undefined, cashPrice: undefined, currency: 'USD', periodId: '', country: '', description: '', isOpen: true
+      years: 4, fee: 0, feeBeforeDiscount: undefined, deposit: undefined, cashPrice: undefined, currency: 'USD', periodId: '', description: '', isOpen: true
     });
+    if (shouldReturnToDetail) {
+      setSelectedProgramForView(editedProgram);
+    }
   };
 
   const handleDeleteConfirm = () => {
@@ -476,10 +768,6 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
                   <div>
                     <p className="text-xs font-medium text-gray-500 mb-0.5">{t.programYears}</p>
                     <p className="text-gray-900">{selectedProgramForView.years}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium text-gray-500 mb-0.5">{t.programCountry}</p>
-                    <p className="text-gray-900">{selectedProgramForView.country || '—'}</p>
                   </div>
                   <div>
                     <p className="text-xs font-medium text-gray-500 mb-0.5">{t.programAvailability}</p>
@@ -565,13 +853,9 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
             </div>
           </div>
           <form id="program-form" onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 md:p-8">
-            <div className="max-w-4xl mx-auto space-y-8">
+            <div className="max-w-6xl mx-auto">
               <section className="bg-gray-50/80 rounded-2xl p-6 border border-gray-100">
-                <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
-                  <BookOpen size={16} />
-                  {t.programName}
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">{t.universities}</label>
                     <select
@@ -596,7 +880,7 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
                       onChange={e => setFormData({ ...formData, name: e.target.value })}
                     />
                   </div>
-                  <div className="md:col-span-2">
+                  <div className="sm:col-span-2 xl:col-span-1">
                     <label className="block text-sm font-medium text-gray-700 mb-1">{t.programNameInArabic}</label>
                     <input
                       type="text"
@@ -607,14 +891,6 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
                       placeholder={t.programNameInArabicPlaceholder}
                     />
                   </div>
-                </div>
-              </section>
-              <section className="bg-gray-50/80 rounded-2xl p-6 border border-gray-100">
-                <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
-                  <Clock size={16} />
-                  {t.programCategory} / {t.programDegree} / {t.programLanguage} / {t.programYears}
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">{t.programCategory}</label>
                     <select
@@ -629,19 +905,6 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">{t.programCountry}</label>
-                    <select
-                      className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none"
-                      value={formData.country || ''}
-                      onChange={e => setFormData({ ...formData, country: e.target.value || undefined })}
-                    >
-                      <option value="">{t.filterAll}</option>
-                      {COUNTRIES.map(c => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">{t.programAvailability}</label>
                     <select
                       className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none"
@@ -652,8 +915,6 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
                       <option value="closed">{t.programStatusClosed}</option>
                     </select>
                   </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">{t.programDegree}</label>
                     <select
@@ -690,14 +951,6 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
                       onChange={e => setFormData({ ...formData, years: parseInt(e.target.value) || 4 })}
                     />
                   </div>
-                </div>
-              </section>
-              <section className="bg-gray-50/80 rounded-2xl p-6 border border-gray-100">
-                <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
-                  <DollarSign size={16} />
-                  {t.programFee} / {t.programPeriod}
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">{t.feeBeforeDiscount}</label>
                     <input
@@ -763,16 +1016,16 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
                       onChange={e => setFormData({ ...formData, deposit: e.target.value === '' ? undefined : parseInt(e.target.value) })}
                     />
                   </div>
+                  <div className="sm:col-span-2 xl:col-span-3">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{t.programDescription}</label>
+                    <textarea
+                      rows={4}
+                      className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none"
+                      value={formData.description || ''}
+                      onChange={e => setFormData({ ...formData, description: e.target.value })}
+                    />
+                  </div>
                 </div>
-              </section>
-              <section className="bg-gray-50/80 rounded-2xl p-6 border border-gray-100">
-                <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">{t.programDescription}</h3>
-                <textarea
-                  rows={4}
-                  className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none"
-                  value={formData.description || ''}
-                  onChange={e => setFormData({ ...formData, description: e.target.value })}
-                />
               </section>
             </div>
           </form>
@@ -789,6 +1042,15 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
           <p className="text-gray-500">{t.programsTitle}</p>
         </div>
         <div className="flex items-center gap-2">
+          {isAdmin && (
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".xlsx,.xls"
+              onChange={handleImportProgramsExcel}
+              style={{ display: 'none' }}
+            />
+          )}
           <div className="relative" ref={columnsRef}>
             <button
               type="button"
@@ -823,13 +1085,30 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
             <span>{t.printResult}</span>
           </button>
           {isAdmin && (
-            <button
-              onClick={openAddModal}
-              className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <Plus size={20} />
-              <span>{t.addProgram}</span>
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={exportProgramsToExcel}
+                className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 transition-colors"
+              >
+                <span>Export Excel</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => importInputRef.current?.click()}
+                disabled={importingExcel}
+                className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-60"
+              >
+                <span>{importingExcel ? t.loading : 'Import Excel'}</span>
+              </button>
+              <button
+                onClick={openAddModal}
+                className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                <Plus size={20} />
+                <span>{t.addProgram}</span>
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -916,13 +1195,25 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1.5">{t.programCountry}</label>
-            <MultiSelect
-              options={programCountryFilterOptions}
-              selected={filterCountries}
-              onChange={setFilterCountries}
-              placeholder={t.filterAll}
-            />
+            <label className="block text-xs font-medium text-gray-500 mb-1.5">{t.programFee} (Min - Max)</label>
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                type="number"
+                min={0}
+                value={filterFeeMin}
+                onChange={e => setFilterFeeMin(e.target.value)}
+                placeholder="Min"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              />
+              <input
+                type="number"
+                min={0}
+                value={filterFeeMax}
+                onChange={e => setFilterFeeMax(e.target.value)}
+                placeholder="Max"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -934,27 +1225,27 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
             <thead className="bg-gray-50 text-gray-900 border-b border-gray-200">
               <tr>
                 {visibleTreeColumns.includes('name') && <SortTh colKey="name" label={t.programName} />}
-                {visibleTreeColumns.includes('isOpen') && <SortTh colKey="isOpen" label={t.programAvailability} className="text-center" />}
                 {visibleTreeColumns.includes('university') && <SortTh colKey="university" label={t.universities} />}
                 {visibleTreeColumns.includes('degree') && <SortTh colKey="degree" label={t.programDegree} />}
                 {visibleTreeColumns.includes('language') && <SortTh colKey="language" label={t.programLanguage} />}
                 {visibleTreeColumns.includes('fee') && <SortTh colKey="fee" label={t.programFee} />}
                 {visibleTreeColumns.includes('cashPrice') && <SortTh colKey="cashPrice" label={t.cashPrice} />}
                 {visibleTreeColumns.includes('deposit') && <SortTh colKey="deposit" label={t.deposit} />}
+                {visibleTreeColumns.includes('isOpen') && <SortTh colKey="isOpen" label={t.programAvailability} className="text-center" />}
                 <th className="px-6 py-4 font-bold text-center">{t.edit}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {sortedPrograms.map((program) => (
-                <tr key={program.id} className="hover:bg-gray-50 transition-colors group">
+                <tr
+                  key={program.id}
+                  onClick={() => {
+                    if (isAdmin) openEditModal(program);
+                    else setSelectedProgramForView(program);
+                  }}
+                  className="hover:bg-gray-50 transition-colors group cursor-pointer"
+                >
                   {visibleTreeColumns.includes('name') && <td className="px-6 py-4 font-medium text-gray-900">{program.name}</td>}
-                  {visibleTreeColumns.includes('isOpen') && (
-                    <td className="px-6 py-4 text-center">
-                      <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-semibold ${program.isOpen === false ? 'bg-gray-200 text-gray-700' : 'bg-emerald-50 text-emerald-800'}`}>
-                        {program.isOpen === false ? t.programStatusClosed : t.programStatusOpen}
-                      </span>
-                    </td>
-                  )}
                   {visibleTreeColumns.includes('university') && <td className="px-6 py-4 text-gray-900">{getUniversityName(program.universityId)}</td>}
                   {visibleTreeColumns.includes('degree') && (
                     <td className="px-6 py-4">
@@ -979,26 +1270,32 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
                       {program.deposit != null ? (program.currency ? `${program.currency} ${program.deposit.toLocaleString()}` : program.deposit.toLocaleString()) : '—'}
                     </td>
                   )}
+                  {visibleTreeColumns.includes('isOpen') && (
+                    <td className="px-6 py-4 text-center">
+                      <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-semibold ${program.isOpen === false ? 'bg-gray-200 text-gray-700' : 'bg-emerald-50 text-emerald-800'}`}>
+                        {program.isOpen === false ? t.programStatusClosed : t.programStatusOpen}
+                      </span>
+                    </td>
+                  )}
                   <td className="px-6 py-4 text-center">
                     <div className="flex justify-center gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
-                      <button
-                        onClick={() => setSelectedProgramForView(program)}
-                        title={t.viewDetails}
-                        className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-gray-800 transition-colors"
-                      >
-                        <Eye size={15} />
-                      </button>
                       {isAdmin && (
                         <>
                           <button
-                            onClick={() => openEditModal(program)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openEditModal(program);
+                            }}
                             title={t.edit}
                             className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-blue-50 text-blue-500 hover:bg-blue-100 hover:text-blue-700 transition-colors"
                           >
                             <Pencil size={15} />
                           </button>
                           <button
-                            onClick={() => setConfirmDeleteId(program.id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setConfirmDeleteId(program.id);
+                            }}
                             title={t.delete}
                             className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-red-50 text-red-500 hover:bg-red-100 hover:text-red-700 transition-colors"
                           >
@@ -1052,6 +1349,44 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
                 className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
               >
                 {t.delete}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {importResult && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl max-w-2xl w-full p-6 shadow-2xl">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <h3 className={`text-lg font-bold ${importResult.type === 'success' ? 'text-emerald-700' : 'text-red-700'}`}>
+                {importResult.title}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setImportResult(null)}
+                className="p-1 rounded hover:bg-gray-100 text-gray-500"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <p className="text-sm text-gray-700 mb-4">{importResult.summary}</p>
+            {importResult.details.length > 0 && (
+              <div className="max-h-72 overflow-auto border border-gray-200 rounded-lg bg-gray-50 p-3">
+                <ul className="space-y-1 text-sm text-gray-700">
+                  {importResult.details.map((line, idx) => (
+                    <li key={`${line}-${idx}`}>• {line}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <div className="flex justify-end mt-4">
+              <button
+                type="button"
+                onClick={() => setImportResult(null)}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Tamam
               </button>
             </div>
           </div>
