@@ -35,6 +35,9 @@ export interface University {
   /** Admin-only: commission as fixed amount or rate */
   commissionKind?: 'amount' | 'rate' | null;
   commissionValue?: number | null;
+  /** Admin-only: default bonus max/min for new applications */
+  bonusMax?: number | null;
+  bonusMin?: number | null;
 }
 
 export type ProgramCategory =
@@ -187,4 +190,18 @@ export interface AppState {
   agencyCompanies: AgencyCompany[];
   paymentSources: PaymentSource[];
   currentUser: User | null;
+}
+
+/** Filters passed from dashboard chart/table drill-down to the applications list. */
+export interface ApplicationListFilters {
+  createdFrom?: string;
+  createdTo?: string;
+  statuses?: string[];
+  universityIds?: string[];
+  programIds?: string[];
+  degrees?: string[];
+  nationalities?: string[];
+  responsibles?: string[];
+  agents?: string[];
+  currencies?: string[];
 }

@@ -20,10 +20,10 @@ import {
   PaymentSource,
   AppState,
   UserRole,
-  ApplicationStatus
+  ApplicationStatus,
+  ApplicationListFilters
 } from './types';
 import { PeriodManager } from './components/PeriodManager';
-import { ApplicationsDashboard } from './components/ApplicationsDashboard';
 import { PaymentsManager } from './components/PaymentsManager';
 import { PaymentDashboard } from './components/PaymentDashboard';
 import { AgencyCompanyManager } from './components/AgencyCompanyManager';
@@ -50,7 +50,6 @@ const PATH_TO_PAGE: Record<string, string> = {
   '/programs': 'programs',
   '/students': 'students',
   '/applications': 'applications',
-  '/applications-dashboard': 'applications-dashboard',
   '/periods': 'periods',
   '/users': 'users',
   '/incoming-payments': 'incoming-payments',
@@ -68,7 +67,6 @@ const PAGE_TO_PATH: Record<string, string> = {
   programs: '/programs',
   students: '/students',
   applications: '/applications',
-  'applications-dashboard': '/applications-dashboard',
   periods: '/periods',
   users: '/users',
   'incoming-payments': '/incoming-payments',
@@ -96,6 +94,7 @@ export default function App() {
   const [prefillStudentIdForApp, setPrefillStudentIdForApp] = useState<string | null>(null);
   const [targetApplicationId, setTargetApplicationId] = useState<string | null>(null);
   const [targetStudentId, setTargetStudentId] = useState<string | null>(null);
+  const [applicationListFilters, setApplicationListFilters] = useState<ApplicationListFilters | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
 
   const navigateTo = (page: string) => {
@@ -158,8 +157,7 @@ export default function App() {
         activePage === 'payment-dashboard' ||
         activePage === 'agency-companies' ||
         activePage === 'payment-sources'
-      )) ||
-      (activePage === 'applications-dashboard' && role !== UserRole.ADMIN && role !== UserRole.AGENT)
+      ))
     );
     if (state.currentUser && shouldBlockPage) {
       setActivePage('dashboard');
@@ -201,6 +199,13 @@ export default function App() {
     navigateTo('students');
   };
 
+  const openApplicationsWithFilters = (filters: ApplicationListFilters) => {
+    setTargetApplicationId(null);
+    setPrefillStudentIdForApp(null);
+    setApplicationListFilters(filters);
+    navigateTo('applications');
+  };
+
   // State Updates
   const addUniversity = async (uni: University) => {
     try {
@@ -220,7 +225,7 @@ export default function App() {
     }
   };
 
-  const editUniversity = async (uni: University) => {
+  const editUniversity = async (uni: University): Promise<boolean> => {
     try {
       const res = await fetch(`/api/universities/${uni.id}`, {
         method: 'PUT',
@@ -233,11 +238,14 @@ export default function App() {
           ...prev,
           universities: prev.universities.map(u => u.id === uni.id ? uni : u)
         }));
+        return true;
       } else {
         alert(data.message || t.errorUpdate);
+        return false;
       }
     } catch (err) {
       alert(t.errorConnection);
+      return false;
     }
   };
 
@@ -913,10 +921,10 @@ export default function App() {
             applications={state.applications}
             programs={state.programs}
             universities={state.universities}
+            users={state.users}
             currentUser={state.currentUser}
             universitiesCount={state.universities.length}
-            onOpenApplication={openApplicationDetails}
-            onOpenStudent={openStudentDetails}
+            onDrilldownToApplications={openApplicationsWithFilters}
           />
         );
       case 'universities':
@@ -926,18 +934,7 @@ export default function App() {
       case 'students':
         return <StudentManager students={state.students} applications={state.applications} programs={state.programs} universities={state.universities} periods={state.periods} users={state.users} onAddStudent={addStudent} onEditStudent={updateStudent} onCreateApplicationForStudent={openCreateApplicationForStudent} onAddApplicationForStudent={(app) => addApplication(app)} onViewApplication={openApplicationDetails} currentUser={state.currentUser} targetStudentId={targetStudentId} clearTargetStudent={() => setTargetStudentId(null)} />;
       case 'applications':
-        return <ApplicationManager applications={state.applications} students={state.students} programs={state.programs} universities={state.universities} periods={state.periods} agencyCompanies={state.agencyCompanies} users={state.users} onAddApplication={addApplication} onUpdateStatus={updateAppStatus} onUpdateApplication={updateApplication} onSyncApplicationTimestamps={onSyncApplicationTimestamps} initialStudentId={prefillStudentIdForApp} clearInitialStudent={() => setPrefillStudentIdForApp(null)} targetApplicationId={targetApplicationId} clearTargetApplication={() => setTargetApplicationId(null)} onOpenStudent={openStudentDetails} currentUser={state.currentUser} />;
-      case 'applications-dashboard':
-        return (
-          <ApplicationsDashboard
-            applications={state.applications}
-            students={state.students}
-            programs={state.programs}
-            universities={state.universities}
-            users={state.users}
-            currentUser={state.currentUser}
-          />
-        );
+        return <ApplicationManager applications={state.applications} students={state.students} programs={state.programs} universities={state.universities} periods={state.periods} agencyCompanies={state.agencyCompanies} users={state.users} onAddApplication={addApplication} onUpdateStatus={updateAppStatus} onUpdateApplication={updateApplication} onSyncApplicationTimestamps={onSyncApplicationTimestamps} initialStudentId={prefillStudentIdForApp} clearInitialStudent={() => setPrefillStudentIdForApp(null)} targetApplicationId={targetApplicationId} clearTargetApplication={() => setTargetApplicationId(null)} initialListFilters={applicationListFilters} clearInitialListFilters={() => setApplicationListFilters(null)} onOpenStudent={openStudentDetails} currentUser={state.currentUser} />;
       case 'news':
         return (
           <Suspense fallback={<div className="p-6 text-gray-500">{state.currentUser ? t.loading : ''}</div>}>
@@ -952,10 +949,10 @@ export default function App() {
               applications={state.applications}
               programs={state.programs}
               universities={state.universities}
+              users={state.users}
               currentUser={state.currentUser}
               universitiesCount={state.universities.length}
-              onOpenApplication={openApplicationDetails}
-              onOpenStudent={openStudentDetails}
+              onDrilldownToApplications={openApplicationsWithFilters}
             />
           );
         }
@@ -995,10 +992,10 @@ export default function App() {
               applications={state.applications}
               programs={state.programs}
               universities={state.universities}
+              users={state.users}
               currentUser={state.currentUser}
               universitiesCount={state.universities.length}
-              onOpenApplication={openApplicationDetails}
-              onOpenStudent={openStudentDetails}
+              onDrilldownToApplications={openApplicationsWithFilters}
             />
           );
         }
@@ -1021,10 +1018,10 @@ export default function App() {
               applications={state.applications}
               programs={state.programs}
               universities={state.universities}
+              users={state.users}
               currentUser={state.currentUser}
               universitiesCount={state.universities.length}
-              onOpenApplication={openApplicationDetails}
-              onOpenStudent={openStudentDetails}
+              onDrilldownToApplications={openApplicationsWithFilters}
             />
           );
         }
@@ -1037,10 +1034,10 @@ export default function App() {
               applications={state.applications}
               programs={state.programs}
               universities={state.universities}
+              users={state.users}
               currentUser={state.currentUser}
               universitiesCount={state.universities.length}
-              onOpenApplication={openApplicationDetails}
-              onOpenStudent={openStudentDetails}
+              onDrilldownToApplications={openApplicationsWithFilters}
             />
           );
         }
@@ -1053,10 +1050,10 @@ export default function App() {
               applications={state.applications}
               programs={state.programs}
               universities={state.universities}
+              users={state.users}
               currentUser={state.currentUser}
               universitiesCount={state.universities.length}
-              onOpenApplication={openApplicationDetails}
-              onOpenStudent={openStudentDetails}
+              onDrilldownToApplications={openApplicationsWithFilters}
             />
           );
         }
@@ -1069,10 +1066,10 @@ export default function App() {
               applications={state.applications}
               programs={state.programs}
               universities={state.universities}
+              users={state.users}
               currentUser={state.currentUser}
               universitiesCount={state.universities.length}
-              onOpenApplication={openApplicationDetails}
-              onOpenStudent={openStudentDetails}
+              onDrilldownToApplications={openApplicationsWithFilters}
             />
           );
         }
@@ -1092,10 +1089,10 @@ export default function App() {
               applications={state.applications}
               programs={state.programs}
               universities={state.universities}
+              users={state.users}
               currentUser={state.currentUser}
               universitiesCount={state.universities.length}
-              onOpenApplication={openApplicationDetails}
-              onOpenStudent={openStudentDetails}
+              onDrilldownToApplications={openApplicationsWithFilters}
             />
           );
         }
@@ -1114,10 +1111,10 @@ export default function App() {
             applications={state.applications}
             programs={state.programs}
             universities={state.universities}
+            users={state.users}
             currentUser={state.currentUser}
             universitiesCount={state.universities.length}
-            onOpenApplication={openApplicationDetails}
-            onOpenStudent={openStudentDetails}
+            onDrilldownToApplications={openApplicationsWithFilters}
           />
         );
     }

@@ -252,6 +252,12 @@ def _compute_application_finance(application, prefer_user_agency_commission=Fals
     if application.education_vat_rate is None and university:
         uv = getattr(university, 'education_vat_rate', None)
         application.education_vat_rate = float(uv) if uv is not None else None
+    if application.bonus_max is None and university:
+        uv = getattr(university, 'bonus_max', None)
+        application.bonus_max = float(uv) if uv is not None else None
+    if application.bonus_min is None and university:
+        uv = getattr(university, 'bonus_min', None)
+        application.bonus_min = float(uv) if uv is not None else None
 
     annual = float(application.annual_payment) if application.annual_payment is not None else None
     edu_rate = float(application.education_vat_rate) if application.education_vat_rate is not None else None
@@ -642,7 +648,9 @@ def get_universities():
         'logo': getattr(u, 'logo', None),
         'educationVatRate': getattr(u, 'education_vat_rate', None),
         'commissionKind': getattr(u, 'commission_kind', None),
-        'commissionValue': getattr(u, 'commission_value', None)
+        'commissionValue': getattr(u, 'commission_value', None),
+        'bonusMax': getattr(u, 'bonus_max', None),
+        'bonusMin': getattr(u, 'bonus_min', None)
     } for u in universities])
 
 @api_bp.route('/universities', methods=['POST'])
@@ -674,6 +682,22 @@ def add_university():
         return jsonify({'message': 'commissionValue required when commissionKind is set'}), 400
     if cv is not None and not ck:
         return jsonify({'message': 'commissionKind required when commissionValue is set'}), 400
+    bmax = data.get('bonusMax')
+    if bmax is not None and bmax != '':
+        try:
+            bmax = float(bmax)
+        except (TypeError, ValueError):
+            return jsonify({'message': 'bonusMax must be a number'}), 400
+    else:
+        bmax = None
+    bmin = data.get('bonusMin')
+    if bmin is not None and bmin != '':
+        try:
+            bmin = float(bmin)
+        except (TypeError, ValueError):
+            return jsonify({'message': 'bonusMin must be a number'}), 400
+    else:
+        bmin = None
 
     university = University(
         id=str(uuid.uuid4()),
@@ -685,7 +709,9 @@ def add_university():
         logo=data.get('logo'),  # optional logo (base64 or URL)
         education_vat_rate=evr,
         commission_kind=ck,
-        commission_value=cv
+        commission_value=cv,
+        bonus_max=bmax,
+        bonus_min=bmin
     )
     db.session.add(university)
     db.session.commit()
@@ -845,6 +871,24 @@ def update_university(uni_id):
         return jsonify({'message': 'commissionValue required when commissionKind is set'}), 400
     if cv_final is not None and not ck_final:
         return jsonify({'message': 'commissionKind required when commissionValue is set'}), 400
+    if 'bonusMax' in data:
+        bmax = data.get('bonusMax')
+        if bmax is None or bmax == '':
+            university.bonus_max = None
+        else:
+            try:
+                university.bonus_max = float(bmax)
+            except (TypeError, ValueError):
+                return jsonify({'message': 'bonusMax must be a number'}), 400
+    if 'bonusMin' in data:
+        bmin = data.get('bonusMin')
+        if bmin is None or bmin == '':
+            university.bonus_min = None
+        else:
+            try:
+                university.bonus_min = float(bmin)
+            except (TypeError, ValueError):
+                return jsonify({'message': 'bonusMin must be a number'}), 400
     db.session.commit()
     return jsonify({'message': 'تم تحديث الجامعة', 'id': university.id}), 200
 

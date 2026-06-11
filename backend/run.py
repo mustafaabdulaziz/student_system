@@ -64,7 +64,9 @@ if __name__ == '__main__':
             for col, typ in [
                 ('education_vat_rate', 'INTEGER'),
                 ('commission_kind', 'VARCHAR'),
-                ('commission_value', 'FLOAT')
+                ('commission_value', 'FLOAT'),
+                ('bonus_max', 'FLOAT'),
+                ('bonus_min', 'FLOAT')
             ]:
                 if col not in uni_cols2:
                     try:

@@ -44,6 +44,8 @@ class University(db.Model):
     education_vat_rate = db.Column(db.Integer, nullable=True)
     commission_kind = db.Column(db.String, nullable=True)  # 'amount' | 'rate'
     commission_value = db.Column(db.Float, nullable=True)
+    bonus_max = db.Column(db.Float, nullable=True)
+    bonus_min = db.Column(db.Float, nullable=True)
 
 class Program(db.Model):
     __tablename__ = 'programs'

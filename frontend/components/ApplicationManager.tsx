@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Application, Student, Program, University, ApplicationStatus, User, Period, AgencyCompany } from '../types';
+import { Application, Student, Program, University, ApplicationStatus, User, Period, AgencyCompany, ApplicationListFilters } from '../types';
 import {
   Plus, Filter, FileText,
   MessageSquare, User as UserIcon, GraduationCap,
@@ -164,6 +164,8 @@ interface ApplicationManagerProps {
   clearInitialStudent?: () => void;
   targetApplicationId?: string | null;
   clearTargetApplication?: () => void;
+  initialListFilters?: ApplicationListFilters | null;
+  clearInitialListFilters?: () => void;
   onOpenStudent?: (studentId: string) => void;
   currentUser?: { role: string; name?: string; id?: string; email?: string };
 }
@@ -171,7 +173,9 @@ interface ApplicationManagerProps {
 export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   applications, students, programs, universities, periods = [], agencyCompanies = [], users = [], onAddApplication, onUpdateStatus, onUpdateApplication,
   onSyncApplicationTimestamps,
-  initialStudentId, clearInitialStudent, targetApplicationId, clearTargetApplication, onOpenStudent, currentUser
+  initialStudentId, clearInitialStudent, targetApplicationId, clearTargetApplication,
+  initialListFilters, clearInitialListFilters,
+  onOpenStudent, currentUser
 }) => {
   const { t, translateStatus, translateDegree } = useTranslation();
   const { language } = useLanguage();
@@ -190,6 +194,9 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const [filterAgents, setFilterAgents] = useState<string[]>([]);
   const [filterResponsibles, setFilterResponsibles] = useState<string[]>([]);
   const [filterUniversities, setFilterUniversities] = useState<string[]>([]);
+  const [filterPrograms, setFilterPrograms] = useState<string[]>([]);
+  const [filterNationalities, setFilterNationalities] = useState<string[]>([]);
+  const [filterCurrencies, setFilterCurrencies] = useState<string[]>([]);
   const [filterStatuses, setFilterStatuses] = useState<string[]>([]);
   const [filterDegrees, setFilterDegrees] = useState<string[]>([]);
   const [filterAppCreatedFrom, setFilterAppCreatedFrom] = useState('');
@@ -449,6 +456,26 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   }, [targetApplicationId, clearTargetApplication]);
 
   useEffect(() => {
+    if (!initialListFilters) return;
+    setView('list');
+    setSelectedAppId(null);
+    setSearchApplicationNumber('');
+    setSearchStudentName('');
+    setFilterAgents(initialListFilters.agents ?? []);
+    setFilterResponsibles(initialListFilters.responsibles ?? []);
+    setFilterUniversities(initialListFilters.universityIds ?? []);
+    setFilterPrograms(initialListFilters.programIds ?? []);
+    setFilterNationalities(initialListFilters.nationalities ?? []);
+    setFilterCurrencies(initialListFilters.currencies ?? []);
+    setFilterStatuses(initialListFilters.statuses ?? []);
+    setFilterDegrees(initialListFilters.degrees ?? []);
+    setFilterAppCreatedFrom(initialListFilters.createdFrom ?? '');
+    setFilterAppCreatedTo(initialListFilters.createdTo ?? '');
+    scrollContentTop();
+    if (typeof clearInitialListFilters === 'function') clearInitialListFilters();
+  }, [initialListFilters, clearInitialListFilters]);
+
+  useEffect(() => {
     if (view === 'create' || view === 'detail') {
       scrollContentTop();
     }
@@ -536,6 +563,31 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     return Array.from(names).sort();
   }, [applications, users]);
 
+  const uniqueNationalities = useMemo(() => {
+    const set = new Set<string>();
+    students.forEach(s => {
+      if (s.nationality) set.add(s.nationality);
+    });
+    return Array.from(set).sort();
+  }, [students]);
+
+  const uniqueCurrencies = useMemo(() => {
+    const set = new Set<string>();
+    applications.forEach(app => {
+      set.add((app.currency || 'USD').toUpperCase());
+    });
+    return Array.from(set).sort();
+  }, [applications]);
+
+  const programFilterOptions = useMemo(
+    () => programs.map(p => p.id),
+    [programs]
+  );
+  const programFilterLabels = useMemo(
+    () => Object.fromEntries(programs.map(p => [p.id, p.name])),
+    [programs]
+  );
+
   const filteredApplications = useMemo(() => {
     const list = applications.filter(app => {
       const s = getStudent(app.studentId);
@@ -550,15 +602,18 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
       const matchAgent = filterAgents.length === 0 || filterAgents.includes(agentName);
       const matchResponsible = filterResponsibles.length === 0 || filterResponsibles.includes(responsibleName);
       const matchUniversity = filterUniversities.length === 0 || (p?.universityId && filterUniversities.includes(p.universityId));
+      const matchProgram = filterPrograms.length === 0 || filterPrograms.includes(app.programId);
+      const matchNationality = filterNationalities.length === 0 || (s?.nationality && filterNationalities.includes(s.nationality));
+      const matchCurrency = filterCurrencies.length === 0 || filterCurrencies.includes((app.currency || 'USD').toUpperCase());
       const appStatusNorm = normalizeStatusValue(app.status);
       const selectedNorm = filterStatuses.map((s) => normalizeStatusValue(s));
       const matchStatus = filterStatuses.length === 0 || selectedNorm.includes(appStatusNorm);
       const matchDegree = filterDegrees.length === 0 || (p?.degree && filterDegrees.includes(p.degree));
       const matchCreated = matchesCreatedAtRange(app.createdAt, filterAppCreatedFrom, filterAppCreatedTo);
-      return matchNumber && matchName && matchAgent && matchResponsible && matchUniversity && matchStatus && matchDegree && matchCreated;
+      return matchNumber && matchName && matchAgent && matchResponsible && matchUniversity && matchProgram && matchNationality && matchCurrency && matchStatus && matchDegree && matchCreated;
     });
     return list;
-  }, [applications, students, programs, universities, users, searchApplicationNumber, searchStudentName, filterAgents, filterResponsibles, filterUniversities, filterStatuses, filterDegrees, filterAppCreatedFrom, filterAppCreatedTo]);
+  }, [applications, students, programs, universities, users, searchApplicationNumber, searchStudentName, filterAgents, filterResponsibles, filterUniversities, filterPrograms, filterNationalities, filterCurrencies, filterStatuses, filterDegrees, filterAppCreatedFrom, filterAppCreatedTo]);
 
   const sortedApplications = useMemo(() => {
     const list = [...filteredApplications];
@@ -623,7 +678,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   useEffect(() => {
     setTreePage(1);
     setKanbanPage(1);
-  }, [searchApplicationNumber, searchStudentName, filterAgents, filterResponsibles, filterUniversities, filterStatuses, filterDegrees, filterAppCreatedFrom, filterAppCreatedTo, sortBy, sortDir, listViewMode]);
+  }, [searchApplicationNumber, searchStudentName, filterAgents, filterResponsibles, filterUniversities, filterPrograms, filterNationalities, filterCurrencies, filterStatuses, filterDegrees, filterAppCreatedFrom, filterAppCreatedTo, sortBy, sortDir, listViewMode]);
   const applicationColumnOptions = [
     { key: 'number', label: t.number },
     { key: 'status', label: t.applicationStatus },
@@ -1656,10 +1711,10 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                   <Filter size={18} className="text-purple-500" />
                   <span className="text-sm font-medium">{t.filter}</span>
                 </div>
-                {(searchApplicationNumber || searchStudentName || filterAgents.length > 0 || filterResponsibles.length > 0 || filterUniversities.length > 0 || filterStatuses.length > 0 || filterDegrees.length > 0 || filterAppCreatedFrom || filterAppCreatedTo) && (
+                {(searchApplicationNumber || searchStudentName || filterAgents.length > 0 || filterResponsibles.length > 0 || filterUniversities.length > 0 || filterPrograms.length > 0 || filterNationalities.length > 0 || filterCurrencies.length > 0 || filterStatuses.length > 0 || filterDegrees.length > 0 || filterAppCreatedFrom || filterAppCreatedTo) && (
                   <button
                     type="button"
-                    onClick={() => { setSearchApplicationNumber(''); setSearchStudentName(''); setFilterAgents([]); setFilterResponsibles([]); setFilterUniversities([]); setFilterStatuses([]); setFilterDegrees([]); setFilterAppCreatedFrom(''); setFilterAppCreatedTo(''); }}
+                    onClick={() => { setSearchApplicationNumber(''); setSearchStudentName(''); setFilterAgents([]); setFilterResponsibles([]); setFilterUniversities([]); setFilterPrograms([]); setFilterNationalities([]); setFilterCurrencies([]); setFilterStatuses([]); setFilterDegrees([]); setFilterAppCreatedFrom(''); setFilterAppCreatedTo(''); }}
                     className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors"
                   >
                     <X size={14} />
@@ -1741,6 +1796,28 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                 options={universities.map(u => u.id)}
                 optionLabels={Object.fromEntries(universities.map(u => [u.id, u.name]))}
                 placeholder={`${t.universitiesTitle} (${t.filterAll})`}
+                searchPlaceholder={t.search}
+              />
+              <MultiSelectFilter
+                selected={filterPrograms}
+                onChange={setFilterPrograms}
+                options={programFilterOptions}
+                optionLabels={programFilterLabels}
+                placeholder={`${t.programsTitle} (${t.filterAll})`}
+                searchPlaceholder={t.searchProgramNamePlaceholder}
+              />
+              <MultiSelectFilter
+                selected={filterNationalities}
+                onChange={setFilterNationalities}
+                options={uniqueNationalities}
+                placeholder={`${t.nationality} (${t.filterAll})`}
+                searchPlaceholder={t.search}
+              />
+              <MultiSelectFilter
+                selected={filterCurrencies}
+                onChange={setFilterCurrencies}
+                options={uniqueCurrencies}
+                placeholder={`${t.currency} (${t.filterAll})`}
                 searchPlaceholder={t.search}
               />
               <MultiSelectFilter

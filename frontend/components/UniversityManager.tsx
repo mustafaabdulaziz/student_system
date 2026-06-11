@@ -13,18 +13,27 @@ interface UniversityManagerProps {
   universities: University[];
   programs: Program[];
   onAddUniversity: (uni: University) => void;
-  onEditUniversity: (uni: University) => void;
+  onEditUniversity: (uni: University) => void | Promise<boolean>;
   onDeleteUniversity: (id: string) => void;
   currentUser?: User | null;
 }
 
-const EMPTY_FORM: Partial<University> & { educationVatRateInput?: string; commissionValueInput?: string } = {
+const EMPTY_FORM: Partial<University> & {
+  educationVatRateInput?: string;
+  commissionValueInput?: string;
+  bonusMaxInput?: string;
+  bonusMinInput?: string;
+} = {
   name: '', website: '', country: 'Turkey', city: '', description: '', logo: undefined,
   educationVatRate: null,
   commissionKind: null,
   commissionValue: null,
+  bonusMax: null,
+  bonusMin: null,
   educationVatRateInput: '',
-  commissionValueInput: ''
+  commissionValueInput: '',
+  bonusMaxInput: '',
+  bonusMinInput: ''
 };
 
 const DEGREE_COLORS: Record<string, string> = {
@@ -93,6 +102,23 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
   const [modalMode, setModalMode] = useState<'add' | 'edit' | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [detailUni, setDetailUni] = useState<University | null>(null); // inline detail form
+
+  useEffect(() => {
+    if (!detailUni) return;
+    const fresh = universities.find((u) => u.id === detailUni.id);
+    if (!fresh) return;
+    setDetailUni((prev) => {
+      if (!prev || prev.id !== fresh.id) return fresh;
+      return {
+        ...fresh,
+        educationVatRate: fresh.educationVatRate ?? prev.educationVatRate,
+        commissionKind: fresh.commissionKind ?? prev.commissionKind,
+        commissionValue: fresh.commissionValue ?? prev.commissionValue,
+        bonusMax: fresh.bonusMax ?? prev.bonusMax,
+        bonusMin: fresh.bonusMin ?? prev.bonusMin,
+      };
+    });
+  }, [universities, detailUni?.id]);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'tree' | 'kanban'>('tree');
@@ -137,8 +163,15 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
     setFormData({
       ...uni,
       educationVatRateInput: uni.educationVatRate != null && !Number.isNaN(uni.educationVatRate) ? String(uni.educationVatRate) : '',
-      commissionValueInput: uni.commissionValue != null && !Number.isNaN(uni.commissionValue) ? String(uni.commissionValue) : ''
-    } as Partial<University> & { educationVatRateInput?: string; commissionValueInput?: string });
+      commissionValueInput: uni.commissionValue != null && !Number.isNaN(uni.commissionValue) ? String(uni.commissionValue) : '',
+      bonusMaxInput: uni.bonusMax != null && !Number.isNaN(uni.bonusMax) ? String(uni.bonusMax) : '',
+      bonusMinInput: uni.bonusMin != null && !Number.isNaN(uni.bonusMin) ? String(uni.bonusMin) : ''
+    } as Partial<University> & {
+      educationVatRateInput?: string;
+      commissionValueInput?: string;
+      bonusMaxInput?: string;
+      bonusMinInput?: string;
+    });
     setLogoPreview(uni.logo || null); setLogoBase64(uni.logo || null);
     setEditingId(uni.id); setModalMode('edit');
   };
@@ -158,27 +191,49 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
   };
 
   /* -------- Submit -------- */
-  const parseAdminFinance = (): Pick<University, 'educationVatRate' | 'commissionKind' | 'commissionValue'> => {
-    const ext = formData as Partial<University> & { educationVatRateInput?: string; commissionValueInput?: string };
+  const parseAdminFinance = (): Pick<University, 'educationVatRate' | 'commissionKind' | 'commissionValue' | 'bonusMax' | 'bonusMin'> => {
+    const ext = formData as Partial<University> & {
+      educationVatRateInput?: string;
+      commissionValueInput?: string;
+      bonusMaxInput?: string;
+      bonusMinInput?: string;
+    };
     const vatRaw = (ext.educationVatRateInput ?? '').toString().trim();
     const educationVatRate = vatRaw === '' ? null : parseInt(vatRaw, 10);
     const kind = (formData.commissionKind || '').toString().trim() as '' | 'amount' | 'rate';
     const commRaw = (ext.commissionValueInput ?? '').toString().trim();
     const commissionValue = commRaw === '' ? null : parseFloat(commRaw);
     const commissionKind = kind === 'amount' || kind === 'rate' ? kind : null;
+    const bonusMaxRaw = (ext.bonusMaxInput ?? '').toString().trim();
+    const bonusMinRaw = (ext.bonusMinInput ?? '').toString().trim();
+    const bonusMax = bonusMaxRaw === '' ? null : parseFloat(bonusMaxRaw);
+    const bonusMin = bonusMinRaw === '' ? null : parseFloat(bonusMinRaw);
     return {
       educationVatRate: vatRaw === '' || Number.isNaN(educationVatRate as number) ? null : educationVatRate,
       commissionKind,
-      commissionValue: commRaw === '' || Number.isNaN(commissionValue as number) ? null : commissionValue
+      commissionValue: commRaw === '' || Number.isNaN(commissionValue as number) ? null : commissionValue,
+      bonusMax: bonusMaxRaw === '' || Number.isNaN(bonusMax as number) ? null : bonusMax,
+      bonusMin: bonusMinRaw === '' || Number.isNaN(bonusMin as number) ? null : bonusMin
     };
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name || !formData.website || !formData.country || !formData.description) return;
-    const adminFin = isAdmin ? parseAdminFinance() : { educationVatRate: null, commissionKind: null, commissionValue: null };
+    const adminFin = isAdmin ? parseAdminFinance() : {
+      educationVatRate: null,
+      commissionKind: null,
+      commissionValue: null,
+      bonusMax: null,
+      bonusMin: null
+    };
     if (isAdmin) {
-      const ext = formData as Partial<University> & { educationVatRateInput?: string; commissionValueInput?: string };
+      const ext = formData as Partial<University> & {
+        educationVatRateInput?: string;
+        commissionValueInput?: string;
+        bonusMaxInput?: string;
+        bonusMinInput?: string;
+      };
       const vatRaw = (ext.educationVatRateInput ?? '').toString().trim();
       if (vatRaw !== '' && adminFin.educationVatRate === null) {
         alert('Eğitim KDV oranı geçerli bir tam sayı olmalıdır.');
@@ -192,6 +247,16 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
         alert('Komisyon değeri için önce tür seçin (tutar veya oran).');
         return;
       }
+      const bonusMaxRaw = (ext.bonusMaxInput ?? '').toString().trim();
+      const bonusMinRaw = (ext.bonusMinInput ?? '').toString().trim();
+      if (bonusMaxRaw !== '' && adminFin.bonusMax === null) {
+        alert('Bonus Max geçerli bir sayı olmalıdır.');
+        return;
+      }
+      if (bonusMinRaw !== '' && adminFin.bonusMin === null) {
+        alert('Bonus Min geçerli bir sayı olmalıdır.');
+        return;
+      }
     }
     const uniData: University = {
       id: editingId || Date.now().toString(),
@@ -203,12 +268,14 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
       ...(isAdmin ? adminFin : {})
     };
     if (modalMode === 'edit') {
-      onEditUniversity(uniData);
-      // update detail view if open
-      if (detailUni?.id === uniData.id) setDetailUni(uniData);
-    } else {
-      onAddUniversity(uniData);
+      const saved = await Promise.resolve(onEditUniversity(uniData));
+      if (saved) {
+        setDetailUni(uniData);
+        closeModal();
+      }
+      return;
     }
+    onAddUniversity(uniData);
     closeModal();
   };
 
@@ -531,6 +598,14 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                             : '—'}
                       </dd>
                     </div>
+                    <div>
+                      <dt className="text-xs font-semibold text-amber-900/80 uppercase tracking-wide mb-1">Bonus Max</dt>
+                      <dd className="text-gray-900 font-medium">{detailUni.bonusMax != null ? String(detailUni.bonusMax) : '—'}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs font-semibold text-amber-900/80 uppercase tracking-wide mb-1">Bonus Min</dt>
+                      <dd className="text-gray-900 font-medium">{detailUni.bonusMin != null ? String(detailUni.bonusMin) : '—'}</dd>
+                    </div>
                   </dl>
                 </section>
               )}
@@ -667,6 +742,30 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                         placeholder={formData.commissionKind === 'rate' ? 'Örn. 12.5' : 'Örn. 5000'}
                         value={(formData as Partial<University> & { commissionValueInput?: string }).commissionValueInput ?? ''}
                         onChange={e => setFormData({ ...formData, commissionValueInput: e.target.value } as Partial<University> & { commissionValueInput?: string })}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-800 mb-1">Bonus Max</label>
+                      <input
+                        type="number"
+                        step="any"
+                        className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-amber-500 outline-none bg-white"
+                        placeholder="Örn. 500"
+                        value={(formData as Partial<University> & { bonusMaxInput?: string }).bonusMaxInput ?? ''}
+                        onChange={e => setFormData({ ...formData, bonusMaxInput: e.target.value } as Partial<University> & { bonusMaxInput?: string })}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-800 mb-1">Bonus Min</label>
+                      <input
+                        type="number"
+                        step="any"
+                        className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-amber-500 outline-none bg-white"
+                        placeholder="Örn. 200"
+                        value={(formData as Partial<University> & { bonusMinInput?: string }).bonusMinInput ?? ''}
+                        onChange={e => setFormData({ ...formData, bonusMinInput: e.target.value } as Partial<University> & { bonusMinInput?: string })}
                       />
                     </div>
                   </div>

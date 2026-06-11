@@ -60,9 +60,9 @@ export interface Translations {
     clearFilter: string;
     /** Recent applications table on dashboard: student column label (not “select student”) */
     dashboardStudentColumn: string;
-    applicationsDashboard: string;
     yesterday: string;
     last7Days: string;
+    last30Days: string;
     thisWeek: string;
     lastWeek: string;
     thisMonth: string;
@@ -72,11 +72,16 @@ export interface Translations {
     noOptions: string;
     byResponsible: string;
     byAgent: string;
+    byAgency: string;
     byUniversity: string;
     byProgram: string;
     byCountry: string;
     byStatus: string;
     others: string;
+    showFullList: string;
+    showChart: string;
+    chartTop20Note: string;
+    chartShare: string;
     totalsByFilter: string;
     totalCost: string;
 
@@ -360,9 +365,9 @@ export const translations: Record<Language, Translations> = {
         applyFilter: 'تطبيق',
         clearFilter: 'مسح الفلتر',
         dashboardStudentColumn: 'الطالب',
-        applicationsDashboard: 'لوحة البطبات',
         yesterday: 'أمس',
         last7Days: 'آخر 7 أيام',
+        last30Days: 'آخر 30 يوم',
         thisWeek: 'هذا الأسبوع',
         lastWeek: 'الأسبوع الماضي',
         thisMonth: 'هذا الشهر',
@@ -372,11 +377,16 @@ export const translations: Record<Language, Translations> = {
         noOptions: 'لا خيارات',
         byResponsible: 'حسب المسؤول',
         byAgent: 'حسب الوكيل',
+        byAgency: 'حسب الوكالة',
         byUniversity: 'حسب الجامعة',
         byProgram: 'حسب البرنامج',
         byCountry: 'حسب الدولة',
         byStatus: 'حسب الحالة',
         others: 'أخرى',
+        showFullList: 'عرض القائمة الكاملة',
+        showChart: 'عرض الرسم',
+        chartTop20Note: 'أعلى 20 (+ أخرى)',
+        chartShare: 'النسبة',
         totalsByFilter: 'المجاميع حسب الفلتر',
         totalCost: 'إجمالي التكلفة',
         newsAndUpdates: 'الأخبار والتحديثات',
@@ -656,9 +666,9 @@ export const translations: Record<Language, Translations> = {
         applyFilter: 'Apply',
         clearFilter: 'Clear filter',
         dashboardStudentColumn: 'Student',
-        applicationsDashboard: 'Applications Dashboard',
         yesterday: 'Yesterday',
         last7Days: 'Last 7 days',
+        last30Days: 'Last 30 days',
         thisWeek: 'This week',
         lastWeek: 'Last week',
         thisMonth: 'This month',
@@ -668,11 +678,16 @@ export const translations: Record<Language, Translations> = {
         noOptions: 'No options',
         byResponsible: 'By responsible',
         byAgent: 'By agent',
+        byAgency: 'By agency',
         byUniversity: 'By university',
         byProgram: 'By program',
         byCountry: 'By country',
         byStatus: 'By status',
         others: 'Others',
+        showFullList: 'Show full list',
+        showChart: 'Show chart',
+        chartTop20Note: 'Top 20 (+ Others)',
+        chartShare: 'Share',
         totalsByFilter: 'Totals (filtered)',
         totalCost: 'Total cost',
         newsAndUpdates: 'News and Updates',
@@ -952,9 +967,9 @@ export const translations: Record<Language, Translations> = {
         applyFilter: 'Uygula',
         clearFilter: 'Filtreyi temizle',
         dashboardStudentColumn: 'Öğrenci',
-        applicationsDashboard: 'Başvuru Panosu',
         yesterday: 'Dün',
         last7Days: 'Son 7 gün',
+        last30Days: 'Son 30 gün',
         thisWeek: 'Bu hafta',
         lastWeek: 'Geçen hafta',
         thisMonth: 'Bu ay',
@@ -964,11 +979,16 @@ export const translations: Record<Language, Translations> = {
         noOptions: 'Seçenek yok',
         byResponsible: 'Sorumluya göre',
         byAgent: 'Temsilciye göre',
+        byAgency: 'Acenteye göre',
         byUniversity: 'Üniversiteye göre',
         byProgram: 'Bölüme göre',
         byCountry: 'Ülkeye göre',
         byStatus: 'Duruma göre',
         others: 'Diğerleri',
+        showFullList: 'Tüm listeyi göster',
+        showChart: 'Grafiği göster',
+        chartTop20Note: 'En çok başvurulan ilk 20 (+ Diğerleri)',
+        chartShare: 'Oran',
         totalsByFilter: 'Toplamlar (filtreye göre)',
         totalCost: 'Toplam maliyet',
         newsAndUpdates: 'Haberler ve Güncellemeler',
