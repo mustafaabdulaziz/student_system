@@ -143,6 +143,7 @@ export interface Translations {
     category_art_design_sports: string;
     programDegree: string;
     programLanguage: string;
+    selectLanguage: string;
     programYears: string;
     programDeadline: string;
     programFee: string;
@@ -214,6 +215,11 @@ export interface Translations {
     semester: string;
     selectStudent: string;
     selectProgram: string;
+    studentInfoSection: string;
+    firstApplicationSection: string;
+    attachmentsSection: string;
+    firstApplicationOptional: string;
+    sharedStudentAttachmentsNote: string;
     uploadFiles: string;
     noApplications: string;
     pending: string;
@@ -445,6 +451,7 @@ export const translations: Record<Language, Translations> = {
         category_art_design_sports: 'الفن والتصميم والرياضة',
         programDegree: 'الدرجة',
         programLanguage: 'لغة التدريس',
+        selectLanguage: 'اختر اللغة',
         programYears: 'عدد السنوات',
         programDeadline: 'الموعد النهائي',
         programFee: 'الرسوم السنوية',
@@ -516,6 +523,11 @@ export const translations: Record<Language, Translations> = {
         semester: 'الفصل الدراسي',
         selectStudent: 'اختر الطالب',
         selectProgram: 'اختر البرنامج',
+        studentInfoSection: 'بيانات الطالب',
+        firstApplicationSection: 'أول طلب',
+        attachmentsSection: 'المرفقات',
+        firstApplicationOptional: 'اختياري — يمكن إنشاء الطلب لاحقاً',
+        sharedStudentAttachmentsNote: 'المرفقات مرتبطة بالطالب وتُشارك بين جميع طلباته',
         uploadFiles: 'رفع الملفات',
         noApplications: 'لا توجد طلبات',
         pending: 'قيد الانتظار',
@@ -746,6 +758,7 @@ export const translations: Record<Language, Translations> = {
         category_art_design_sports: 'Arts, Design and Sports',
         programDegree: 'Degree',
         programLanguage: 'Language',
+        selectLanguage: 'Select language',
         programYears: 'Years',
         programDeadline: 'Deadline',
         programFee: 'Annual fee',
@@ -817,6 +830,11 @@ export const translations: Record<Language, Translations> = {
         semester: 'Semester',
         selectStudent: 'Select Student',
         selectProgram: 'Select Program',
+        studentInfoSection: 'Student Information',
+        firstApplicationSection: 'First Application',
+        attachmentsSection: 'Attachments',
+        firstApplicationOptional: 'Optional — you can add the application later',
+        sharedStudentAttachmentsNote: 'Attachments belong to the student and are shared across all applications',
         uploadFiles: 'Upload Files',
         noApplications: 'No applications found',
         pending: 'Pending',
@@ -1047,6 +1065,7 @@ export const translations: Record<Language, Translations> = {
         category_art_design_sports: 'Sanat, Tasarım ve Spor',
         programDegree: 'Derece',
         programLanguage: 'Dil',
+        selectLanguage: 'Dil seç',
         programYears: 'Yıl',
         programDeadline: 'Son Tarih',
         programFee: 'Yıllık ücret',
@@ -1118,6 +1137,11 @@ export const translations: Record<Language, Translations> = {
         semester: 'Dönem',
         selectStudent: 'Öğrenci Seç',
         selectProgram: 'Program Seç',
+        studentInfoSection: 'Öğrenci Bilgileri',
+        firstApplicationSection: 'İlk Başvuru',
+        attachmentsSection: 'Ekler',
+        firstApplicationOptional: 'İsteğe bağlı — başvuruyu daha sonra da ekleyebilirsiniz',
+        sharedStudentAttachmentsNote: 'Ekler öğrenciye bağlıdır ve tüm başvurularda paylaşılır',
         uploadFiles: 'Dosya Yükle',
         noApplications: 'Başvuru bulunamadı',
         pending: 'Beklemede',

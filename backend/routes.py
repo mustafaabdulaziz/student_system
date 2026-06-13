@@ -5,6 +5,8 @@ import os
 import uuid
 from datetime import datetime
 from werkzeug.utils import secure_filename
+from sqlalchemy.orm.attributes import flag_modified
+from sqlalchemy import inspect, text
 
 api_bp = Blueprint('api', __name__)
 
@@ -53,6 +55,87 @@ def _touch_application_and_student(application):
         st.updated_at = now
 
 
+def _files_info_list(filenames):
+    return [
+        {
+            'name': f.split('_', 1)[1] if '_' in f else f,
+            'filename': f,
+            'url': url_for('api.upload_file', filename=f, _external=False)
+        } for f in (filenames or [])
+    ]
+
+
+def _save_upload_files(file_storage_list):
+    upload_folder = UPLOADS_DIR
+    os.makedirs(upload_folder, exist_ok=True)
+    saved = []
+    for file in file_storage_list:
+        if not file:
+            continue
+        raw_name = (getattr(file, 'filename', None) or '').strip()
+        if not raw_name:
+            continue
+        safe = secure_filename(raw_name)
+        if not safe or safe in ('.', ''):
+            ext = os.path.splitext(raw_name)[1]
+            safe = f"upload{ext}" if ext else 'upload.bin'
+        filename = f"{uuid.uuid4()}_{safe}"
+        file.save(os.path.join(upload_folder, filename))
+        saved.append(filename)
+    return saved
+
+
+def _student_files_raw(student):
+    if not student:
+        return []
+    return list(getattr(student, 'files', None) or [])
+
+
+def _application_files_raw(application, student=None):
+    if student is None and application:
+        student = Student.query.get(application.student_id)
+    st_files = _student_files_raw(student)
+    if st_files:
+        return st_files
+    return list(getattr(application, 'files', None) or [])
+
+
+def _ensure_student_files_column():
+    """Create students.files if missing (e.g. server started without run.py migrations)."""
+    try:
+        inspector = inspect(db.engine)
+        if 'students' not in inspector.get_table_names():
+            return
+        cols = [c['name'] for c in inspector.get_columns('students')]
+        if 'files' in cols:
+            return
+        with db.engine.connect() as conn:
+            conn.execute(text('ALTER TABLE students ADD COLUMN files VARCHAR[]'))
+            conn.commit()
+    except Exception as e:
+        print('ensure students.files column:', e)
+
+
+def _append_student_files(student, filenames):
+    _ensure_student_files_column()
+    combined = list(_student_files_raw(student)) + list(filenames)
+    student.files = combined
+    flag_modified(student, 'files')
+
+
+def _touch_student(student):
+    if not student:
+        return
+    student.updated_at = _iso_timestamp()
+
+
+def _student_by_id_for_applications(applications):
+    student_ids = list({a.student_id for a in applications if a.student_id})
+    if not student_ids:
+        return {}
+    return {s.id: s for s in Student.query.filter(Student.id.in_(student_ids)).all()}
+
+
 def _query_int_arg(name, default_value, min_value=1, max_value=500):
     raw = request.args.get(name)
     if raw is None:
@@ -88,6 +171,7 @@ def _serialize_student(s):
         'dob': s.dob,
         'residenceCountry': s.residence_country,
         'userId': getattr(s, 'user_id', None),
+        'files': [url_for('api.upload_file', filename=f, _external=False) for f in _student_files_raw(s)],
         'createdAt': getattr(s, 'created_at', None),
         'updatedAt': _student_updated_at_for_api(s) or _normalize_ts_z(getattr(s, 'created_at', None))
     }
@@ -125,8 +209,14 @@ def _normalize_created_at(created_at):
     return created_at + 'T00:00:00.000Z'
 
 
-def _serialize_application(a, program_by_id):
+def _serialize_application(a, program_by_id, student_by_id=None):
     p = program_by_id.get(a.program_id)
+    st = None
+    if student_by_id is not None:
+        st = student_by_id.get(a.student_id)
+    elif a.student_id:
+        st = Student.query.get(a.student_id)
+    files_raw = _application_files_raw(a, st)
     return {
         'id': a.id,
         'studentId': a.student_id,
@@ -136,7 +226,7 @@ def _serialize_application(a, program_by_id):
         'semester': a.semester,
         'createdAt': _normalize_created_at(a.created_at),
         'updatedAt': _application_updated_at_for_api(a),
-        'files': [url_for('api.upload_file', filename=f, _external=False) for f in (a.files or [])],
+        'files': [url_for('api.upload_file', filename=f, _external=False) for f in files_raw],
         'userId': a.user_id,
         'agentPhone': a.user.phone if a.user else None,
         'agentName': a.user.name if a.user else None,
@@ -616,7 +706,9 @@ def update_student(student_id):
     student = Student.query.get(student_id)
     if not student:
         return jsonify({'message': 'Student not found'}), 404
-    data = request.json
+    data = request.json or {}
+    if _request_role_value() == 'AGENT':
+        return jsonify({'message': 'Agents cannot edit students'}), 403
     student.first_name = data.get('firstName', student.first_name)
     student.last_name = data.get('lastName', student.last_name)
     student.passport_number = data.get('passportNumber', student.passport_number)
@@ -1080,8 +1172,9 @@ def get_applications():
         applications = query.offset((page - 1) * page_size).limit(page_size).all()
         program_ids = [a.program_id for a in applications if a.program_id]
         program_by_id = {p.id: p for p in Program.query.filter(Program.id.in_(program_ids)).all()} if program_ids else {}
+        student_by_id = _student_by_id_for_applications(applications)
         return jsonify({
-            'items': [_serialize_application(a, program_by_id) for a in applications],
+            'items': [_serialize_application(a, program_by_id, student_by_id) for a in applications],
             'total': total,
             'page': page,
             'pageSize': page_size,
@@ -1090,7 +1183,8 @@ def get_applications():
     applications = query.all()
     program_ids = [a.program_id for a in applications if a.program_id]
     program_by_id = {p.id: p for p in Program.query.filter(Program.id.in_(program_ids)).all()} if program_ids else {}
-    return jsonify([_serialize_application(a, program_by_id) for a in applications])
+    student_by_id = _student_by_id_for_applications(applications)
+    return jsonify([_serialize_application(a, program_by_id, student_by_id) for a in applications])
 
 
 import os
@@ -1114,13 +1208,9 @@ def add_application():
     responsible_id = request.form.get('responsible_id') or None
     agency_company_id = request.form.get('agency_company_id') or None
     created_at = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
-    saved_files = []
-    upload_folder = UPLOADS_DIR
-    os.makedirs(upload_folder, exist_ok=True)
-    for file in files:
-        filename = f"{uuid.uuid4()}_{file.filename}"
-        file.save(os.path.join(upload_folder, filename))
-        saved_files.append(filename)
+    saved_files = _save_upload_files(files)
+    if files and any((getattr(f, 'filename', None) or '').strip() for f in files) and not saved_files:
+        return jsonify({'message': 'Could not save uploaded files'}), 400
     application = Application(
         id=_generate_app_id(),
         student_id=student_id,
@@ -1130,7 +1220,7 @@ def add_application():
         semester=semester,
         created_at=created_at,
         updated_at=created_at,
-        files=saved_files,
+        files=[],
         user_id=user_id,
         responsible_id=responsible_id,
         agency_company_id=agency_company_id
@@ -1140,7 +1230,11 @@ def add_application():
     stu = Student.query.get(student_id)
     if stu:
         stu.updated_at = created_at
+        if saved_files:
+            _append_student_files(stu, saved_files)
     db.session.commit()
+    if stu:
+        db.session.refresh(stu)
     # 7. Notify admin and users when an agent adds an application
     if user_id:
         agent_user = User.query.get(user_id)
@@ -1157,9 +1251,10 @@ def add_application():
                 )
                 db.session.add(n)
             db.session.commit()
-    file_urls = [url_for('api.upload_file', filename=f, _external=False) for f in saved_files]
+    file_urls = [url_for('api.upload_file', filename=f, _external=False) for f in _student_files_raw(stu)]
     program = Program.query.get(application.program_id) if application.program_id else None
     program_by_id = {program.id: program} if program else {}
+    student_by_id = {stu.id: stu} if stu else {}
     return jsonify({
         'message': 'Application added',
         'id': application.id,
@@ -1168,7 +1263,7 @@ def add_application():
         'updatedAt': application.updated_at or application.created_at,
         'studentId': student_id,
         'studentUpdatedAt': stu.updated_at if stu else None,
-        'application': _serialize_application(application, program_by_id)
+        'application': _serialize_application(application, program_by_id, student_by_id)
     }), 201
 
 
@@ -1198,13 +1293,7 @@ def add_application_v2():
     semester = request.form.get('semester')
     agency_company_id = request.form.get('agency_company_id') or None
     created_at = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
-    saved_files = []
-    upload_folder = UPLOADS_DIR
-    os.makedirs(upload_folder, exist_ok=True)
-    for file in files:
-        filename = f"{uuid.uuid4()}_{file.filename}"
-        file.save(os.path.join(upload_folder, filename))
-        saved_files.append(filename)
+    saved_files = _save_upload_files(files)
 
     app_id = _generate_app_id()
     application = Application(
@@ -1217,17 +1306,20 @@ def add_application_v2():
         agency_company_id=agency_company_id,
         created_at=created_at,
         updated_at=created_at,
-        files=saved_files
+        files=[]
     )
     _compute_application_finance(application, prefer_user_agency_commission=True)
     db.session.add(application)
     stu = Student.query.get(student_id)
     if stu:
         stu.updated_at = created_at
+        if saved_files:
+            _append_student_files(stu, saved_files)
     db.session.commit()
-    file_urls = [url_for('api.upload_file', filename=f, _external=False) for f in saved_files]
+    file_urls = [url_for('api.upload_file', filename=f, _external=False) for f in _student_files_raw(stu)]
     program = Program.query.get(application.program_id) if application.program_id else None
     program_by_id = {program.id: program} if program else {}
+    student_by_id = {stu.id: stu} if stu else {}
     return jsonify({
         'message': 'Application added',
         'id': application.id,
@@ -1236,7 +1328,7 @@ def add_application_v2():
         'updatedAt': application.updated_at or application.created_at,
         'studentId': student_id,
         'studentUpdatedAt': _student_updated_at_for_api(stu) if stu else None,
-        'application': _serialize_application(application, program_by_id)
+        'application': _serialize_application(application, program_by_id, student_by_id)
     }), 201
 
 
@@ -1394,44 +1486,117 @@ def upload_file(filename):
     return send_from_directory(upload_folder, filename, as_attachment=False)
 
 
-# List files for an application / upload additional files
+# Student attachments (shared across all applications for that student)
+@api_bp.route('/students/<student_id>/files', methods=['GET', 'POST'])
+def student_files(student_id):
+    student = Student.query.get(student_id)
+    if not student:
+        return jsonify({'message': 'Student not found'}), 404
+
+    if request.method == 'GET':
+        return jsonify(_files_info_list(_student_files_raw(student)))
+
+    uploaded = request.files.getlist('files')
+    if not uploaded or not any((getattr(f, 'filename', None) or '').strip() for f in uploaded):
+        return jsonify({'message': 'No files provided'}), 400
+    saved = _save_upload_files(uploaded)
+    if not saved:
+        return jsonify({'message': 'Could not save uploaded files'}), 400
+    try:
+        _append_student_files(student, saved)
+        _touch_student(student)
+        db.session.commit()
+        db.session.refresh(student)
+    except Exception as e:
+        db.session.rollback()
+        print('student_files POST error:', e)
+        return jsonify({'message': f'Failed to save files: {e}'}), 500
+
+    uploader_id = (request.form.get('user_id') or request.form.get('userId') or '').strip() or None
+    if uploader_id:
+        uploader = User.query.get(uploader_id)
+        if uploader and (uploader.role or '').lower() == 'agent':
+            for u in User.query.filter(User.role.in_(['ADMIN', 'USER'])).all():
+                n = Notification(
+                    id=str(uuid.uuid4()),
+                    user_id=u.id,
+                    title='Student files uploaded',
+                    message=f"Agent {uploader.name} uploaded file(s) for student {student.first_name} {student.last_name}.",
+                    link=f"/students",
+                    created_at=datetime.utcnow().isoformat(),
+                    type='STATUS'
+                )
+                db.session.add(n)
+            db.session.commit()
+
+    return jsonify({
+        'message': 'Files added',
+        'files': _files_info_list(_student_files_raw(student)),
+        'studentId': student.id,
+        'studentUpdatedAt': _student_updated_at_for_api(student)
+    }), 201
+
+
+@api_bp.route('/students/<student_id>/files/<path:filename>', methods=['DELETE'])
+def delete_student_file(student_id, filename):
+    student = Student.query.get(student_id)
+    if not student:
+        return jsonify({'message': 'Student not found'}), 404
+
+    current_files = _student_files_raw(student)
+    if filename not in current_files:
+        return jsonify({'message': 'File not found'}), 404
+
+    student.files = [f for f in current_files if f != filename]
+    _touch_student(student)
+    db.session.commit()
+
+    upload_folder = UPLOADS_DIR
+    file_path = os.path.join(upload_folder, filename)
+    if os.path.exists(file_path):
+        try:
+            os.remove(file_path)
+        except Exception:
+            pass
+
+    return jsonify({
+        'message': 'File deleted successfully',
+        'studentId': student.id,
+        'studentUpdatedAt': _student_updated_at_for_api(student)
+    }), 200
+
+
+# Application file routes — read/write student-level attachments (shared across applications)
 @api_bp.route('/applications/<app_id>/files', methods=['GET', 'POST'])
 def application_files(app_id):
     application = Application.query.get(app_id)
     if not application:
         return jsonify({'message': 'Application not found'}), 404
-
-    upload_folder = UPLOADS_DIR
-    os.makedirs(upload_folder, exist_ok=True)
+    student = Student.query.get(application.student_id)
+    if not student:
+        return jsonify({'message': 'Student not found'}), 404
 
     if request.method == 'GET':
-        files = application.files or []
-        files_info = [
-            {
-                'name': f.split('_', 1)[1] if '_' in f else f,
-                'filename': f,
-                'url': url_for('api.upload_file', filename=f, _external=False)
-            } for f in files
-        ]
-        return jsonify(files_info)
+        return jsonify(_files_info_list(_application_files_raw(application, student)))
 
-    # POST: add more files to existing application
-    if 'files' not in request.files:
+    uploaded = request.files.getlist('files')
+    if not uploaded or not any((getattr(f, 'filename', None) or '').strip() for f in uploaded):
         return jsonify({'message': 'No files provided'}), 400
-    files = request.files.getlist('files')
-    saved = []
-    for file in files:
-        filename = f"{uuid.uuid4()}_{secure_filename(file.filename)}"
-        file.save(os.path.join(upload_folder, filename))
-        saved.append(filename)
+    saved = _save_upload_files(uploaded)
+    if not saved:
+        return jsonify({'message': 'Could not save uploaded files'}), 400
+    try:
+        _append_student_files(student, saved)
+        _touch_application_and_student(application)
+        db.session.commit()
+        db.session.refresh(student)
+    except Exception as e:
+        db.session.rollback()
+        print('application_files POST error:', e)
+        return jsonify({'message': f'Failed to save files: {e}'}), 500
 
-    application.files = (application.files or []) + saved
-    _touch_application_and_student(application)
-    db.session.commit()
-
-    # Notify admin, managers (USER), and responsible when an agent uploads files
     uploader_id = (request.form.get('user_id') or request.form.get('userId') or '').strip() or None
-    if saved and uploader_id:
+    if uploader_id:
         uploader = User.query.get(uploader_id)
         if uploader and (uploader.role or '').lower() == 'agent':
             notify_ids = {u.id for u in User.query.filter(User.role.in_(['ADMIN', 'USER'])).all()}
@@ -1451,36 +1616,30 @@ def application_files(app_id):
                 db.session.add(n)
             db.session.commit()
 
-    files_info = [
-        {
-            'name': f.split('_', 1)[1] if '_' in f else f,
-            'filename': f,
-            'url': url_for('api.upload_file', filename=f, _external=False)
-        } for f in application.files
-    ]
-    stu = Student.query.get(application.student_id)
     return jsonify({
         'message': 'Files added',
-        'files': files_info,
+        'files': _files_info_list(_application_files_raw(application, student)),
         'updatedAt': _application_updated_at_for_api(application),
         'studentId': application.student_id,
-        'studentUpdatedAt': _student_updated_at_for_api(stu)
+        'studentUpdatedAt': _student_updated_at_for_api(student)
     }), 201
+
 
 @api_bp.route('/applications/<app_id>/files/<path:filename>', methods=['DELETE'])
 def delete_application_file(app_id, filename):
     application = Application.query.get(app_id)
     if not application:
         return jsonify({'message': 'Application not found'}), 404
+    student = Student.query.get(application.student_id)
+    if not student:
+        return jsonify({'message': 'Student not found'}), 404
 
-    current_files = application.files or []
+    current_files = _application_files_raw(application, student)
     if filename not in current_files:
-        return jsonify({'message': 'File not found in application'}), 404
+        return jsonify({'message': 'File not found'}), 404
 
-    current_files.remove(filename)
-    # SQLAlchemy requires assigning a new reference or mutating the mutable list properly if using JSON
-    # It's safer to assign a new list of the remaining items.
-    application.files = list(current_files)
+    student.files = [f for f in _student_files_raw(student) if f != filename]
+    application.files = [f for f in (application.files or []) if f != filename]
     _touch_application_and_student(application)
     db.session.commit()
 
@@ -1489,15 +1648,14 @@ def delete_application_file(app_id, filename):
     if os.path.exists(file_path):
         try:
             os.remove(file_path)
-        except Exception as e:
-            pass # ignore if file already missing or locked
+        except Exception:
+            pass
 
-    stu = Student.query.get(application.student_id)
     return jsonify({
         'message': 'File deleted successfully',
         'updatedAt': _application_updated_at_for_api(application),
         'studentId': application.student_id,
-        'studentUpdatedAt': _student_updated_at_for_api(stu)
+        'studentUpdatedAt': _student_updated_at_for_api(student)
     }), 200
 
 # Update application status

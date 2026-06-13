@@ -358,7 +358,10 @@ export default function App() {
       const res = await fetch(`/api/students/${student.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(student)
+        body: JSON.stringify({
+          ...student,
+          role: state.currentUser?.role
+        })
       });
       const data = await res.json();
       if (res.ok) {
@@ -377,15 +380,75 @@ export default function App() {
     return undefined;
   };
 
-  const addApplication = async (app: Application, files?: FileList | null): Promise<string | null> => {
+  const syncStudentFiles = useCallback((studentId: string, fileUrls: string[]) => {
+    setState(prev => ({
+      ...prev,
+      students: prev.students.map(s => s.id === studentId ? { ...s, files: fileUrls } : s),
+      applications: prev.applications.map(a => a.studentId === studentId ? { ...a, files: fileUrls } : a)
+    }));
+  }, []);
+
+  const uploadStudentFiles = async (studentId: string, files: File[]): Promise<string[]> => {
+    if (!files.length) return [];
+    const fd = new FormData();
+    files.forEach(f => fd.append('files', f));
+    if (state.currentUser?.id) fd.append('user_id', state.currentUser.id);
+    try {
+      const res = await fetch(`/api/students/${studentId}/files`, { method: 'POST', body: fd });
+      let data: { files?: { url: string }[]; message?: string } = {};
+      try { data = await res.json(); } catch { /* non-json */ }
+      if (res.ok) {
+        const urls = (data.files || []).map((x) => x.url);
+        if (!urls.length) {
+          alert(t.uploadFailed);
+          return [];
+        }
+        syncStudentFiles(studentId, urls);
+        return urls;
+      }
+      alert(data.message || t.uploadFailed);
+    } catch {
+      alert(t.errorConnection);
+    }
+    return [];
+  };
+
+  /** Same endpoint as başvuru detayı — proven upload path */
+  const uploadApplicationFiles = async (applicationId: string, files: File[]): Promise<string[]> => {
+    if (!files.length) return [];
+    const fd = new FormData();
+    files.forEach(f => fd.append('files', f));
+    if (state.currentUser?.id) fd.append('user_id', state.currentUser.id);
+    try {
+      const res = await fetch(`/api/applications/${applicationId}/files`, { method: 'POST', body: fd });
+      let data: { files?: { url: string }[]; message?: string; studentId?: string } = {};
+      try { data = await res.json(); } catch { /* non-json */ }
+      if (res.ok) {
+        const urls = (data.files || []).map((x) => x.url);
+        if (!urls.length) {
+          alert(t.uploadFailed);
+          return [];
+        }
+        if (data.studentId) syncStudentFiles(data.studentId, urls);
+        return urls;
+      }
+      alert(data.message || t.uploadFailed);
+    } catch {
+      alert(t.errorConnection);
+    }
+    return [];
+  };
+
+  const addApplication = async (app: Application, files?: FileList | File[] | null): Promise<string | null> => {
     const formData = new FormData();
     formData.append('studentId', app.studentId);
     formData.append('programId', app.programId);
     if (app.periodId) formData.append('periodId', app.periodId);
     formData.append('status', app.status);
     formData.append('semester', app.semester);
-    if (files) {
-      Array.from(files).forEach(f => formData.append('files', f));
+    if (files && (Array.isArray(files) ? files.length : files.length)) {
+      const arr = Array.isArray(files) ? files : Array.from(files);
+      arr.forEach(f => formData.append('files', f));
     }
     const userIdToSend = app.userId ?? state.currentUser?.id ?? '';
     if (userIdToSend) formData.append('user_id', userIdToSend);
@@ -424,9 +487,18 @@ export default function App() {
         };
         setState(prev => ({
           ...prev,
-          applications: [...prev.applications, newApp],
-          students: data.studentId && data.studentUpdatedAt
-            ? prev.students.map(s => s.id === data.studentId ? { ...s, updatedAt: data.studentUpdatedAt } : s)
+          applications: [
+            ...prev.applications.map(a =>
+              a.studentId === data.studentId && savedFiles.length ? { ...a, files: savedFiles } : a
+            ),
+            newApp
+          ],
+          students: data.studentId
+            ? prev.students.map(s => s.id === data.studentId ? {
+              ...s,
+              updatedAt: data.studentUpdatedAt || s.updatedAt,
+              ...(savedFiles.length ? { files: savedFiles } : {})
+            } : s)
             : prev.students
         }));
         return data.id;
@@ -932,9 +1004,9 @@ export default function App() {
       case 'programs':
         return <ProgramManager programs={state.programs} universities={state.universities} periods={state.periods} onAddProgram={addProgram} onEditProgram={editProgram} onDeleteProgram={deleteProgram} currentUser={state.currentUser} />;
       case 'students':
-        return <StudentManager students={state.students} applications={state.applications} programs={state.programs} universities={state.universities} periods={state.periods} users={state.users} onAddStudent={addStudent} onEditStudent={updateStudent} onCreateApplicationForStudent={openCreateApplicationForStudent} onAddApplicationForStudent={(app) => addApplication(app)} onViewApplication={openApplicationDetails} currentUser={state.currentUser} targetStudentId={targetStudentId} clearTargetStudent={() => setTargetStudentId(null)} />;
+        return <StudentManager students={state.students} applications={state.applications} programs={state.programs} universities={state.universities} periods={state.periods} users={state.users} agencyCompanies={state.agencyCompanies} onAddStudent={addStudent} onEditStudent={updateStudent} onUploadStudentFiles={uploadStudentFiles} onUploadApplicationFiles={uploadApplicationFiles} onStudentFilesChange={syncStudentFiles} onCreateApplicationForStudent={openCreateApplicationForStudent} onAddApplicationForStudent={(app) => addApplication(app)} onUpdateApplicationStatus={updateAppStatus} onUpdateApplication={updateApplication} onSyncApplicationTimestamps={onSyncApplicationTimestamps} onViewApplication={openApplicationDetails} currentUser={state.currentUser} targetStudentId={targetStudentId} clearTargetStudent={() => setTargetStudentId(null)} />;
       case 'applications':
-        return <ApplicationManager applications={state.applications} students={state.students} programs={state.programs} universities={state.universities} periods={state.periods} agencyCompanies={state.agencyCompanies} users={state.users} onAddApplication={addApplication} onUpdateStatus={updateAppStatus} onUpdateApplication={updateApplication} onSyncApplicationTimestamps={onSyncApplicationTimestamps} initialStudentId={prefillStudentIdForApp} clearInitialStudent={() => setPrefillStudentIdForApp(null)} targetApplicationId={targetApplicationId} clearTargetApplication={() => setTargetApplicationId(null)} initialListFilters={applicationListFilters} clearInitialListFilters={() => setApplicationListFilters(null)} onOpenStudent={openStudentDetails} currentUser={state.currentUser} />;
+        return <ApplicationManager applications={state.applications} students={state.students} programs={state.programs} universities={state.universities} periods={state.periods} agencyCompanies={state.agencyCompanies} users={state.users} onAddApplication={addApplication} onUpdateStatus={updateAppStatus} onUpdateApplication={updateApplication} onSyncApplicationTimestamps={onSyncApplicationTimestamps} onStudentFilesChange={syncStudentFiles} initialStudentId={prefillStudentIdForApp} clearInitialStudent={() => setPrefillStudentIdForApp(null)} targetApplicationId={targetApplicationId} clearTargetApplication={() => setTargetApplicationId(null)} initialListFilters={applicationListFilters} clearInitialListFilters={() => setApplicationListFilters(null)} onOpenStudent={openStudentDetails} currentUser={state.currentUser} />;
       case 'news':
         return (
           <Suspense fallback={<div className="p-6 text-gray-500">{state.currentUser ? t.loading : ''}</div>}>

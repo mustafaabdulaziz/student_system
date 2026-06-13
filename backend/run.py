@@ -221,6 +221,13 @@ if __name__ == '__main__':
                         conn.commit()
                     except Exception:
                         pass
+                    try:
+                        sc2 = [c['name'] for c in inspector.get_columns('students')]
+                        if 'files' not in sc2:
+                            conn.execute(text('ALTER TABLE students ADD COLUMN files VARCHAR[]'))
+                            conn.commit()
+                    except Exception as e:
+                        print('Students files column check:', e)
             except Exception as e:
                 print('Students updated_at column check:', e)
             try:
@@ -303,4 +310,27 @@ if __name__ == '__main__':
             )
             db.session.add(admin)
             db.session.commit()
+
+        # Migrate legacy per-application files onto student records (shared attachments)
+        try:
+            from models import Student, Application
+            changed = False
+            for application in Application.query.all():
+                app_files = application.files or []
+                if not app_files:
+                    continue
+                st = Student.query.get(application.student_id)
+                if not st:
+                    continue
+                existing = set(st.files or [])
+                merged = existing | set(app_files)
+                if merged != existing:
+                    st.files = list(merged)
+                    changed = True
+            if changed:
+                db.session.commit()
+                print('Migrated application files to student records')
+        except Exception as e:
+            print('Migrate app files to students:', e)
+            db.session.rollback()
     app.run(debug=True)

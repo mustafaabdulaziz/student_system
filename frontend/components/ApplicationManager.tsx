@@ -9,6 +9,7 @@ import {
 import { useTranslation } from '../hooks/useTranslation';
 import { useLanguage } from '../contexts/LanguageContext';
 import { matchesCreatedAtRange } from '../utils/createdAtRangeFilter';
+import { getApplicationStatusBadgeClass } from '../utils/applicationStatusStyles';
 
 function MultiSelectFilter({
   selected,
@@ -160,6 +161,7 @@ interface ApplicationManagerProps {
     studentId?: string;
     studentUpdatedAt?: string | null;
   }) => void;
+  onStudentFilesChange?: (studentId: string, fileUrls: string[]) => void;
   initialStudentId?: string | null;
   clearInitialStudent?: () => void;
   targetApplicationId?: string | null;
@@ -168,14 +170,19 @@ interface ApplicationManagerProps {
   clearInitialListFilters?: () => void;
   onOpenStudent?: (studentId: string) => void;
   currentUser?: { role: string; name?: string; id?: string; email?: string };
+  /** When set, only the application detail view is shown (e.g. embedded under Students tab). */
+  embedMode?: 'students';
+  embedApplicationId?: string | null;
+  onEmbedBack?: () => void;
 }
 
 export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   applications, students, programs, universities, periods = [], agencyCompanies = [], users = [], onAddApplication, onUpdateStatus, onUpdateApplication,
-  onSyncApplicationTimestamps,
+  onSyncApplicationTimestamps, onStudentFilesChange,
   initialStudentId, clearInitialStudent, targetApplicationId, clearTargetApplication,
   initialListFilters, clearInitialListFilters,
-  onOpenStudent, currentUser
+  onOpenStudent, currentUser,
+  embedMode, embedApplicationId, onEmbedBack
 }) => {
   const { t, translateStatus, translateDegree } = useTranslation();
   const { language } = useLanguage();
@@ -454,6 +461,14 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
       if (typeof clearTargetApplication === 'function') clearTargetApplication();
     }
   }, [targetApplicationId, clearTargetApplication]);
+
+  useEffect(() => {
+    if (embedMode === 'students' && embedApplicationId) {
+      setSelectedAppId(embedApplicationId);
+      setView('detail');
+      scrollContentTop();
+    }
+  }, [embedMode, embedApplicationId]);
 
   useEffect(() => {
     if (!initialListFilters) return;
@@ -1001,20 +1016,21 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     };
 
     // --- Status Bar Steps ---
-    const getStatusBadgeClass = (status: ApplicationStatus) => {
-      if (status === ApplicationStatus.ACCEPTED) return 'bg-green-50 text-green-700 border-green-100';
-      if (status === ApplicationStatus.REJECTED || status === ApplicationStatus.PAYMENT_REJECTED) return 'bg-red-50 text-red-700 border-red-100';
-      if (status === ApplicationStatus.MISSING_DOCS || status === ApplicationStatus.QUOTA_FULL) return 'bg-orange-50 text-orange-700 border-orange-100';
-      if (status === ApplicationStatus.DRAFT) return 'bg-gray-50 text-gray-700 border-gray-200';
-      return 'bg-blue-50 text-blue-700 border-blue-100';
-    };
+    const getStatusBadgeClass = (status: ApplicationStatus, size: 'header' | 'default' | 'compact' = 'default') =>
+      getApplicationStatusBadgeClass(status, size);
 
     return (
       <div className="max-w-[1400px] mx-auto space-y-3 -mt-1 animate-in slide-in-from-bottom duration-500">
         {/* Header Actions */}
         <div className="bg-white px-3 py-1.5 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between gap-2">
           <div className="flex items-center">
-            <button onClick={() => setView('list')} className="flex items-center gap-2 text-gray-500 hover:text-blue-600 transition-colors font-bold">
+            <button
+              onClick={() => {
+                if (embedMode === 'students' && onEmbedBack) onEmbedBack();
+                else setView('list');
+              }}
+              className="flex items-center gap-2 text-gray-500 hover:text-blue-600 transition-colors font-bold"
+            >
               <ChevronLeft size={20} />
               <span>{t.back}</span>
             </button>
@@ -1033,7 +1049,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                   ))}
                 </select>
               ) : (
-                <span className={`px-3 py-1 rounded-full text-xs font-bold border ${getStatusBadgeClass(app.status)}`}>
+                <span className={getStatusBadgeClass(app.status, 'header')}>
                   {translateStatus(app.status)}
                 </span>
               )}
@@ -1264,6 +1280,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                 <Paperclip size={18} className="text-gray-400" />
                 <h4 className="font-bold text-gray-800 text-sm">{t.uploadFiles} ({detailFiles.length})</h4>
               </div>
+              <p className="text-[11px] text-gray-500 mb-3">{t.sharedStudentAttachmentsNote}</p>
 
               {detailFiles.length > 0 ? (
                 <div className="space-y-2 mb-4">
@@ -1291,7 +1308,11 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                               let delData: { message?: string; updatedAt?: string; studentId?: string; studentUpdatedAt?: string | null } = {};
                               try { delData = await r.json(); } catch { /* empty body */ }
                               if (r.ok) {
-                                setDetailFiles(prev => prev.filter(file => file.filename !== f.filename));
+                                const remaining = detailFiles.filter(file => file.filename !== f.filename);
+                                setDetailFiles(remaining);
+                                if (delData.studentId && onStudentFilesChange) {
+                                  onStudentFilesChange(delData.studentId, remaining.map(file => file.url));
+                                }
                                 if (delData.updatedAt && onSyncApplicationTimestamps) {
                                   onSyncApplicationTimestamps({
                                     applicationId: selectedAppId!,
@@ -1350,6 +1371,9 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                       const data = await r.json();
                       if (r.ok) {
                         setDetailFiles(data.files.map((x: any) => ({ url: x.url, name: x.name || x.url.split('/').pop(), filename: x.filename })));
+                        if (data.studentId && onStudentFilesChange) {
+                          onStudentFilesChange(data.studentId, data.files.map((x: { url: string }) => x.url));
+                        }
                         setAttachFiles(null);
                         const inp = document.getElementById('attach-files-det') as HTMLInputElement;
                         if (inp) inp.value = '';
@@ -1680,6 +1704,14 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     );
   };
 
+  if (embedMode === 'students' && embedApplicationId) {
+    return (
+      <div className="space-y-6">
+        {view === 'detail' && renderDetail()}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {view === 'list' && (
@@ -1951,12 +1983,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                           {visibleTreeColumns.includes('status') && (
                             <td className="px-6 py-4">
                               <div className="flex justify-center">
-                                <span className={`px-4 py-1.5 rounded-full text-xs font-bold ring-1
-                                  ${app.status === ApplicationStatus.ACCEPTED ? 'bg-green-50 text-green-700 ring-green-100' :
-                                    app.status === ApplicationStatus.REJECTED || app.status === ApplicationStatus.PAYMENT_REJECTED ? 'bg-red-50 text-red-700 ring-red-100' :
-                                      app.status === ApplicationStatus.MISSING_DOCS || app.status === ApplicationStatus.QUOTA_FULL ? 'bg-orange-50 text-orange-700 ring-orange-100' :
-                                        app.status === ApplicationStatus.DRAFT ? 'bg-gray-50 text-gray-700 ring-gray-200' :
-                                          'bg-blue-50 text-blue-700 ring-blue-100'}`}>
+                                <span className={getApplicationStatusBadgeClass(app.status, 'default')}>
                                   {translateStatus(app.status)}
                                 </span>
                               </div>
@@ -2076,12 +2103,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                           <br />
                           {t.lastUpdatedAt}: {(app.updatedAt || app.createdAt) ? new Date(app.updatedAt || app.createdAt).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
                         </p>
-                        <span className={`inline-block mt-2 px-2 py-0.5 rounded-full text-[10px] font-medium
-                          ${app.status === ApplicationStatus.ACCEPTED ? 'bg-green-50 text-green-700' :
-                            app.status === ApplicationStatus.REJECTED || app.status === ApplicationStatus.PAYMENT_REJECTED ? 'bg-red-50 text-red-700' :
-                              app.status === ApplicationStatus.MISSING_DOCS || app.status === ApplicationStatus.QUOTA_FULL ? 'bg-orange-50 text-orange-700' :
-                                app.status === ApplicationStatus.DRAFT ? 'bg-gray-100 text-gray-600' :
-                                  'bg-blue-50 text-blue-700'}`}>
+                        <span className={`inline-block mt-2 ${getApplicationStatusBadgeClass(app.status, 'compact')}`}>
                           {translateStatus(app.status)}
                         </span>
                       </button>

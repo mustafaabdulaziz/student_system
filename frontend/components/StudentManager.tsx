@@ -1,9 +1,11 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Student, Application, Program, University, ApplicationStatus, Period } from '../types';
-import { Plus, User, Search, Eye, X, List, LayoutGrid, Pencil, ArrowLeft, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Filter } from 'lucide-react';
+import { Student, Application, Program, University, ApplicationStatus, Period, AgencyCompany } from '../types';
+import { Plus, User, Search, Eye, X, List, LayoutGrid, Pencil, ArrowLeft, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Filter, Upload, FileText, Paperclip, Trash2 } from 'lucide-react';
 import { useTranslation } from '../hooks/useTranslation';
 import { COUNTRIES } from '../constants/countries';
 import { matchesCreatedAtRange } from '../utils/createdAtRangeFilter';
+import { getApplicationStatusBadgeClass } from '../utils/applicationStatusStyles';
+import { ApplicationManager } from './ApplicationManager';
 
 function NationalityMultiSelect({
   selected,
@@ -82,10 +84,37 @@ interface StudentManagerProps {
   users?: { id: string; name: string; email?: string; role?: string; phone?: string; countryCode?: string }[];
   onAddStudent: (student: Student) => Promise<string | null> | string | null;
   onEditStudent?: (student: Student) => Promise<Student | undefined> | Student | undefined;
+  onUploadStudentFiles?: (studentId: string, files: File[]) => Promise<string[]>;
+  onUploadApplicationFiles?: (applicationId: string, files: File[]) => Promise<string[]>;
+  onStudentFilesChange?: (studentId: string, fileUrls: string[]) => void;
   onCreateApplicationForStudent?: (studentId: string) => void;
-  onAddApplicationForStudent?: (app: Application) => Promise<string | null> | string | null;
+  onAddApplicationForStudent?: (app: Application, files?: File[] | FileList | null) => Promise<string | null> | string | null;
   onViewApplication?: (applicationId: string) => void;
-  currentUser: { id: string; role: string } | null;
+  agencyCompanies?: AgencyCompany[];
+  onUpdateApplicationStatus?: (id: string, status: ApplicationStatus) => void;
+  onUpdateApplication?: (id: string, payload: {
+    status?: ApplicationStatus;
+    responsibleId?: string | null;
+    userId?: string | null;
+    annualPayment?: number | null;
+    educationVatRate?: number | null;
+    abroadVatRate?: number | null;
+    grossCommission?: number | null;
+    bonusMax?: number | null;
+    bonusMin?: number | null;
+    agencyCommission?: number | null;
+    agencyBonus?: number | null;
+    agencyCompanyId?: string | null;
+    currency?: string | null;
+    paymentDeserved?: boolean;
+  }) => void | Promise<void>;
+  onSyncApplicationTimestamps?: (payload: {
+    applicationId: string;
+    applicationUpdatedAt: string;
+    studentId?: string;
+    studentUpdatedAt?: string | null;
+  }) => void;
+  currentUser: { id: string; role: string; name?: string; email?: string } | null;
   targetStudentId?: string | null;
   clearTargetStudent?: () => void;
 }
@@ -99,9 +128,15 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
   users = [],
   onAddStudent,
   onEditStudent,
+  onUploadStudentFiles,
+  onUploadApplicationFiles,
+  onStudentFilesChange,
   onCreateApplicationForStudent,
   onAddApplicationForStudent,
-  onViewApplication,
+  agencyCompanies = [],
+  onUpdateApplicationStatus,
+  onUpdateApplication,
+  onSyncApplicationTimestamps,
   currentUser,
   targetStudentId,
   clearTargetStudent
@@ -130,6 +165,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
   const [isModalOpen, setModalOpen] = useState(false);
   const [selectedStudentForEdit, setSelectedStudentForEdit] = useState<Student | null>(null);
   const [selectedStudentForDetails, setSelectedStudentForDetails] = useState<Student | null>(null);
+  const [embeddedApplicationId, setEmbeddedApplicationId] = useState<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState('');
   const [quickAppOpen, setQuickAppOpen] = useState(false);
   const [quickAppStudentId, setQuickAppStudentId] = useState<string | null>(null);
@@ -139,6 +175,17 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
   const [quickFilterLang, setQuickFilterLang] = useState('');
   const [quickFilterProgramName, setQuickFilterProgramName] = useState('');
   const [quickSaving, setQuickSaving] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const pendingFilesRef = useRef<File[]>([]);
+  const [addFilterPeriod, setAddFilterPeriod] = useState('');
+  const [addFilterUni, setAddFilterUni] = useState('');
+  const [addFilterDegree, setAddFilterDegree] = useState('');
+  const [addFilterLang, setAddFilterLang] = useState('');
+  const [addFilterProgramName, setAddFilterProgramName] = useState('');
+  const [detailStudentFiles, setDetailStudentFiles] = useState<{ url: string; name: string; filename: string }[]>([]);
+  const [detailAttachFiles, setDetailAttachFiles] = useState<FileList | null>(null);
+  const [detailFilesUploading, setDetailFilesUploading] = useState(false);
 
   useEffect(() => {
     if (!targetStudentId) return;
@@ -152,14 +199,21 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
   }, [targetStudentId, students, clearTargetStudent]);
 
   useEffect(() => {
-    if (isModalOpen || selectedStudentForDetails) {
+    if (isModalOpen || selectedStudentForDetails || embeddedApplicationId) {
       scrollContentTop();
     }
-  }, [isModalOpen, selectedStudentForDetails]);
+  }, [isModalOpen, selectedStudentForDetails, embeddedApplicationId]);
+
+  const openEmbeddedApplication = (applicationId: string) => {
+    setEmbeddedApplicationId(applicationId);
+    setSelectedStudentForDetails(null);
+    scrollContentTop();
+  };
 
   const agentUsers = useMemo(() => users.filter(u => (u.role || '').toString().toLowerCase() === 'agent'), [users]);
   const isAdminOrUser = currentUser && ((currentUser.role || '').toString().toUpperCase() === 'ADMIN' || (currentUser.role || '').toString().toUpperCase() === 'USER');
   const isAgent = currentUser && (currentUser.role || '').toString().toLowerCase() === 'agent';
+  const canEditStudent = !isAgent;
   const getAgentName = (student: Student) => (student.userId && users.find(u => u.id === student.userId)?.name) || '—';
   const activePeriods = useMemo(() => periods.filter(p => p.active !== false), [periods]);
   const studentColumnOptions = [
@@ -260,6 +314,85 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
     ) || null;
   }, [programs, quickFilterPeriod, quickFilterUni, quickFilterDegree, quickFilterLang, quickFilterProgramName]);
 
+  const resetAddApplicationFilters = () => {
+    setAddFilterPeriod('');
+    setAddFilterUni('');
+    setAddFilterDegree('');
+    setAddFilterLang('');
+    setAddFilterProgramName('');
+    setPendingFiles([]);
+    pendingFilesRef.current = [];
+  };
+
+  const handleAddFilesPicked = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = e.target.files ? Array.from(e.target.files) : [];
+    if (picked.length > 0) {
+      pendingFilesRef.current = [...pendingFilesRef.current, ...picked];
+      setPendingFiles([...pendingFilesRef.current]);
+    }
+    e.target.value = '';
+  };
+
+  const removePendingFile = (index: number) => {
+    pendingFilesRef.current = pendingFilesRef.current.filter((_, i) => i !== index);
+    setPendingFiles([...pendingFilesRef.current]);
+  };
+
+  const addAvailablePrograms = useMemo(() => {
+    return programs.filter(p => p.isOpen !== false && (!addFilterPeriod || p.periodId === addFilterPeriod));
+  }, [programs, addFilterPeriod]);
+
+  const addAvailableUnis = useMemo(() => {
+    const byId = new Map<string, { id: string; name: string }>();
+    addAvailablePrograms.forEach(p => {
+      const uni = universities.find(u => u.id === p.universityId);
+      if (uni && !byId.has(uni.id)) byId.set(uni.id, { id: uni.id, name: uni.name });
+    });
+    return Array.from(byId.values());
+  }, [addAvailablePrograms, universities]);
+
+  const addAvailableDegrees = useMemo(() => {
+    return Array.from(new Set(
+      addAvailablePrograms
+        .filter(p => !addFilterUni || p.universityId === addFilterUni)
+        .map(p => p.degree)
+    ));
+  }, [addAvailablePrograms, addFilterUni]);
+
+  const addAvailableLanguages = useMemo(() => {
+    return Array.from(new Set(
+      addAvailablePrograms
+        .filter(p =>
+          (!addFilterUni || p.universityId === addFilterUni) &&
+          (!addFilterDegree || p.degree === addFilterDegree)
+        )
+        .map(p => p.language)
+    ));
+  }, [addAvailablePrograms, addFilterUni, addFilterDegree]);
+
+  const addAvailableProgramNames = useMemo(() => {
+    return Array.from(new Set(
+      addAvailablePrograms
+        .filter(p =>
+          (!addFilterUni || p.universityId === addFilterUni) &&
+          (!addFilterDegree || p.degree === addFilterDegree) &&
+          (!addFilterLang || p.language === addFilterLang)
+        )
+        .map(p => p.name)
+    ));
+  }, [addAvailablePrograms, addFilterUni, addFilterDegree, addFilterLang]);
+
+  const addFinalProgram = useMemo(() => {
+    if (!addFilterUni || !addFilterDegree || !addFilterLang || !addFilterProgramName) return null;
+    return programs.find(p =>
+      (!addFilterPeriod || p.periodId === addFilterPeriod) &&
+      p.universityId === addFilterUni &&
+      p.degree === addFilterDegree &&
+      p.language === addFilterLang &&
+      p.name === addFilterProgramName
+    ) || null;
+  }, [programs, addFilterPeriod, addFilterUni, addFilterDegree, addFilterLang, addFilterProgramName]);
+
   const submitQuickApplication = async () => {
     if (!quickAppStudentId) return;
     if (!quickFinalProgram) return;
@@ -289,6 +422,36 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
     }
   };
 
+  useEffect(() => {
+    if (!selectedStudentForDetails) return;
+    const fresh = students.find(s => s.id === selectedStudentForDetails.id);
+    if (fresh) setSelectedStudentForDetails(fresh);
+  }, [students, selectedStudentForDetails?.id]);
+
+  useEffect(() => {
+    if (!selectedStudentForDetails) {
+      setDetailStudentFiles([]);
+      return;
+    }
+    (async () => {
+      try {
+        const r = await fetch(`/api/students/${selectedStudentForDetails.id}/files`);
+        if (r.ok) {
+          const list = await r.json();
+          setDetailStudentFiles(list.map((x: { url: string; name?: string; filename: string }) => ({
+            url: x.url,
+            name: x.name || x.url.split('/').pop() || x.filename,
+            filename: x.filename
+          })));
+        } else {
+          setDetailStudentFiles([]);
+        }
+      } catch {
+        setDetailStudentFiles([]);
+      }
+    })();
+  }, [selectedStudentForDetails?.id]);
+
   const openAddModal = () => {
     setSelectedStudentForEdit(null);
     setSelectedAgentId('');
@@ -296,10 +459,12 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
       firstName: '', lastName: '', passportNumber: '', nationality: '', email: '', phone: '',
       fatherName: '', motherName: '', gender: 'Male', degreeTarget: '', dob: '', residenceCountry: ''
     });
+    resetAddApplicationFilters();
     setModalOpen(true);
   };
 
   const openEditModal = (student: Student) => {
+    if (!canEditStudent) return;
     setFormData({
       firstName: student.firstName,
       lastName: student.lastName,
@@ -325,6 +490,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
       firstName: '', lastName: '', passportNumber: '', nationality: '', email: '', phone: '',
       fatherName: '', motherName: '', gender: 'Male', degreeTarget: '', dob: '', residenceCountry: ''
     });
+    resetAddApplicationFilters();
   };
 
   /** Close add/edit form; if user was editing, return to that student's detail view instead of the list. */
@@ -370,17 +536,55 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
 
     try {
       if (isEdit) {
+        if (!canEditStudent) return;
         const updated = await onEditStudent?.(payload);
         if (updated) {
           closeFormModal();
           setSelectedStudentForDetails(updated);
         }
       } else {
-        const newId = await onAddStudent({ ...payload, id: payload.id } as Student);
-        if (newId) {
-          closeFormModal();
-          setViewMode('tree');
-          setSelectedStudentForDetails({ ...payload, id: newId });
+        setSubmitting(true);
+        const filesToUpload = [...pendingFilesRef.current];
+        try {
+          const newId = await onAddStudent({ ...payload, id: payload.id } as Student);
+          if (newId) {
+            const agentIdForApp = selectedAgentId || currentUser?.id || '';
+            let appId: string | null = null;
+            if (addFinalProgram && onAddApplicationForStudent) {
+              const createdAppId = await onAddApplicationForStudent({
+                id: Date.now().toString(),
+                studentId: newId,
+                programId: addFinalProgram.id,
+                periodId: addFilterPeriod || addFinalProgram.periodId,
+                status: ApplicationStatus.DRAFT,
+                semester: 'Fall 2024',
+                createdAt: new Date().toISOString().split('T')[0],
+                files: [],
+                userId: agentIdForApp || undefined
+              });
+              appId = createdAppId ?? null;
+            }
+            if (filesToUpload.length) {
+              let urls: string[] = [];
+              if (appId && onUploadApplicationFiles) {
+                urls = await onUploadApplicationFiles(appId, filesToUpload);
+              } else if (onUploadStudentFiles) {
+                urls = await onUploadStudentFiles(newId, filesToUpload);
+              }
+              if (!urls.length) {
+                alert(t.uploadFailed);
+              }
+            }
+            closeFormModal();
+            setViewMode('tree');
+            if (appId) {
+              openEmbeddedApplication(appId);
+            } else {
+              setSelectedStudentForDetails({ ...payload, id: newId });
+            }
+          }
+        } finally {
+          setSubmitting(false);
         }
       }
     } catch (error) {
@@ -562,19 +766,11 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
     };
   };
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case ApplicationStatus.ACCEPTED: return <span className="px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-700">{translateStatus(status)}</span>;
-      case ApplicationStatus.REJECTED:
-      case ApplicationStatus.PAYMENT_REJECTED:
-        return <span className="px-2 py-1 rounded text-xs font-medium bg-red-100 text-red-700">{translateStatus(status)}</span>;
-      case ApplicationStatus.DRAFT: return <span className="px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-700">{translateStatus(status)}</span>;
-      case ApplicationStatus.MISSING_DOCS:
-      case ApplicationStatus.QUOTA_FULL:
-        return <span className="px-2 py-1 rounded text-xs font-medium bg-orange-100 text-orange-700">{translateStatus(status)}</span>;
-      default: return <span className="px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-700">{translateStatus(status)}</span>;
-    }
-  };
+  const getStatusBadge = (status: string) => (
+    <span className={getApplicationStatusBadgeClass(status, 'default')}>
+      {translateStatus(status)}
+    </span>
+  );
 
   return (
     <div className="space-y-6">
@@ -617,15 +813,16 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
               <button
                 type="submit"
                 form="student-form"
-                disabled={!selectedStudentForEdit && isAdminOrUser && agentUsers.length > 0 && !selectedAgentId}
+                disabled={(!selectedStudentForEdit && isAdminOrUser && agentUsers.length > 0 && !selectedAgentId) || submitting}
                 className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-medium transition-colors shadow-md shadow-blue-600/20 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {t.save}
+                {submitting ? t.loading : t.save}
               </button>
             </div>
           </div>
 
           <form id="student-form" onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 md:p-8">
+            {selectedStudentForEdit ? (
             <div className="max-w-4xl mx-auto space-y-8">
               {!selectedStudentForEdit && isAdminOrUser && agentUsers.length > 0 && (
                 <section className="bg-gray-50/80 rounded-2xl p-6 border border-gray-100">
@@ -801,12 +998,216 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                 </div>
               </section>
             </div>
+            ) : (
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 max-w-[1600px] mx-auto items-start">
+              {/* Column 1: Student info */}
+              <div className="space-y-5">
+                <section className="bg-gray-50/80 rounded-2xl p-5 border border-gray-100">
+                  <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-4 flex items-center gap-2">
+                    <User size={16} />
+                    {t.studentInfoSection}
+                  </h3>
+                  {isAdminOrUser && agentUsers.length > 0 && (
+                    <div className="mb-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.agent}</label>
+                      <select
+                        required
+                        className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                        value={selectedAgentId}
+                        onChange={e => setSelectedAgentId(e.target.value)}
+                      >
+                        <option value="">{t.selectAgent}</option>
+                        {agentUsers.map(u => (
+                          <option key={u.id} value={u.id}>{u.name} {u.email ? `(${u.email})` : ''}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">{t.firstName}</label>
+                        <input type="text" required className="w-full border border-gray-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none" value={formData.firstName} onChange={e => setFormData({ ...formData, firstName: e.target.value })} />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">{t.lastName}</label>
+                        <input type="text" required className="w-full border border-gray-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none" value={formData.lastName} onChange={e => setFormData({ ...formData, lastName: e.target.value })} />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">{t.fatherName}</label>
+                        <input type="text" className="w-full border border-gray-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none" value={formData.fatherName} onChange={e => setFormData({ ...formData, fatherName: e.target.value })} />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">{t.motherName}</label>
+                        <input type="text" className="w-full border border-gray-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none" value={formData.motherName} onChange={e => setFormData({ ...formData, motherName: e.target.value })} />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">{t.passportNumber}</label>
+                        <input type="text" required className="w-full border border-gray-300 rounded-xl px-3 py-2 font-mono focus:ring-2 focus:ring-blue-500 outline-none" value={formData.passportNumber} onChange={e => setFormData({ ...formData, passportNumber: e.target.value })} />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">{t.dateOfBirth}</label>
+                        <input type="date" required className="w-full border border-gray-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none" value={formData.dob} onChange={e => setFormData({ ...formData, dob: e.target.value })} />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">{t.gender}</label>
+                        <select className="w-full border border-gray-300 rounded-xl px-3 py-2 bg-white focus:ring-2 focus:ring-blue-500 outline-none" value={formData.gender} onChange={e => setFormData({ ...formData, gender: e.target.value as 'Male' | 'Female' })}>
+                          <option value="Male">{t.male}</option>
+                          <option value="Female">{t.female}</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">{t.nationality}</label>
+                        <select required className="w-full border border-gray-300 rounded-xl px-3 py-2 bg-white focus:ring-2 focus:ring-blue-500 outline-none" value={formData.nationality} onChange={e => setFormData({ ...formData, nationality: e.target.value })}>
+                          <option value="">Select...</option>
+                          {[...(formData.nationality && !COUNTRIES.includes(formData.nationality) ? [formData.nationality] : []), ...COUNTRIES].map(c => (
+                            <option key={c} value={c}>{c}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">{t.residenceCountry}</label>
+                        <select className="w-full border border-gray-300 rounded-xl px-3 py-2 bg-white focus:ring-2 focus:ring-blue-500 outline-none" value={formData.residenceCountry} onChange={e => setFormData({ ...formData, residenceCountry: e.target.value })}>
+                          <option value="">Select...</option>
+                          {[...(formData.residenceCountry && !COUNTRIES.includes(formData.residenceCountry) ? [formData.residenceCountry] : []), ...COUNTRIES].map(c => (
+                            <option key={c} value={c}>{c}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">{t.phone}</label>
+                        <input type="text" className="w-full border border-gray-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none" value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">{t.email}</label>
+                        <input type="email" className="w-full border border-gray-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none" value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">{t.degreeTarget}</label>
+                        <select className="w-full border border-gray-300 rounded-xl px-3 py-2 bg-white focus:ring-2 focus:ring-blue-500 outline-none" value={formData.degreeTarget} onChange={e => setFormData({ ...formData, degreeTarget: e.target.value })}>
+                          <option value="">{t.selectDegree}</option>
+                          <option value="Bachelor">{t.bachelor}</option>
+                          <option value="Master">{t.master}</option>
+                          <option value="PhD">{t.phd}</option>
+                          <option value="CombinedPhD">{t.combinedPhd}</option>
+                          <option value="Diploma">Diploma</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              </div>
+
+              {/* Column 2: First application */}
+              <div className="space-y-5">
+                <section className="bg-blue-50/40 rounded-2xl p-5 border border-blue-100 h-full">
+                  <h3 className="text-sm font-semibold text-blue-900 uppercase tracking-wider mb-1">{t.firstApplicationSection}</h3>
+                  <p className="text-xs text-blue-700/80 mb-4">{t.firstApplicationOptional}</p>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-xs font-bold text-blue-600 uppercase tracking-wider px-1">{t.period}</label>
+                      <select className="w-full mt-1 p-2.5 border border-blue-100 rounded-xl bg-white focus:ring-2 focus:ring-blue-400 outline-none" value={addFilterPeriod} onChange={e => { setAddFilterPeriod(e.target.value); setAddFilterUni(''); setAddFilterDegree(''); setAddFilterLang(''); setAddFilterProgramName(''); }}>
+                        <option value="">{t.selectPeriod}</option>
+                        {activePeriods.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-blue-600 uppercase tracking-wider px-1">{t.universities}</label>
+                      <select className="w-full mt-1 p-2.5 border border-blue-100 rounded-xl bg-white focus:ring-2 focus:ring-blue-400 outline-none disabled:opacity-50" value={addFilterUni} onChange={e => { setAddFilterUni(e.target.value); setAddFilterDegree(''); setAddFilterLang(''); setAddFilterProgramName(''); }} disabled={!addFilterPeriod}>
+                        <option value="">{t.selectUniversity}</option>
+                        {addAvailableUnis.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-blue-600 uppercase tracking-wider px-1">{t.programDegree}</label>
+                      <select className="w-full mt-1 p-2.5 border border-blue-100 rounded-xl bg-white focus:ring-2 focus:ring-blue-400 outline-none disabled:opacity-50" value={addFilterDegree} onChange={e => { setAddFilterDegree(e.target.value); setAddFilterLang(''); setAddFilterProgramName(''); }} disabled={!addFilterUni}>
+                        <option value="">{t.selectDegree}</option>
+                        {addAvailableDegrees.map(d => <option key={d} value={d}>{translateDegree(d)}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-blue-600 uppercase tracking-wider px-1">{t.programLanguage}</label>
+                      <select className="w-full mt-1 p-2.5 border border-blue-100 rounded-xl bg-white focus:ring-2 focus:ring-blue-400 outline-none disabled:opacity-50" value={addFilterLang} onChange={e => { setAddFilterLang(e.target.value); setAddFilterProgramName(''); }} disabled={!addFilterDegree}>
+                        <option value="">{t.selectLanguage}</option>
+                        {addAvailableLanguages.map(l => <option key={l} value={l}>{l}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-blue-600 uppercase tracking-wider px-1">{t.programName}</label>
+                      <select className="w-full mt-1 p-2.5 border border-blue-100 rounded-xl bg-white focus:ring-2 focus:ring-blue-400 outline-none disabled:opacity-50" value={addFilterProgramName} onChange={e => setAddFilterProgramName(e.target.value)} disabled={!addFilterLang}>
+                        <option value="">{t.selectProgram}</option>
+                        {addAvailableProgramNames.map(n => <option key={n} value={n}>{n}</option>)}
+                      </select>
+                    </div>
+                    {addFinalProgram && (
+                      <div className="rounded-xl bg-white border border-blue-200 p-3 text-sm text-gray-700">
+                        <p className="font-semibold text-blue-900">{addFinalProgram.name}</p>
+                        <p className="text-xs text-gray-500 mt-1">{translateDegree(addFinalProgram.degree)} · {addFinalProgram.language}</p>
+                      </div>
+                    )}
+                  </div>
+                </section>
+              </div>
+
+              {/* Column 3: Attachments */}
+              <div className="space-y-5">
+                <section className="bg-amber-50/30 rounded-2xl p-5 border border-amber-100 h-full">
+                  <h3 className="text-sm font-semibold text-amber-950 uppercase tracking-wider mb-1 flex items-center gap-2">
+                    <Paperclip size={16} />
+                    {t.attachmentsSection}
+                  </h3>
+                  <p className="text-xs text-amber-900/70 mb-4">{t.sharedStudentAttachmentsNote}</p>
+                  {pendingFiles.length > 0 ? (
+                    <div className="space-y-2 mb-4 max-h-48 overflow-y-auto">
+                      {pendingFiles.map((file, i) => (
+                        <div key={`${file.name}-${file.size}-${i}`} className="flex items-center gap-2 p-2 bg-white rounded-lg border border-amber-100">
+                          <FileText size={14} className="text-amber-700 shrink-0" />
+                          <span className="text-xs text-gray-700 truncate flex-1" dir="ltr">{file.name}</span>
+                          <button type="button" onClick={() => removePendingFile(i)} className="text-red-500 hover:text-red-700 p-1">
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-amber-800/60 mb-3">{t.noAttachments}</p>
+                  )}
+                  <div className="relative border border-dashed border-amber-200 rounded-xl p-6 hover:border-amber-400 hover:bg-amber-50/50 transition-all">
+                    <input
+                      type="file"
+                      multiple
+                      accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png"
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                      onChange={handleAddFilesPicked}
+                    />
+                    <div className="flex flex-col items-center justify-center pointer-events-none">
+                      <Upload size={24} className="text-amber-600 mb-2" />
+                      <span className="text-sm font-medium text-amber-900">
+                        {pendingFiles.length > 0 ? `${pendingFiles.length} ${t.filesSelected}` : t.uploadFiles}
+                      </span>
+                      <span className="text-xs text-amber-800/60 mt-1">PDF, JPG, PNG</span>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            </div>
+            )}
           </form>
         </div>
       )}
 
       {/* Full-screen view (Student details) */}
-      {!isModalOpen && selectedStudentForDetails && (
+      {!isModalOpen && selectedStudentForDetails && !embeddedApplicationId && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 min-h-[calc(100vh-8rem)] overflow-hidden flex flex-col">
           <div className="sticky top-0 z-10 bg-gradient-to-r from-slate-50 to-white border-b border-gray-200 p-6 flex items-center justify-between shrink-0 flex-wrap gap-3">
             <div className="flex items-center gap-4 min-w-0">
@@ -848,6 +1249,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                 <Plus size={18} />
                 <span>{t.addStudent}</span>
               </button>
+              {canEditStudent && (
               <button
                 type="button"
                 onClick={() => { openEditModal(selectedStudentForDetails); setSelectedStudentForDetails(null); }}
@@ -856,6 +1258,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                 <Pencil size={18} />
                 <span>{t.edit}</span>
               </button>
+              )}
             </div>
           </div>
 
@@ -930,6 +1333,86 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                     )}
                   </section>
                 )}
+
+                <section className="bg-white rounded-2xl p-6 border border-gray-100">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Paperclip size={18} className="text-gray-400" />
+                    <h4 className="font-bold text-gray-800 text-sm">{t.uploadFiles} ({detailStudentFiles.length})</h4>
+                  </div>
+                  <p className="text-[11px] text-gray-500 mb-4">{t.sharedStudentAttachmentsNote}</p>
+                  {detailStudentFiles.length > 0 ? (
+                    <div className="space-y-2 mb-4 max-h-56 overflow-y-auto">
+                      {detailStudentFiles.map((f) => (
+                        <div key={f.filename} className="flex items-center gap-2 p-3 bg-gray-50 rounded-xl hover:bg-blue-50 transition-all group">
+                          <a href={f.url} target="_blank" rel="noreferrer" className="flex-1 flex items-center gap-3 min-w-0">
+                            <FileText size={16} className="text-gray-400 shrink-0" />
+                            <span className="text-xs font-medium text-gray-700 truncate" dir="ltr">{f.name}</span>
+                          </a>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (!window.confirm(t.confirmDelete)) return;
+                              try {
+                                const r = await fetch(`/api/students/${selectedStudentForDetails.id}/files/${f.filename}`, { method: 'DELETE' });
+                                const data = await r.json();
+                                if (r.ok) {
+                                  const remaining = detailStudentFiles.filter(x => x.filename !== f.filename);
+                                  setDetailStudentFiles(remaining);
+                                  onStudentFilesChange?.(selectedStudentForDetails.id, remaining.map(x => x.url));
+                                } else {
+                                  alert(data.message || t.errorDelete);
+                                }
+                              } catch {
+                                alert(t.errorConnection);
+                              }
+                            }}
+                            className="w-8 h-8 rounded-lg bg-red-50 border border-red-100 flex items-center justify-center text-red-500 hover:bg-red-500 hover:text-white transition-all shrink-0"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="py-6 text-center border-2 border-dashed border-gray-100 rounded-xl mb-4">
+                      <p className="text-xs text-gray-400">{t.noAttachments}</p>
+                    </div>
+                  )}
+                  <input type="file" id="student-detail-files" multiple accept=".pdf,.jpg,.jpeg,.png" className="hidden" onChange={e => setDetailAttachFiles(e.target.files)} />
+                  <label htmlFor="student-detail-files" className="flex flex-col items-center justify-center border border-dashed border-gray-200 rounded-xl p-3 cursor-pointer hover:border-blue-300 hover:bg-blue-50/20 transition-all mb-2">
+                    <span className="text-[11px] font-bold text-blue-600">
+                      {detailAttachFiles && detailAttachFiles.length > 0 ? `${detailAttachFiles.length} ${t.filesSelected}` : t.attachAdditionalFiles}
+                    </span>
+                  </label>
+                  <button
+                    type="button"
+                    disabled={!detailAttachFiles || detailFilesUploading}
+                    onClick={async () => {
+                      if (!detailAttachFiles || !selectedStudentForDetails || !onUploadStudentFiles) return;
+                      setDetailFilesUploading(true);
+                      try {
+                        await onUploadStudentFiles(selectedStudentForDetails.id, Array.from(detailAttachFiles));
+                        const r = await fetch(`/api/students/${selectedStudentForDetails.id}/files`);
+                        if (r.ok) {
+                          const list = await r.json();
+                          setDetailStudentFiles(list.map((x: { url: string; name?: string; filename: string }) => ({
+                            url: x.url,
+                            name: x.name || x.url.split('/').pop() || x.filename,
+                            filename: x.filename
+                          })));
+                        }
+                        setDetailAttachFiles(null);
+                        const inp = document.getElementById('student-detail-files') as HTMLInputElement;
+                        if (inp) inp.value = '';
+                      } finally {
+                        setDetailFilesUploading(false);
+                      }
+                    }}
+                    className="w-full py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-30"
+                  >
+                    {detailFilesUploading ? t.loading : t.uploadNow}
+                  </button>
+                </section>
               </div>
 
               <div className="lg:col-span-5">
@@ -954,7 +1437,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                           <div
                             key={app.id}
                             className="border rounded-lg p-4 bg-gray-50 hover:bg-white hover:shadow-sm transition-all cursor-pointer group"
-                            onClick={() => onViewApplication?.(app.id)}
+                            onClick={() => openEmbeddedApplication(app.id)}
                           >
                             <div className="flex justify-between items-start mb-2">
                               <div className="font-bold text-gray-800 group-hover:text-blue-600 transition-colors">{info.universityName}</div>
@@ -981,8 +1464,34 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
         </div>
       )}
 
+      {!isModalOpen && embeddedApplicationId && onAddApplicationForStudent && onUpdateApplicationStatus && (
+        <ApplicationManager
+          embedMode="students"
+          embedApplicationId={embeddedApplicationId}
+          onEmbedBack={() => setEmbeddedApplicationId(null)}
+          applications={applications}
+          students={students}
+          programs={programs}
+          universities={universities}
+          periods={periods}
+          agencyCompanies={agencyCompanies}
+          users={users}
+          onAddApplication={(app, files) => onAddApplicationForStudent(app, files)}
+          onUpdateStatus={onUpdateApplicationStatus}
+          onUpdateApplication={onUpdateApplication}
+          onSyncApplicationTimestamps={onSyncApplicationTimestamps}
+          onStudentFilesChange={onStudentFilesChange}
+          onOpenStudent={(studentId) => {
+            setEmbeddedApplicationId(null);
+            const s = students.find(st => st.id === studentId);
+            if (s) setSelectedStudentForDetails(s);
+          }}
+          currentUser={currentUser ?? undefined}
+        />
+      )}
+
       {/* List view (header + search + tree/kanban) */}
-      {!isModalOpen && !selectedStudentForDetails ? (
+      {!isModalOpen && !selectedStudentForDetails && !embeddedApplicationId ? (
         <div className="space-y-6">
           <div className="flex justify-between items-center">
             <div>
@@ -1185,6 +1694,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                         )}
                         <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
                           <div className="flex items-center justify-end gap-2 flex-nowrap">
+                            {canEditStudent && (
                             <button
                               type="button"
                               onClick={() => openEditModal(student)}
@@ -1193,6 +1703,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                             >
                               <Pencil size={18} />
                             </button>
+                            )}
                             <button
                               type="button"
                               onClick={() => openQuickApplicationModal(student.id)}

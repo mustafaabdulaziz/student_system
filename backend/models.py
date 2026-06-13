@@ -28,6 +28,7 @@ class Student(db.Model):
     dob = db.Column(db.String, nullable=False)
     residence_country = db.Column(db.String, nullable=False)
     user_id = db.Column(db.String, db.ForeignKey('users.id'), nullable=True)  # Added to link student to agent
+    files = db.Column(db.ARRAY(db.String))
     created_at = db.Column(db.String, nullable=True)
     updated_at = db.Column(db.String, nullable=True)
 

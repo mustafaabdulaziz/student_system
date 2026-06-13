@@ -95,6 +95,7 @@ export interface Student {
   dob: string;
   residenceCountry: string;
   userId?: string; // Agent who owns this student (for ADMIN/USER display)
+  files?: string[];
   createdAt?: string;
   updatedAt?: string;
 }
