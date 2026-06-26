@@ -6,74 +6,15 @@ import { COUNTRIES } from '../constants/countries';
 import { matchesCreatedAtRange } from '../utils/createdAtRangeFilter';
 import { getApplicationStatusBadgeClass } from '../utils/applicationStatusStyles';
 import { ApplicationManager } from './ApplicationManager';
+import { useNotifications } from '../contexts/NotificationContext';
+import { buildNotificationEntityIndex } from '../utils/notifications';
+import { NotificationUnreadDot } from './NotificationUnreadDot';
+import { CreatedAtRangeFilter } from './CreatedAtRangeFilter';
+import { SearchableMultiSelect } from './SearchableMultiSelect';
+import { StaffTypedFileUpload } from './StaffTypedFileUpload';
+import { getStudentFileTypeLabel, type StudentFileTypeCode } from '../constants/studentFileTypes';
 
-function NationalityMultiSelect({
-  selected,
-  onChange,
-  placeholder
-}: {
-  selected: string[];
-  onChange: (v: string[]) => void;
-  placeholder: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-  const toggle = (value: string) => {
-    onChange(selected.includes(value) ? selected.filter(s => s !== value) : [...selected, value]);
-  };
-  const remove = (value: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    onChange(selected.filter(s => s !== value));
-  };
-  const options = Array.from(new Set([...selected.filter(s => !COUNTRIES.includes(s)), ...COUNTRIES]));
-  return (
-    <div ref={ref} className="relative min-w-[180px]">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="w-full min-h-[42px] border border-gray-200 rounded-lg px-3 py-2 bg-white text-left text-sm focus:ring-2 focus:ring-blue-500 outline-none flex flex-wrap items-center gap-1.5"
-      >
-        {selected.length === 0 ? (
-          <span className="text-gray-400">{placeholder}</span>
-        ) : (
-          selected.map(value => (
-            <span
-              key={value}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 text-xs font-medium"
-            >
-              {value}
-              <button type="button" onClick={e => remove(value, e)} className="hover:bg-blue-100 rounded p-0.5">
-                <X size={12} />
-              </button>
-            </span>
-          ))
-        )}
-        <ChevronDown size={16} className="ml-auto text-gray-400 flex-shrink-0" />
-      </button>
-      {open && (
-        <div className="absolute z-20 mt-1 w-full min-w-[200px] rounded-lg border border-gray-200 bg-white shadow-lg py-1 max-h-48 overflow-auto">
-          {options.map(opt => (
-            <button
-              key={opt}
-              type="button"
-              onClick={() => toggle(opt)}
-              className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 ${selected.includes(opt) ? 'bg-blue-50 text-blue-700' : 'text-gray-700'}`}
-            >
-              {opt}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
+const BULK_DELETE_MAX = 50;
 
 interface StudentManagerProps {
   students: Student[];
@@ -84,6 +25,7 @@ interface StudentManagerProps {
   users?: { id: string; name: string; email?: string; role?: string; phone?: string; countryCode?: string }[];
   onAddStudent: (student: Student) => Promise<string | null> | string | null;
   onEditStudent?: (student: Student) => Promise<Student | undefined> | Student | undefined;
+  onDeleteStudent?: (id: string) => void | Promise<void>;
   onUploadStudentFiles?: (studentId: string, files: File[]) => Promise<string[]>;
   onUploadApplicationFiles?: (applicationId: string, files: File[]) => Promise<string[]>;
   onStudentFilesChange?: (studentId: string, fileUrls: string[]) => void;
@@ -108,6 +50,7 @@ interface StudentManagerProps {
     currency?: string | null;
     paymentDeserved?: boolean;
   }) => void | Promise<void>;
+  onDeleteApplication?: (id: string) => void | Promise<void>;
   onSyncApplicationTimestamps?: (payload: {
     applicationId: string;
     applicationUpdatedAt: string;
@@ -128,6 +71,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
   users = [],
   onAddStudent,
   onEditStudent,
+  onDeleteStudent,
   onUploadStudentFiles,
   onUploadApplicationFiles,
   onStudentFilesChange,
@@ -136,12 +80,18 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
   agencyCompanies = [],
   onUpdateApplicationStatus,
   onUpdateApplication,
+  onDeleteApplication,
   onSyncApplicationTimestamps,
   currentUser,
   targetStudentId,
   clearTargetStudent
 }) => {
   const { t, language, translateGender, translateStatus, translateDegree } = useTranslation();
+  const { notifications } = useNotifications();
+  const notificationIndex = useMemo(
+    () => buildNotificationEntityIndex(notifications, applications),
+    [notifications, applications]
+  );
   const dateLocale = { ar: 'ar-EG', en: 'en-GB', tr: 'tr-TR' }[language] || 'en-GB';
   const scrollContentTop = () => {
     const container = document.getElementById('app-scroll-container');
@@ -151,6 +101,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [filterNationalities, setFilterNationalities] = useState<string[]>([]);
   const [filterGender, setFilterGender] = useState('');
+  const [filterAgents, setFilterAgents] = useState<string[]>([]);
   const [filterStudentCreatedFrom, setFilterStudentCreatedFrom] = useState('');
   const [filterStudentCreatedTo, setFilterStudentCreatedTo] = useState('');
   const [viewMode, setViewMode] = useState<'tree' | 'kanban'>('tree');
@@ -183,9 +134,13 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
   const [addFilterDegree, setAddFilterDegree] = useState('');
   const [addFilterLang, setAddFilterLang] = useState('');
   const [addFilterProgramName, setAddFilterProgramName] = useState('');
-  const [detailStudentFiles, setDetailStudentFiles] = useState<{ url: string; name: string; filename: string }[]>([]);
+  const [detailStudentFiles, setDetailStudentFiles] = useState<{ url: string; name: string; filename: string; fileType?: string; description?: string }[]>([]);
   const [detailAttachFiles, setDetailAttachFiles] = useState<FileList | null>(null);
   const [detailFilesUploading, setDetailFilesUploading] = useState(false);
+  const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(() => new Set());
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const selectAllCheckboxRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!targetStudentId) return;
@@ -212,9 +167,21 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
 
   const agentUsers = useMemo(() => users.filter(u => (u.role || '').toString().toLowerCase() === 'agent'), [users]);
   const isAdminOrUser = currentUser && ((currentUser.role || '').toString().toUpperCase() === 'ADMIN' || (currentUser.role || '').toString().toUpperCase() === 'USER');
+  const isAdmin = currentUser && (currentUser.role || '').toString().toUpperCase() === 'ADMIN';
   const isAgent = currentUser && (currentUser.role || '').toString().toLowerCase() === 'agent';
   const canEditStudent = !isAgent;
   const getAgentName = (student: Student) => (student.userId && users.find(u => u.id === student.userId)?.name) || '—';
+  const uniqueAgents = useMemo(() => {
+    const names = new Set<string>();
+    agentUsers.forEach(u => {
+      if (u.name) names.add(u.name);
+    });
+    students.forEach(s => {
+      const name = getAgentName(s);
+      if (name && name !== '—') names.add(name);
+    });
+    return Array.from(names).sort((a, b) => a.localeCompare(b, 'tr'));
+  }, [students, agentUsers, users]);
   const activePeriods = useMemo(() => periods.filter(p => p.active !== false), [periods]);
   const studentColumnOptions = [
     { key: 'name', label: t.userName },
@@ -260,7 +227,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
   };
 
   const quickAvailablePrograms = useMemo(() => {
-    return programs.filter(p => p.isOpen !== false && (!quickFilterPeriod || p.periodId === quickFilterPeriod));
+    return programs.filter(p => p.isOpen !== false && !p.isArchived && (!quickFilterPeriod || p.periodId === quickFilterPeriod));
   }, [programs, quickFilterPeriod]);
 
   const quickAvailableUnis = useMemo(() => {
@@ -339,7 +306,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
   };
 
   const addAvailablePrograms = useMemo(() => {
-    return programs.filter(p => p.isOpen !== false && (!addFilterPeriod || p.periodId === addFilterPeriod));
+    return programs.filter(p => p.isOpen !== false && !p.isArchived && (!addFilterPeriod || p.periodId === addFilterPeriod));
   }, [programs, addFilterPeriod]);
 
   const addAvailableUnis = useMemo(() => {
@@ -410,7 +377,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
         studentId: quickAppStudentId,
         programId: quickFinalProgram.id,
         periodId: quickFilterPeriod || quickFinalProgram.periodId,
-        status: ApplicationStatus.DRAFT,
+        status: ApplicationStatus.NEW,
         semester: 'Fall 2024',
         createdAt: new Date().toISOString().split('T')[0],
         files: [],
@@ -438,10 +405,12 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
         const r = await fetch(`/api/students/${selectedStudentForDetails.id}/files`);
         if (r.ok) {
           const list = await r.json();
-          setDetailStudentFiles(list.map((x: { url: string; name?: string; filename: string }) => ({
+          setDetailStudentFiles(list.map((x: { url: string; name?: string; filename: string; fileType?: string; description?: string }) => ({
             url: x.url,
             name: x.name || x.url.split('/').pop() || x.filename,
-            filename: x.filename
+            filename: x.filename,
+            fileType: x.fileType,
+            description: x.description
           })));
         } else {
           setDetailStudentFiles([]);
@@ -556,7 +525,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                 studentId: newId,
                 programId: addFinalProgram.id,
                 periodId: addFilterPeriod || addFinalProgram.periodId,
-                status: ApplicationStatus.DRAFT,
+                status: ApplicationStatus.NEW,
                 semester: 'Fall 2024',
                 createdAt: new Date().toISOString().split('T')[0],
                 files: [],
@@ -600,8 +569,10 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
     const matchNationality = filterNationalities.length === 0 || filterNationalities.includes(student.nationality);
     const matchGender = !filterGender || student.gender === filterGender;
     const matchCreated = matchesCreatedAtRange(student.createdAt, filterStudentCreatedFrom, filterStudentCreatedTo);
-    return matchSearch && matchNationality && matchGender && matchCreated;
-  }), [students, searchTerm, filterNationalities, filterGender, filterStudentCreatedFrom, filterStudentCreatedTo]);
+    const agentName = getAgentName(student);
+    const matchAgent = filterAgents.length === 0 || filterAgents.includes(agentName);
+    return matchSearch && matchNationality && matchGender && matchCreated && matchAgent;
+  }), [students, searchTerm, filterNationalities, filterGender, filterStudentCreatedFrom, filterStudentCreatedTo, filterAgents, users]);
 
   const sortedStudents = useMemo(() => {
     const list = [...filteredStudents];
@@ -670,13 +641,72 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
   }, [treePage, totalTreePages]);
 
   useEffect(() => {
+    setSelectedStudentIds(new Set());
+  }, [treePage]);
+
+  const allOnPageSelected =
+    pagedStudents.length > 0 && pagedStudents.every((s) => selectedStudentIds.has(s.id));
+  const someOnPageSelected = pagedStudents.some((s) => selectedStudentIds.has(s.id));
+
+  useEffect(() => {
+    const el = selectAllCheckboxRef.current;
+    if (el) el.indeterminate = someOnPageSelected && !allOnPageSelected;
+  }, [someOnPageSelected, allOnPageSelected]);
+
+  const toggleStudentSelection = (id: string) => {
+    setSelectedStudentIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+        return next;
+      }
+      if (next.size >= BULK_DELETE_MAX) {
+        alert(t.bulkDeleteMaxRecords);
+        return prev;
+      }
+      next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllOnPage = () => {
+    if (allOnPageSelected) {
+      setSelectedStudentIds((prev) => {
+        const next = new Set(prev);
+        pagedStudents.forEach((s) => next.delete(s.id));
+        return next;
+      });
+      return;
+    }
+    setSelectedStudentIds((prev) => {
+      const next = new Set(prev);
+      for (const s of pagedStudents) {
+        if (next.size >= BULK_DELETE_MAX) break;
+        next.add(s.id);
+      }
+      if (next.size >= BULK_DELETE_MAX && pagedStudents.some((s) => !next.has(s.id))) {
+        alert(t.bulkDeleteMaxRecords);
+      }
+      return next;
+    });
+  };
+
+  const selectedStudentsAppCount = useMemo(() => {
+    let count = 0;
+    selectedStudentIds.forEach((id) => {
+      count += applications.filter((a) => a.studentId === id).length;
+    });
+    return count;
+  }, [selectedStudentIds, applications]);
+
+  useEffect(() => {
     if (kanbanPage > totalKanbanPages) setKanbanPage(totalKanbanPages);
   }, [kanbanPage, totalKanbanPages]);
 
   useEffect(() => {
     setTreePage(1);
     setKanbanPage(1);
-  }, [searchTerm, filterNationalities, filterGender, filterStudentCreatedFrom, filterStudentCreatedTo, sortBy, sortDir, viewMode]);
+  }, [searchTerm, filterNationalities, filterGender, filterAgents, filterStudentCreatedFrom, filterStudentCreatedTo, sortBy, sortDir, viewMode]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -709,12 +739,12 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
 
   useEffect(() => {
     const hiddenByConfig = sortBy && studentColumnKeys.includes(sortBy) && !visibleTreeColumns.includes(sortBy);
-    const hiddenByRole = sortBy === 'agent' && !isAdminOrUser;
+    const hiddenByRole = (sortBy === 'agent' && !isAdminOrUser) || (sortBy === 'updatedAt' && isAgent);
     if (hiddenByConfig || hiddenByRole) {
       setSortBy(null);
       setSortDir('asc');
     }
-  }, [sortBy, visibleTreeColumns, isAdminOrUser, studentColumnKeys]);
+  }, [sortBy, visibleTreeColumns, isAdminOrUser, isAgent, studentColumnKeys]);
 
   const toggleTreeColumn = (key: string) => {
     setVisibleTreeColumns(prev => {
@@ -728,10 +758,16 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
   };
 
   useEffect(() => {
-    const allowed = isAdminOrUser ? studentColumnKeys : studentColumnKeys.filter(k => k !== 'agent');
+    let allowed = isAdminOrUser ? studentColumnKeys : studentColumnKeys.filter(k => k !== 'agent');
+    if (isAgent) allowed = allowed.filter(k => k !== 'updatedAt');
+    const normalized = visibleTreeColumns.filter(k => allowed.includes(k));
+    if (normalized.length !== visibleTreeColumns.length) {
+      setVisibleTreeColumns(normalized.length > 0 ? normalized : allowed);
+      return;
+    }
     const hasVisibleAllowed = visibleTreeColumns.some(k => allowed.includes(k));
     if (!hasVisibleAllowed) setVisibleTreeColumns(allowed);
-  }, [isAdminOrUser, studentColumnKeys, visibleTreeColumns]);
+  }, [isAdminOrUser, isAgent, studentColumnKeys, visibleTreeColumns]);
   const SortTh = ({ colKey, label, className = '' }: { colKey: string; label: string; className?: string }) => (
     <th className={`px-4 py-3 font-bold cursor-pointer select-none hover:bg-gray-100 transition-colors ${className}`} onClick={() => toggleSort(colKey)}>
       <span className="inline-flex items-center gap-1">
@@ -741,11 +777,12 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
     </th>
   );
 
-  const hasActiveFilters = !!(searchTerm.trim() || filterNationalities.length > 0 || filterGender || filterStudentCreatedFrom || filterStudentCreatedTo);
+  const hasActiveFilters = !!(searchTerm.trim() || filterNationalities.length > 0 || filterGender || filterAgents.length > 0 || filterStudentCreatedFrom || filterStudentCreatedTo);
   const clearFilters = () => {
     setSearchTerm('');
     setFilterNationalities([]);
     setFilterGender('');
+    setFilterAgents([]);
     setFilterStudentCreatedFrom('');
     setFilterStudentCreatedTo('');
   };
@@ -754,6 +791,67 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
     return applications
       .filter(a => a.studentId === studentId)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  };
+
+  const handleBulkDeleteConfirm = async () => {
+    if (!onDeleteStudent || selectedStudentIds.size === 0) return;
+    setBulkDeleting(true);
+    try {
+      const ids = Array.from(selectedStudentIds);
+      const detailId = selectedStudentForDetails?.id;
+      for (const id of ids) {
+        await onDeleteStudent(id);
+      }
+      setConfirmBulkDelete(false);
+      setSelectedStudentIds(new Set());
+      if (detailId && ids.includes(detailId)) {
+        setSelectedStudentForDetails(null);
+        setEmbeddedApplicationId(null);
+      }
+      setModalOpen(false);
+      setSelectedStudentForEdit(null);
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  const refreshDetailStudentFiles = async (studentId: string) => {
+    const r = await fetch(`/api/students/${studentId}/files`);
+    if (!r.ok) return;
+    const list = await r.json();
+    setDetailStudentFiles(list.map((x: { url: string; name?: string; filename: string; fileType?: string; description?: string }) => ({
+      url: x.url,
+      name: x.name || x.url.split('/').pop() || x.filename,
+      filename: x.filename,
+      fileType: x.fileType,
+      description: x.description
+    })));
+  };
+
+  const uploadTypedStudentFile = async (file: File, fileType: StudentFileTypeCode, description: string) => {
+    if (!selectedStudentForDetails || !currentUser) return false;
+    const fd = new FormData();
+    fd.append('files', file);
+    fd.append('fileType', fileType);
+    if (fileType === 'other') fd.append('fileDescription', description);
+    fd.append('user_id', currentUser.id);
+    fd.append('role', currentUser.role);
+    try {
+      const r = await fetch(`/api/students/${selectedStudentForDetails.id}/files`, { method: 'POST', body: fd });
+      const data = await r.json();
+      if (!r.ok) {
+        alert(data.message || t.uploadFailed);
+        return false;
+      }
+      await refreshDetailStudentFiles(selectedStudentForDetails.id);
+      if (data.studentId && data.files) {
+        onStudentFilesChange?.(data.studentId, data.files.map((x: { url: string }) => x.url));
+      }
+      return true;
+    } catch {
+      alert(t.errorConnection);
+      return false;
+    }
   };
 
   const getProgramInfo = (programId: string) => {
@@ -793,16 +891,6 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
               </h2>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              {selectedStudentForEdit && (
-                <button
-                  type="button"
-                  onClick={openAddModal}
-                  className="flex items-center gap-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-xl px-4 py-2.5 border border-gray-200 hover:border-blue-200 font-medium transition-colors"
-                >
-                  <Plus size={18} />
-                  <span>{t.addStudent}</span>
-                </button>
-              )}
               <button
                 type="button"
                 onClick={leaveFormModal}
@@ -1228,7 +1316,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
               {selectedStudentForDetails.createdAt && (
                 <div>{t.createdAt}: {new Date(selectedStudentForDetails.createdAt).toLocaleString(dateLocale, { dateStyle: 'medium', timeStyle: 'short' })}</div>
               )}
-              {(selectedStudentForDetails.updatedAt || selectedStudentForDetails.createdAt) && (
+              {(selectedStudentForDetails.updatedAt || selectedStudentForDetails.createdAt) && !isAgent && (
                 <div className="text-blue-700 font-medium">{t.lastUpdatedAt}: {new Date(selectedStudentForDetails.updatedAt || selectedStudentForDetails.createdAt || 0).toLocaleString(dateLocale, { dateStyle: 'medium', timeStyle: 'short' })}</div>
               )}
             </div>
@@ -1240,14 +1328,6 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
               >
                 <Plus size={18} />
                 <span>{t.addApplication}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => { setSelectedStudentForDetails(null); openAddModal(); }}
-                className="flex items-center gap-2 text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 rounded-xl px-4 py-2.5 font-medium transition-colors"
-              >
-                <Plus size={18} />
-                <span>{t.addStudent}</span>
               </button>
               {canEditStudent && (
               <button
@@ -1346,7 +1426,14 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                         <div key={f.filename} className="flex items-center gap-2 p-3 bg-gray-50 rounded-xl hover:bg-blue-50 transition-all group">
                           <a href={f.url} target="_blank" rel="noreferrer" className="flex-1 flex items-center gap-3 min-w-0">
                             <FileText size={16} className="text-gray-400 shrink-0" />
-                            <span className="text-xs font-medium text-gray-700 truncate" dir="ltr">{f.name}</span>
+                            <div className="min-w-0">
+                              <span className="text-xs font-medium text-gray-700 truncate block" dir="ltr">{f.name}</span>
+                              {getStudentFileTypeLabel(f.fileType, t, f.description) && (
+                                <span className="text-[10px] text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded mt-0.5 inline-block">
+                                  {getStudentFileTypeLabel(f.fileType, t, f.description)}
+                                </span>
+                              )}
+                            </div>
                           </a>
                           <button
                             type="button"
@@ -1384,6 +1471,14 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                       {detailAttachFiles && detailAttachFiles.length > 0 ? `${detailAttachFiles.length} ${t.filesSelected}` : t.attachAdditionalFiles}
                     </span>
                   </label>
+                  {isAdminOrUser && (
+                    <div className="mb-2">
+                      <StaffTypedFileUpload
+                        onUpload={uploadTypedStudentFile}
+                        disabled={detailFilesUploading}
+                      />
+                    </div>
+                  )}
                   <button
                     type="button"
                     disabled={!detailAttachFiles || detailFilesUploading}
@@ -1392,15 +1487,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                       setDetailFilesUploading(true);
                       try {
                         await onUploadStudentFiles(selectedStudentForDetails.id, Array.from(detailAttachFiles));
-                        const r = await fetch(`/api/students/${selectedStudentForDetails.id}/files`);
-                        if (r.ok) {
-                          const list = await r.json();
-                          setDetailStudentFiles(list.map((x: { url: string; name?: string; filename: string }) => ({
-                            url: x.url,
-                            name: x.name || x.url.split('/').pop() || x.filename,
-                            filename: x.filename
-                          })));
-                        }
+                        await refreshDetailStudentFiles(selectedStudentForDetails.id);
                         setDetailAttachFiles(null);
                         const inp = document.getElementById('student-detail-files') as HTMLInputElement;
                         if (inp) inp.value = '';
@@ -1444,9 +1531,8 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                               {getStatusBadge(app.status)}
                             </div>
                             <div className="text-sm text-gray-600 mb-1">{info.programName} - <span className="text-xs bg-gray-200 px-2 py-0.5 rounded">{info.degree}</span></div>
-                            <div className="text-xs text-gray-400 mt-2 flex justify-between">
+                            <div className="text-xs text-gray-400 mt-2">
                               <span>{t.applicationDetails}: #{app.id}</span>
-                              <span>{t.dateOfBirth}: {new Date(app.createdAt).toLocaleDateString(dateLocale)}</span>
                             </div>
                           </div>
                         );
@@ -1479,6 +1565,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
           onAddApplication={(app, files) => onAddApplicationForStudent(app, files)}
           onUpdateStatus={onUpdateApplicationStatus}
           onUpdateApplication={onUpdateApplication}
+          onDeleteApplication={onDeleteApplication}
           onSyncApplicationTimestamps={onSyncApplicationTimestamps}
           onStudentFilesChange={onStudentFilesChange}
           onOpenStudent={(studentId) => {
@@ -1543,7 +1630,11 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                   </button>
                   {columnsOpen && (
                     <div className="absolute right-0 mt-2 w-56 bg-white border border-gray-200 rounded-xl shadow-lg p-2 z-30">
-                      {studentColumnOptions.filter(col => isAdminOrUser || col.key !== 'agent').map(col => (
+                      {studentColumnOptions.filter(col => {
+                        if (!isAdminOrUser && col.key === 'agent') return false;
+                        if (isAgent && col.key === 'updatedAt') return false;
+                        return true;
+                      }).map(col => (
                         <label key={col.key} className="flex items-center gap-2 px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-50 rounded-md cursor-pointer">
                           <input
                             type="checkbox"
@@ -1589,10 +1680,14 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                 />
               </div>
               <div className="sm:col-span-1">
-                <NationalityMultiSelect
+                <SearchableMultiSelect
                   selected={filterNationalities}
                   onChange={setFilterNationalities}
+                  options={Array.from(new Set([...filterNationalities.filter(s => !COUNTRIES.includes(s)), ...COUNTRIES]))}
                   placeholder={`${t.nationality} (${t.filterAll})`}
+                  searchPlaceholder={t.search}
+                  noResultsText={t.searchNoResults}
+                  className="min-w-[180px]"
                 />
               </div>
               <div className="sm:col-span-1">
@@ -1607,31 +1702,49 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                 </select>
               </div>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full mt-3">
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">{t.filterCreatedFrom}</label>
-                <input
-                  type="date"
-                  value={filterStudentCreatedFrom}
-                  onChange={e => setFilterStudentCreatedFrom(e.target.value)}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">{t.filterCreatedTo}</label>
-                <input
-                  type="date"
-                  value={filterStudentCreatedTo}
-                  onChange={e => setFilterStudentCreatedTo(e.target.value)}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
-                />
-              </div>
+            <div className="w-full mt-3">
+              <CreatedAtRangeFilter
+                from={filterStudentCreatedFrom}
+                to={filterStudentCreatedTo}
+                onFromChange={setFilterStudentCreatedFrom}
+                onToChange={setFilterStudentCreatedTo}
+                leadingFilter={isAdminOrUser ? (
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">{t.agent}</label>
+                    <SearchableMultiSelect
+                      selected={filterAgents}
+                      onChange={setFilterAgents}
+                      options={uniqueAgents}
+                      placeholder={`${t.agent} (${t.filterAll})`}
+                      searchPlaceholder={t.search}
+                      noResultsText={t.searchNoResults}
+                    />
+                  </div>
+                ) : undefined}
+              />
             </div>
           </div>
 
           {viewMode === 'tree' && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-              <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-end gap-2 text-sm text-gray-600">
+              <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-3 text-sm text-gray-600">
+                {isAdmin && onDeleteStudent ? (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmBulkDelete(true)}
+                    disabled={selectedStudentIds.size === 0}
+                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-red-600 hover:bg-red-50 border border-transparent hover:border-red-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed font-medium"
+                  >
+                    <Trash2 size={16} />
+                    <span>{t.deleteSelected}</span>
+                    {selectedStudentIds.size > 0 && (
+                      <span className="text-xs font-bold bg-red-100 text-red-700 px-2 py-0.5 rounded-full">{selectedStudentIds.size}</span>
+                    )}
+                  </button>
+                ) : (
+                  <span />
+                )}
+                <div className="flex items-center gap-2">
                 <span>{treeFrom}-{treeTo} / {sortedStudents.length}</span>
                 <button
                   type="button"
@@ -1649,11 +1762,25 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                 >
                   <ChevronRight size={16} />
                 </button>
+                </div>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm text-left">
                   <thead className="bg-gray-50 text-gray-900 font-bold border-b border-gray-200">
                     <tr>
+                      {isAdmin && onDeleteStudent && (
+                        <th className="px-4 py-3 w-12 text-center">
+                          <input
+                            ref={selectAllCheckboxRef}
+                            type="checkbox"
+                            checked={allOnPageSelected}
+                            onChange={toggleSelectAllOnPage}
+                            disabled={pagedStudents.length === 0}
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                            aria-label={t.filterAll}
+                          />
+                        </th>
+                      )}
                       {visibleTreeColumns.includes('name') && <SortTh colKey="name" label={t.userName} />}
                       {visibleTreeColumns.includes('passport') && <SortTh colKey="passport" label={t.passportNumber} />}
                       {visibleTreeColumns.includes('nationality') && <SortTh colKey="nationality" label={t.nationality} />}
@@ -1661,20 +1788,38 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                       {visibleTreeColumns.includes('email') && <SortTh colKey="email" label={t.email} />}
                       {isAdminOrUser && visibleTreeColumns.includes('agent') && <SortTh colKey="agent" label={t.agent} />}
                       {visibleTreeColumns.includes('createdAt') && <SortTh colKey="createdAt" label={t.createdAt} />}
-                      {visibleTreeColumns.includes('updatedAt') && <SortTh colKey="updatedAt" label={t.lastUpdatedAt} />}
+                      {!isAgent && visibleTreeColumns.includes('updatedAt') && <SortTh colKey="updatedAt" label={t.lastUpdatedAt} />}
                       <th className="px-4 py-3 font-bold w-[110px] text-right">{t.actions || 'Actions'}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {pagedStudents.map(student => (
+                    {pagedStudents.map(student => {
+                      const hasUnreadNotifications = notificationIndex.unreadStudentIds.has(student.id);
+                      return (
                       <tr
                         key={student.id}
-                        className="hover:bg-gray-50 cursor-pointer"
+                        className={`hover:bg-gray-50 cursor-pointer ${hasUnreadNotifications ? 'bg-blue-50/40 hover:bg-blue-50/60 border-l-4 border-l-blue-500' : ''} ${selectedStudentIds.has(student.id) ? 'bg-blue-50/40' : ''}`}
                         onClick={() => setSelectedStudentForDetails(student)}
                       >
+                        {isAdmin && onDeleteStudent && (
+                          <td className="px-4 py-3 text-center" onClick={e => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={selectedStudentIds.has(student.id)}
+                              onChange={() => toggleStudentSelection(student.id)}
+                              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                              aria-label={`${student.firstName} ${student.lastName}`}
+                            />
+                          </td>
+                        )}
                         {visibleTreeColumns.includes('name') && (
                           <td className="px-4 py-3 font-medium text-gray-900">
-                            {student.firstName} {student.lastName}
+                            <span className="inline-flex items-center gap-2 min-w-0">
+                              <span className="truncate">{student.firstName} {student.lastName}</span>
+                              {hasUnreadNotifications && (
+                                <NotificationUnreadDot title={t.unreadNotifications} />
+                              )}
+                            </span>
                           </td>
                         )}
                         {visibleTreeColumns.includes('passport') && <td className="px-4 py-3 font-mono text-gray-900">{student.passportNumber}</td>}
@@ -1687,7 +1832,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                             {student.createdAt ? new Date(student.createdAt).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
                           </td>
                         )}
-                        {visibleTreeColumns.includes('updatedAt') && (
+                        {!isAgent && visibleTreeColumns.includes('updatedAt') && (
                           <td className="px-4 py-3 text-gray-600 whitespace-nowrap text-xs">
                             {(student.updatedAt || student.createdAt) ? new Date(student.updatedAt || student.createdAt).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
                           </td>
@@ -1714,7 +1859,8 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                           </div>
                         </td>
                       </tr>
-                    ))}
+                    );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1770,7 +1916,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                         <span>{new Date(student.createdAt).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' })}</span>
                       </div>
                     )}
-                    {(student.updatedAt || student.createdAt) && (
+                    {!isAgent && (student.updatedAt || student.createdAt) && (
                       <div className="flex justify-between">
                         <span>{t.lastUpdatedAt}:</span>
                         <span>{new Date(student.updatedAt || student.createdAt!).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' })}</span>
@@ -1900,6 +2046,46 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                 className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {quickSaving ? t.loading : t.save}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmBulkDelete && selectedStudentIds.size > 0 && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl max-w-sm w-full p-6 shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                <Trash2 size={20} className="text-red-600" />
+              </div>
+              <h3 className="text-lg font-bold text-gray-800">{t.confirmDelete}</h3>
+            </div>
+            <p className="text-gray-700 text-sm font-medium mb-2">
+              {selectedStudentIds.size} {t.studentsTitle.toLowerCase()}
+            </p>
+            <p className="text-amber-700 text-xs mb-2">{t.bulkDeleteConfirmStudents}</p>
+            {selectedStudentsAppCount > 0 && (
+              <p className="text-amber-700 text-xs mb-4">
+                {selectedStudentsAppCount} {t.applicationsTitle.toLowerCase()} {language === 'tr' ? 'da silinecek.' : language === 'ar' ? 'سيتم حذفها أيضاً.' : 'will also be deleted.'}
+              </p>
+            )}
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                type="button"
+                onClick={() => setConfirmBulkDelete(false)}
+                disabled={bulkDeleting}
+                className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {t.cancel}
+              </button>
+              <button
+                type="button"
+                onClick={handleBulkDeleteConfirm}
+                disabled={bulkDeleting}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
+              >
+                {bulkDeleting ? t.loading : t.delete}
               </button>
             </div>
           </div>

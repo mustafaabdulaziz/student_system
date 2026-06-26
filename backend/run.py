@@ -63,6 +63,7 @@ if __name__ == '__main__':
                 uni_cols2 = uni_cols
             for col, typ in [
                 ('education_vat_rate', 'INTEGER'),
+                ('abroad_vat_rate', 'FLOAT'),
                 ('commission_kind', 'VARCHAR'),
                 ('commission_value', 'FLOAT'),
                 ('bonus_max', 'FLOAT'),
@@ -103,6 +104,9 @@ if __name__ == '__main__':
                 prog_cols_open = [c['name'] for c in inspector.get_columns('programs')]
                 if 'is_open' not in prog_cols_open:
                     conn.execute(text('ALTER TABLE programs ADD COLUMN is_open BOOLEAN NOT NULL DEFAULT TRUE'))
+                prog_cols_arch = [c['name'] for c in inspector.get_columns('programs')]
+                if 'is_archived' not in prog_cols_arch:
+                    conn.execute(text('ALTER TABLE programs ADD COLUMN is_archived BOOLEAN NOT NULL DEFAULT FALSE'))
                     conn.commit()
             except Exception as e:
                 print('programs is_open column check:', e)
@@ -226,6 +230,9 @@ if __name__ == '__main__':
                         if 'files' not in sc2:
                             conn.execute(text('ALTER TABLE students ADD COLUMN files VARCHAR[]'))
                             conn.commit()
+                        if 'file_metadata' not in sc2:
+                            conn.execute(text('ALTER TABLE students ADD COLUMN file_metadata JSONB'))
+                            conn.commit()
                     except Exception as e:
                         print('Students files column check:', e)
             except Exception as e:
@@ -269,6 +276,9 @@ if __name__ == '__main__':
                     if 'payment_source_id' not in incoming_cols:
                         conn.execute(text("ALTER TABLE incoming_payments ADD COLUMN payment_source_id VARCHAR"))
                         conn.commit()
+                    if 'receipt_files' not in incoming_cols:
+                        conn.execute(text('ALTER TABLE incoming_payments ADD COLUMN receipt_files VARCHAR[]'))
+                        conn.commit()
                 if 'outgoing_payments' in table_names:
                     outgoing_cols = [c['name'] for c in inspector.get_columns('outgoing_payments')]
                     if 'currency' not in outgoing_cols:
@@ -279,6 +289,9 @@ if __name__ == '__main__':
                         conn.commit()
                     if 'expense_type' not in outgoing_cols:
                         conn.execute(text('ALTER TABLE outgoing_payments ADD COLUMN expense_type VARCHAR'))
+                        conn.commit()
+                    if 'receipt_files' not in outgoing_cols:
+                        conn.execute(text('ALTER TABLE outgoing_payments ADD COLUMN receipt_files VARCHAR[]'))
                         conn.commit()
             except Exception as e:
                 print('Payments currency column check:', e)

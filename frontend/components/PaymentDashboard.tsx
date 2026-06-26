@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Printer } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Printer } from 'lucide-react';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import { User, UserRole } from '../types';
 import {
@@ -8,6 +8,10 @@ import {
   formatExpenseTypeDisplay,
   formatOutgoingPaymentDisplay
 } from '../constants/outgoingPayment';
+import { CreatedAtRangeFilter } from './CreatedAtRangeFilter';
+import { getLast30DaysRange } from '../utils/datePresets';
+import { SearchableMultiSelect } from './SearchableMultiSelect';
+import { useTranslation } from '../hooks/useTranslation';
 
 type CurrencyCode = 'USD' | 'TRY' | 'EUR';
 
@@ -34,15 +38,6 @@ interface OutgoingPaymentRow {
 
 interface PaymentDashboardProps {
   currentUser: User;
-}
-
-function getLast30DaysRange(): { from: string; to: string } {
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-  const first = new Date(now);
-  first.setDate(now.getDate() - 29);
-  const toIso = (d: Date) => d.toISOString().slice(0, 10);
-  return { from: toIso(first), to: toIso(now) };
 }
 
 function uniq(values: string[]): string[] {
@@ -84,71 +79,8 @@ function buildMatrixByGroup<T extends { currency?: string; paymentAmount?: numbe
     .sort((a, b) => a.label.localeCompare(b.label, 'tr'));
 }
 
-function MultiSelect({
-  label,
-  options,
-  selected,
-  onChange
-}: {
-  label: string;
-  options: { value: string; label: string }[];
-  selected: string[];
-  onChange: (next: string[]) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const close = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('click', close);
-    return () => document.removeEventListener('click', close);
-  }, []);
-
-  const toggle = (value: string) => {
-    if (selected.includes(value)) onChange(selected.filter((x) => x !== value));
-    else onChange([...selected, value]);
-  };
-
-  const summary =
-    selected.length === 0
-      ? `${label} (Tümü)`
-      : selected.length === 1
-        ? options.find((x) => x.value === selected[0])?.label || selected[0]
-        : `${selected.length} seçili`;
-
-  return (
-    <div ref={ref} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between gap-2 border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white"
-      >
-        <span className="truncate text-left">{summary}</span>
-        <ChevronDown size={16} className="shrink-0 text-gray-500" />
-      </button>
-      {open && (
-        <div className="absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-lg border border-gray-200 bg-white shadow-lg p-2 space-y-1">
-          {options.map((opt) => (
-            <label key={opt.value} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 text-sm cursor-pointer">
-              <input
-                type="checkbox"
-                checked={selected.includes(opt.value)}
-                onChange={() => toggle(opt.value)}
-                className="rounded border-gray-300"
-              />
-              <span className="truncate">{opt.label}</span>
-            </label>
-          ))}
-          {options.length === 0 && <p className="text-xs text-gray-500 px-2 py-1">Seçenek yok</p>}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export const PaymentDashboard: React.FC<PaymentDashboardProps> = ({ currentUser }) => {
+  const { t } = useTranslation();
   const isAdmin = currentUser?.role === UserRole.ADMIN;
   const defaultRange = getLast30DaysRange();
 
@@ -322,42 +254,41 @@ export const PaymentDashboard: React.FC<PaymentDashboardProps> = ({ currentUser 
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
         <h3 className="text-sm font-semibold text-gray-700 mb-3">Tarih Aralığı (Son 30 gün default)</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <input
-            type="date"
-            value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
-          />
-          <input
-            type="date"
-            value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
-          />
-        </div>
+        <CreatedAtRangeFilter
+          from={dateFrom}
+          to={dateTo}
+          onFromChange={setDateFrom}
+          onToChange={setDateTo}
+          presetPosition="above"
+        />
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 space-y-4">
         <h3 className="text-lg font-semibold text-gray-900">Gelen Ödeme Özeti</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <MultiSelect
-            label="Currency"
+          <SearchableMultiSelect
             options={incomingOptions.currencies}
             selected={incomingFilters.currencies}
             onChange={(v) => setIncomingFilters((p) => ({ ...p, currencies: v }))}
+            placeholder={`Currency (${t.filterAll})`}
+            searchPlaceholder={t.search}
+            noResultsText={t.searchNoResults}
           />
-          <MultiSelect
-            label="Ödeme Kaynağı"
+          <SearchableMultiSelect
             options={incomingOptions.paymentSources}
             selected={incomingFilters.paymentSources}
             onChange={(v) => setIncomingFilters((p) => ({ ...p, paymentSources: v }))}
+            placeholder={`Ödeme Kaynağı (${t.filterAll})`}
+            searchPlaceholder={t.search}
+            noResultsText={t.searchNoResults}
           />
-          <MultiSelect
-            label="Ödeme Türü"
+          <SearchableMultiSelect
             options={incomingOptions.paymentTypes}
             selected={incomingFilters.paymentTypes}
             onChange={(v) => setIncomingFilters((p) => ({ ...p, paymentTypes: v }))}
+            placeholder={`Ödeme Türü (${t.filterAll})`}
+            searchPlaceholder={t.search}
+            noResultsText={t.searchNoResults}
           />
         </div>
 
@@ -471,35 +402,45 @@ export const PaymentDashboard: React.FC<PaymentDashboardProps> = ({ currentUser 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 space-y-4">
         <h3 className="text-lg font-semibold text-gray-900">Giden Ödeme Özeti</h3>
         <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-          <MultiSelect
-            label="Currency"
+          <SearchableMultiSelect
             options={outgoingOptions.currencies}
             selected={outgoingFilters.currencies}
             onChange={(v) => setOutgoingFilters((p) => ({ ...p, currencies: v }))}
+            placeholder={`Currency (${t.filterAll})`}
+            searchPlaceholder={t.search}
+            noResultsText={t.searchNoResults}
           />
-          <MultiSelect
-            label="Ödeme Türü"
+          <SearchableMultiSelect
             options={outgoingOptions.paymentTypes}
             selected={outgoingFilters.paymentTypes}
             onChange={(v) => setOutgoingFilters((p) => ({ ...p, paymentTypes: v }))}
+            placeholder={`Ödeme Türü (${t.filterAll})`}
+            searchPlaceholder={t.search}
+            noResultsText={t.searchNoResults}
           />
-          <MultiSelect
-            label="Ödeme Sebebi"
+          <SearchableMultiSelect
             options={outgoingOptions.paymentReasons}
             selected={outgoingFilters.paymentReasons}
             onChange={(v) => setOutgoingFilters((p) => ({ ...p, paymentReasons: v }))}
+            placeholder={`Ödeme Sebebi (${t.filterAll})`}
+            searchPlaceholder={t.search}
+            noResultsText={t.searchNoResults}
           />
-          <MultiSelect
-            label="Masraf Tipi"
+          <SearchableMultiSelect
             options={outgoingOptions.expenseTypes}
             selected={outgoingFilters.expenseTypes}
             onChange={(v) => setOutgoingFilters((p) => ({ ...p, expenseTypes: v }))}
+            placeholder={`Masraf Tipi (${t.filterAll})`}
+            searchPlaceholder={t.search}
+            noResultsText={t.searchNoResults}
           />
-          <MultiSelect
-            label="Kullanıcı"
+          <SearchableMultiSelect
             options={outgoingOptions.users}
             selected={outgoingFilters.users}
             onChange={(v) => setOutgoingFilters((p) => ({ ...p, users: v }))}
+            placeholder={`Kullanıcı (${t.filterAll})`}
+            searchPlaceholder={t.search}
+            noResultsText={t.searchNoResults}
           />
         </div>
 

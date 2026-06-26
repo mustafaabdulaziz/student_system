@@ -23,6 +23,8 @@ export function getDatePreset(preset: string): { from: string; to: string } {
   const format = (d: Date) => d.toISOString().slice(0, 10);
 
   switch (preset) {
+    case 'today':
+      return { from: format(today), to: format(today) };
     case 'yesterday': {
       const y = new Date(today);
       y.setDate(y.getDate() - 1);
@@ -30,8 +32,7 @@ export function getDatePreset(preset: string): { from: string; to: string } {
     }
     case 'last7': {
       const end = new Date(today);
-      end.setDate(end.getDate() - 1);
-      const start = new Date(end);
+      const start = new Date(today);
       start.setDate(start.getDate() - 6);
       return { from: format(start), to: format(end) };
     }
@@ -73,6 +74,7 @@ export function getDatePreset(preset: string): { from: string; to: string } {
 }
 
 export const DATE_PRESETS = [
+  { id: 'today', labelKey: 'today' },
   { id: 'yesterday', labelKey: 'yesterday' },
   { id: 'last7', labelKey: 'last7Days' },
   { id: 'last30', labelKey: 'last30Days' },
@@ -80,5 +82,15 @@ export const DATE_PRESETS = [
   { id: 'lastWeek', labelKey: 'lastWeek' },
   { id: 'thisMonth', labelKey: 'thisMonth' },
   { id: 'lastMonth', labelKey: 'lastMonth' },
+  { id: 'thisYear', labelKey: 'thisYear' }
+] as const;
+
+/** Student / application list filters */
+export const FILTER_DATE_PRESETS = [
+  { id: 'today', labelKey: 'today' },
+  { id: 'yesterday', labelKey: 'yesterday' },
+  { id: 'last7', labelKey: 'last7Days' },
+  { id: 'last30', labelKey: 'last30Days' },
+  { id: 'thisMonth', labelKey: 'thisMonth' },
   { id: 'thisYear', labelKey: 'thisYear' }
 ] as const;

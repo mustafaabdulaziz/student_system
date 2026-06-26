@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Download, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { Download, Pencil, Plus, Trash2, X, Paperclip, Upload } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { PaymentSource, User, UserRole } from '../types';
 import {
@@ -12,9 +12,16 @@ import {
   type OutgoingPaymentReasonCode,
   type CompanyExpenseTypeCode
 } from '../constants/outgoingPayment';
+import { CreatedAtRangeFilter } from './CreatedAtRangeFilter';
 
 type PaymentsMode = 'incoming' | 'outgoing';
 type CurrencyCode = 'USD' | 'TRY' | 'EUR';
+
+interface PaymentReceiptFile {
+  name: string;
+  filename: string;
+  url: string;
+}
 
 interface PaymentsManagerProps {
   mode: PaymentsMode;
@@ -33,6 +40,7 @@ interface IncomingPaymentRow {
   currency: CurrencyCode;
   description1?: string;
   description2?: string;
+  receiptFiles?: PaymentReceiptFile[];
 }
 
 interface OutgoingPaymentRow {
@@ -48,6 +56,7 @@ interface OutgoingPaymentRow {
   userId?: string;
   userName?: string;
   userRole?: string;
+  receiptFiles?: PaymentReceiptFile[];
 }
 
 type Row = IncomingPaymentRow | OutgoingPaymentRow;
@@ -65,6 +74,9 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formError, setFormError] = useState('');
+  const [editingReceipts, setEditingReceipts] = useState<PaymentReceiptFile[]>([]);
+  const [pendingReceiptFiles, setPendingReceiptFiles] = useState<File[]>([]);
+  const [receiptUploading, setReceiptUploading] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [filters, setFilters] = useState({
     sequenceQuery: '',
@@ -117,6 +129,49 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
       userId: ''
     });
     setFormError('');
+    setEditingReceipts([]);
+    setPendingReceiptFiles([]);
+  };
+
+  const uploadReceipts = async (paymentId: string, files: File[]) => {
+    if (files.length === 0) return true;
+    const fd = new FormData();
+    files.forEach((file) => fd.append('files', file));
+    const res = await fetch(
+      `${endpoint}/${paymentId}/receipts?role=${encodeURIComponent(currentUser.role)}`,
+      { method: 'POST', body: fd }
+    );
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.message || 'Dekont yüklenemedi');
+      return false;
+    }
+    if (Array.isArray(data.receiptFiles)) {
+      setEditingReceipts(data.receiptFiles);
+    }
+    return true;
+  };
+
+  const deleteReceipt = async (paymentId: string, filename: string) => {
+    if (!window.confirm('Dekontu silmek istediğinize emin misiniz?')) return;
+    setReceiptUploading(true);
+    try {
+      const res = await fetch(
+        `${endpoint}/${paymentId}/receipts/${encodeURIComponent(filename)}?role=${encodeURIComponent(currentUser.role)}`,
+        { method: 'DELETE' }
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.message || 'Dekont silinemedi');
+        return;
+      }
+      setEditingReceipts(Array.isArray(data.receiptFiles) ? data.receiptFiles : []);
+      await loadRows();
+    } catch {
+      alert('Sunucu bağlantı hatası');
+    } finally {
+      setReceiptUploading(false);
+    }
   };
 
   const loadRows = async () => {
@@ -304,6 +359,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
         description1: incoming.description1 || '',
         description2: incoming.description2 || ''
       });
+      setEditingReceipts(incoming.receiptFiles || []);
     } else {
       const outgoing = row as OutgoingPaymentRow;
       const pr = outgoing.paymentReason || '';
@@ -320,7 +376,9 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
         description1: outgoing.description1 || '',
         userId: outgoing.userId || ''
       });
+      setEditingReceipts(outgoing.receiptFiles || []);
     }
+    setPendingReceiptFiles([]);
     setShowForm(true);
   };
 
@@ -371,6 +429,13 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
       if (!res.ok) {
         setFormError(data.message || 'İşlem başarısız');
         return;
+      }
+      const paymentId = isEdit ? editingId! : data.id;
+      if (pendingReceiptFiles.length > 0 && paymentId) {
+        setReceiptUploading(true);
+        const uploaded = await uploadReceipts(paymentId, pendingReceiptFiles);
+        setReceiptUploading(false);
+        if (!uploaded) return;
       }
       setShowForm(false);
       resetForm();
@@ -647,13 +712,81 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
               </div>
             )}
 
+            <div className="border-t border-gray-100 pt-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Dekont</label>
+              {editingId && editingReceipts.length > 0 && (
+                <ul className="space-y-2 mb-3">
+                  {editingReceipts.map((file) => (
+                    <li key={file.filename} className="flex items-center justify-between gap-2 rounded-lg border border-gray-100 px-3 py-2 bg-gray-50">
+                      <a
+                        href={file.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 text-sm text-blue-600 hover:underline min-w-0 truncate"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Paperclip size={14} className="shrink-0" />
+                        <span className="truncate">{file.name}</span>
+                      </a>
+                      <button
+                        type="button"
+                        disabled={receiptUploading}
+                        onClick={() => deleteReceipt(editingId, file.filename)}
+                        className="p-1.5 rounded hover:bg-red-50 text-red-600 disabled:opacity-50"
+                        title="Dekontu sil"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {pendingReceiptFiles.length > 0 && (
+                <ul className="space-y-2 mb-3">
+                  {pendingReceiptFiles.map((file, index) => (
+                    <li key={`${file.name}-${index}`} className="flex items-center justify-between gap-2 rounded-lg border border-blue-100 px-3 py-2 bg-blue-50/50">
+                      <span className="inline-flex items-center gap-2 text-sm text-gray-700 min-w-0 truncate">
+                        <Upload size={14} className="shrink-0 text-blue-600" />
+                        <span className="truncate">{file.name}</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setPendingReceiptFiles((prev) => prev.filter((_, i) => i !== index))}
+                        className="p-1.5 rounded hover:bg-red-50 text-red-600"
+                        title="Kaldır"
+                      >
+                        <X size={14} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <label className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-gray-300 text-sm text-gray-600 hover:bg-gray-50 cursor-pointer">
+                <Upload size={16} />
+                <span>Dekont ekle (PDF, resim)</span>
+                <input
+                  type="file"
+                  multiple
+                  accept="image/*,.pdf,application/pdf"
+                  className="hidden"
+                  onChange={(e) => {
+                    const picked = Array.from(e.target.files || []);
+                    if (picked.length > 0) {
+                      setPendingReceiptFiles((prev) => [...prev, ...picked]);
+                    }
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+            </div>
+
             {formError && <p className="text-sm text-red-600">{formError}</p>}
             <div className="flex items-center justify-end gap-2 pt-2">
               <button type="button" onClick={closeFormView} className="px-3 py-2 rounded-lg border border-gray-200">
                 İptal
               </button>
-              <button type="submit" className="px-3 py-2 rounded-lg bg-blue-600 text-white">
-                {editingId ? 'Güncelle' : 'Kaydet'}
+              <button type="submit" disabled={receiptUploading} className="px-3 py-2 rounded-lg bg-blue-600 text-white disabled:opacity-50">
+                {receiptUploading ? 'Yükleniyor…' : editingId ? 'Güncelle' : 'Kaydet'}
               </button>
             </div>
           </form>
@@ -661,23 +794,18 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
       )}
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 space-y-3">
+        <CreatedAtRangeFilter
+          from={filters.dateFrom}
+          to={filters.dateTo}
+          onFromChange={(value) => setFilters(prev => ({ ...prev, dateFrom: value }))}
+          onToChange={(value) => setFilters(prev => ({ ...prev, dateTo: value }))}
+          presetPosition="above"
+        />
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <input
             placeholder="Sequence No"
             value={filters.sequenceQuery}
             onChange={e => setFilters(prev => ({ ...prev, sequenceQuery: e.target.value }))}
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
-          />
-          <input
-            type="date"
-            value={filters.dateFrom}
-            onChange={e => setFilters(prev => ({ ...prev, dateFrom: e.target.value }))}
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
-          />
-          <input
-            type="date"
-            value={filters.dateTo}
-            onChange={e => setFilters(prev => ({ ...prev, dateTo: e.target.value }))}
             className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
           />
           <select
@@ -803,6 +931,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
                     <th className="px-4 py-3">Ödeme Kaynağı</th>
                     <th className="px-4 py-3">Açıklama 1</th>
                     <th className="px-4 py-3">Açıklama 2</th>
+                    <th className="px-4 py-3">Dekont</th>
                   </>
                 ) : (
                   <>
@@ -813,6 +942,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
                     <th className="px-4 py-3">Masraf Tipi</th>
                     <th className="px-4 py-3">Kullanıcı</th>
                     <th className="px-4 py-3">Açıklama 1</th>
+                    <th className="px-4 py-3">Dekont</th>
                   </>
                 )}
                 <th className="px-4 py-3 text-right">İşlem</th>
@@ -822,7 +952,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
               {!loading && filteredRows.length === 0 && (
                 <tr>
                   <td
-                    colSpan={mode === 'incoming' ? 10 : 11}
+                    colSpan={mode === 'incoming' ? 11 : 12}
                     className="px-4 py-8 text-center text-gray-500"
                   >
                     Kayıt bulunamadı.
@@ -853,6 +983,16 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
                       <td className="px-4 py-3">{(row as IncomingPaymentRow).paymentSource}</td>
                       <td className="px-4 py-3">{(row as IncomingPaymentRow).description1 || '—'}</td>
                       <td className="px-4 py-3">{(row as IncomingPaymentRow).description2 || '—'}</td>
+                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                        {(row.receiptFiles?.length || 0) > 0 ? (
+                          <span className="inline-flex items-center gap-1 text-blue-600">
+                            <Paperclip size={14} />
+                            <span>{row.receiptFiles!.length}</span>
+                          </span>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
                     </>
                   ) : (
                     <>
@@ -861,11 +1001,26 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
                       <td className="px-4 py-3">{(row as OutgoingPaymentRow).paymentType === 'Cash' ? 'Nakit' : 'Banka'}</td>
                       <td className="px-4 py-3">{(row as OutgoingPaymentRow).paymentReason}</td>
                       <td className="px-4 py-3">
+                        {(row as OutgoingPaymentRow).expenseType
+                          ? formatExpenseTypeDisplay((row as OutgoingPaymentRow).expenseType)
+                          : '—'}
+                      </td>
+                      <td className="px-4 py-3">
                         {(row as OutgoingPaymentRow).userName
                           ? `${(row as OutgoingPaymentRow).userName} (${((row as OutgoingPaymentRow).userRole || '').toLowerCase()})`
                           : '—'}
                       </td>
                       <td className="px-4 py-3">{(row as OutgoingPaymentRow).description1 || '—'}</td>
+                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                        {(row.receiptFiles?.length || 0) > 0 ? (
+                          <span className="inline-flex items-center gap-1 text-blue-600">
+                            <Paperclip size={14} />
+                            <span>{row.receiptFiles!.length}</span>
+                          </span>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
                     </>
                   )}
                   <td className="px-4 py-3">

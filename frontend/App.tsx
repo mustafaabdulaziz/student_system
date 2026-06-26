@@ -28,6 +28,8 @@ import { PaymentsManager } from './components/PaymentsManager';
 import { PaymentDashboard } from './components/PaymentDashboard';
 import { AgencyCompanyManager } from './components/AgencyCompanyManager';
 import { PaymentSourceManager } from './components/PaymentSourceManager';
+import { NotificationsPage } from './components/NotificationsPage';
+import { NotificationProvider } from './contexts/NotificationContext';
 
 const NewsAndUpdates = lazy(() => import('./components/NewsAndUpdates').then(m => ({ default: m.NewsAndUpdates })));
 
@@ -58,7 +60,8 @@ const PATH_TO_PAGE: Record<string, string> = {
   '/agency-companies': 'agency-companies',
   '/payment-sources': 'payment-sources',
   '/news': 'news',
-  '/account': 'account'
+  '/account': 'account',
+  '/notifications': 'notifications'
 };
 
 const PAGE_TO_PATH: Record<string, string> = {
@@ -75,7 +78,8 @@ const PAGE_TO_PATH: Record<string, string> = {
   'agency-companies': '/agency-companies',
   'payment-sources': '/payment-sources',
   news: '/news',
-  account: '/account'
+  account: '/account',
+  notifications: '/notifications'
 };
 
 function getPageFromPath(pathname: string): string {
@@ -267,17 +271,24 @@ export default function App() {
     }
   };
 
-  const deleteProgram = async (id: string) => {
+  const deleteProgram = async (id: string): Promise<boolean> => {
     try {
-      const res = await fetch(`/api/programs/${id}`, { method: 'DELETE' });
+      const role = state.currentUser?.role ?? '';
+      const res = await fetch(`/api/programs/${id}?role=${encodeURIComponent(role)}`, { method: 'DELETE' });
       const data = await res.json();
       if (res.ok) {
         setState(prev => ({ ...prev, programs: prev.programs.filter(p => p.id !== id) }));
+        return true;
+      }
+      if (data.code === 'PROGRAM_HAS_APPLICATIONS') {
+        alert(t.programDeleteHasApplications);
       } else {
         alert(data.message || t.errorDelete);
       }
-    } catch (err) {
+      return false;
+    } catch {
       alert(t.errorConnection);
+      return false;
     }
   };
 
@@ -286,7 +297,7 @@ export default function App() {
       const res = await fetch('/api/programs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(prog)
+        body: JSON.stringify({ ...prog, role: state.currentUser?.role })
       });
       const data = await res.json();
       if (res.ok) {
@@ -299,12 +310,12 @@ export default function App() {
     }
   };
 
-  const editProgram = async (prog: Program) => {
+  const editProgram = async (prog: Program, opts?: { silent?: boolean }): Promise<boolean> => {
     try {
       const res = await fetch(`/api/programs/${prog.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(prog)
+        body: JSON.stringify({ ...prog, role: state.currentUser?.role })
       });
       const data = await res.json();
       if (res.ok) {
@@ -312,11 +323,13 @@ export default function App() {
           ...prev,
           programs: prev.programs.map(p => p.id === prog.id ? prog : p)
         }));
-      } else {
-        alert(data.message || t.errorUpdate);
+        return true;
       }
-    } catch (err) {
-      alert(t.errorConnection);
+      if (!opts?.silent) alert(data.message || t.errorUpdate);
+      return false;
+    } catch {
+      if (!opts?.silent) alert(t.errorConnection);
+      return false;
     }
   };
 
@@ -380,6 +393,47 @@ export default function App() {
     return undefined;
   };
 
+  const deleteStudent = async (id: string) => {
+    try {
+      const role = state.currentUser?.role ?? '';
+      const res = await fetch(`/api/students/${id}?role=${encodeURIComponent(role)}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (res.ok) {
+        const deletedAppIds = new Set<string>(data.deletedApplicationIds || []);
+        setState(prev => ({
+          ...prev,
+          students: prev.students.filter(s => s.id !== id),
+          applications: prev.applications.filter(a => a.studentId !== id && !deletedAppIds.has(a.id))
+        }));
+      } else {
+        alert(data.message || t.errorDelete);
+      }
+    } catch {
+      alert(t.errorConnection);
+    }
+  };
+
+  const deleteApplication = async (id: string) => {
+    try {
+      const role = state.currentUser?.role ?? '';
+      const res = await fetch(`/api/applications/${id}?role=${encodeURIComponent(role)}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (res.ok) {
+        setState(prev => ({
+          ...prev,
+          applications: prev.applications.filter(a => a.id !== id),
+          students: data.studentId && data.studentUpdatedAt
+            ? prev.students.map(s => s.id === data.studentId ? { ...s, updatedAt: data.studentUpdatedAt } : s)
+            : prev.students
+        }));
+      } else {
+        alert(data.message || t.errorDelete);
+      }
+    } catch {
+      alert(t.errorConnection);
+    }
+  };
+
   const syncStudentFiles = useCallback((studentId: string, fileUrls: string[]) => {
     setState(prev => ({
       ...prev,
@@ -388,11 +442,18 @@ export default function App() {
     }));
   }, []);
 
+  const appendUploaderToFormData = (fd: FormData) => {
+    if (state.currentUser?.id) {
+      fd.append('user_id', state.currentUser.id);
+      if (state.currentUser.role) fd.append('role', state.currentUser.role);
+    }
+  };
+
   const uploadStudentFiles = async (studentId: string, files: File[]): Promise<string[]> => {
     if (!files.length) return [];
     const fd = new FormData();
     files.forEach(f => fd.append('files', f));
-    if (state.currentUser?.id) fd.append('user_id', state.currentUser.id);
+    appendUploaderToFormData(fd);
     try {
       const res = await fetch(`/api/students/${studentId}/files`, { method: 'POST', body: fd });
       let data: { files?: { url: string }[]; message?: string } = {};
@@ -418,7 +479,7 @@ export default function App() {
     if (!files.length) return [];
     const fd = new FormData();
     files.forEach(f => fd.append('files', f));
-    if (state.currentUser?.id) fd.append('user_id', state.currentUser.id);
+    appendUploaderToFormData(fd);
     try {
       const res = await fetch(`/api/applications/${applicationId}/files`, { method: 'POST', body: fd });
       let data: { files?: { url: string }[]; message?: string; studentId?: string } = {};
@@ -556,7 +617,7 @@ export default function App() {
     agencyCompanyId?: string | null;
     currency?: string | null;
     paymentDeserved?: boolean;
-  }) => {
+  }, opts?: { silent?: boolean }): Promise<boolean> => {
     try {
       const res = await fetch(`/api/applications/${id}`, {
         method: 'PUT',
@@ -608,11 +669,13 @@ export default function App() {
             ? prev.students.map(s => s.id === data.studentId ? { ...s, updatedAt: data.studentUpdatedAt } : s)
             : prev.students
         }));
-      } else {
-        alert(data.message || 'Update failed');
+        return true;
       }
-    } catch (err) {
-      alert('Connection error');
+      if (!opts?.silent) alert(data.message || 'Update failed');
+      return false;
+    } catch {
+      if (!opts?.silent) alert('Connection error');
+      return false;
     }
   };
 
@@ -790,7 +853,17 @@ export default function App() {
       });
       const data = await res.json();
       if (res.ok) {
-        setState(prev => ({ ...prev, periods: prev.periods.map(p => p.id === period.id ? period : p) }));
+        setState(prev => ({
+          ...prev,
+          periods: prev.periods.map(p => p.id === period.id ? period : p),
+          programs: prev.programs.map(p =>
+            p.periodId === period.id ? { ...p, isArchived: period.active === false } : p
+          )
+        }));
+        if (typeof data.programsUpdated === 'number' && data.programsUpdated > 0) {
+          const action = period.active === false ? 'arşivlendi' : 'aktifleştirildi';
+          alert(`${data.programsUpdated} program ${action}.`);
+        }
       } else {
         alert(data.message || 'Failed to update period');
       }
@@ -941,7 +1014,9 @@ export default function App() {
           return items;
         };
 
-        const programsBaseUrl = '/api/programs';
+        const programsBaseUrl = state.currentUser?.role === UserRole.ADMIN
+          ? '/api/programs?role=ADMIN&includeArchived=1'
+          : '/api/programs';
         const studentsBaseUrl = buildBaseUrl('/api/students');
         const applicationsBaseUrl = buildBaseUrl('/api/applications');
 
@@ -1002,16 +1077,26 @@ export default function App() {
       case 'universities':
         return <UniversityManager universities={state.universities} programs={state.programs} onAddUniversity={addUniversity} onEditUniversity={editUniversity} onDeleteUniversity={deleteUniversity} currentUser={state.currentUser} />;
       case 'programs':
-        return <ProgramManager programs={state.programs} universities={state.universities} periods={state.periods} onAddProgram={addProgram} onEditProgram={editProgram} onDeleteProgram={deleteProgram} currentUser={state.currentUser} />;
+        return <ProgramManager programs={state.programs} universities={state.universities} periods={state.periods} applications={state.applications} onAddProgram={addProgram} onEditProgram={editProgram} onDeleteProgram={deleteProgram} currentUser={state.currentUser} />;
       case 'students':
-        return <StudentManager students={state.students} applications={state.applications} programs={state.programs} universities={state.universities} periods={state.periods} users={state.users} agencyCompanies={state.agencyCompanies} onAddStudent={addStudent} onEditStudent={updateStudent} onUploadStudentFiles={uploadStudentFiles} onUploadApplicationFiles={uploadApplicationFiles} onStudentFilesChange={syncStudentFiles} onCreateApplicationForStudent={openCreateApplicationForStudent} onAddApplicationForStudent={(app) => addApplication(app)} onUpdateApplicationStatus={updateAppStatus} onUpdateApplication={updateApplication} onSyncApplicationTimestamps={onSyncApplicationTimestamps} onViewApplication={openApplicationDetails} currentUser={state.currentUser} targetStudentId={targetStudentId} clearTargetStudent={() => setTargetStudentId(null)} />;
+        return <StudentManager students={state.students} applications={state.applications} programs={state.programs} universities={state.universities} periods={state.periods} users={state.users} agencyCompanies={state.agencyCompanies} onAddStudent={addStudent} onEditStudent={updateStudent} onDeleteStudent={deleteStudent} onUploadStudentFiles={uploadStudentFiles} onUploadApplicationFiles={uploadApplicationFiles} onStudentFilesChange={syncStudentFiles} onCreateApplicationForStudent={openCreateApplicationForStudent} onAddApplicationForStudent={(app) => addApplication(app)} onUpdateApplicationStatus={updateAppStatus} onUpdateApplication={updateApplication} onDeleteApplication={deleteApplication} onSyncApplicationTimestamps={onSyncApplicationTimestamps} onViewApplication={openApplicationDetails} currentUser={state.currentUser} targetStudentId={targetStudentId} clearTargetStudent={() => setTargetStudentId(null)} />;
       case 'applications':
-        return <ApplicationManager applications={state.applications} students={state.students} programs={state.programs} universities={state.universities} periods={state.periods} agencyCompanies={state.agencyCompanies} users={state.users} onAddApplication={addApplication} onUpdateStatus={updateAppStatus} onUpdateApplication={updateApplication} onSyncApplicationTimestamps={onSyncApplicationTimestamps} onStudentFilesChange={syncStudentFiles} initialStudentId={prefillStudentIdForApp} clearInitialStudent={() => setPrefillStudentIdForApp(null)} targetApplicationId={targetApplicationId} clearTargetApplication={() => setTargetApplicationId(null)} initialListFilters={applicationListFilters} clearInitialListFilters={() => setApplicationListFilters(null)} onOpenStudent={openStudentDetails} currentUser={state.currentUser} />;
+        return <ApplicationManager applications={state.applications} students={state.students} programs={state.programs} universities={state.universities} periods={state.periods} agencyCompanies={state.agencyCompanies} users={state.users} onAddApplication={addApplication} onUpdateStatus={updateAppStatus} onUpdateApplication={updateApplication} onDeleteApplication={deleteApplication} onSyncApplicationTimestamps={onSyncApplicationTimestamps} onStudentFilesChange={syncStudentFiles} initialStudentId={prefillStudentIdForApp} clearInitialStudent={() => setPrefillStudentIdForApp(null)} targetApplicationId={targetApplicationId} clearTargetApplication={() => setTargetApplicationId(null)} initialListFilters={applicationListFilters} clearInitialListFilters={() => setApplicationListFilters(null)} onOpenStudent={openStudentDetails} currentUser={state.currentUser} />;
       case 'news':
         return (
           <Suspense fallback={<div className="p-6 text-gray-500">{state.currentUser ? t.loading : ''}</div>}>
             <NewsAndUpdates currentUser={state.currentUser} />
           </Suspense>
+        );
+      case 'notifications':
+        return (
+          <NotificationsPage
+            onNavigate={(page, entityId) => {
+              if (page === 'applications' && entityId) openApplicationDetails(entityId);
+              else if (page === 'students' && entityId) openStudentDetails(entityId);
+              else navigateTo(page);
+            }}
+          />
         );
       case 'periods':
         if (state.currentUser?.role !== UserRole.ADMIN) {
@@ -1193,14 +1278,17 @@ export default function App() {
   };
 
   return (
-    <Layout
-      activePage={activePage}
-      onNavigate={navigateTo}
-      onNavigateToApp={openApplicationDetails}
-      currentUser={state.currentUser}
-      onLogout={handleLogout}
-    >
-      {renderContent()}
-    </Layout>
+    <NotificationProvider userId={state.currentUser?.id ?? null}>
+      <Layout
+        activePage={activePage}
+        onNavigate={navigateTo}
+        onNavigateToApp={openApplicationDetails}
+        onNavigateToStudent={openStudentDetails}
+        currentUser={state.currentUser}
+        onLogout={handleLogout}
+      >
+        {renderContent()}
+      </Layout>
+    </NotificationProvider>
   );
 }

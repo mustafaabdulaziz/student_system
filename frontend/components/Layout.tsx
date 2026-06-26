@@ -27,6 +27,7 @@ interface LayoutProps {
   activePage: string;
   onNavigate: (page: string) => void;
   onNavigateToApp?: (appId: string) => void;
+  onNavigateToStudent?: (studentId: string) => void;
   currentUser: User | null;
   onLogout: () => void;
 }
@@ -36,6 +37,7 @@ export const Layout: React.FC<LayoutProps> = ({
   activePage,
   onNavigate,
   onNavigateToApp,
+  onNavigateToStudent,
   currentUser,
   onLogout
 }) => {
@@ -52,14 +54,13 @@ export const Layout: React.FC<LayoutProps> = ({
     }
   }, [activePage, children]);
 
-  const navItems = [
+  const mainNavItems = [
     { id: 'dashboard', label: t.dashboard, icon: LayoutDashboard },
-    { id: 'universities', label: t.universities, icon: School },
     { id: 'programs', label: t.programs, icon: BookOpen },
     { id: 'students', label: t.students, icon: Users },
     { id: 'applications', label: t.applications, icon: FileText },
-    { id: 'news', label: t.newsAndUpdates, icon: Newspaper },
-    { id: 'account', label: t.account, icon: UserCircle }
+    { id: 'universities', label: t.universities, icon: School },
+    { id: 'news', label: t.newsAndUpdates, icon: Newspaper }
   ];
 
   const settingsSubItems =
@@ -151,66 +152,65 @@ export const Layout: React.FC<LayoutProps> = ({
           </div>
 
           <nav className="layout-sidebar-nav flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 py-6 space-y-2">
-            {navItems.map((item) => (
-              <React.Fragment key={item.id}>
+            {mainNavItems.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => {
+                  onNavigate(item.id);
+                  setSidebarOpen(false);
+                }}
+                className={`w-full flex items-center gap-1.5 px-3 py-3 rounded-lg transition-colors duration-200
+                  ${activePage === item.id
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
+                    : 'text-slate-300 hover:bg-slate-800 hover:text-white'}
+                `}
+              >
+                <item.icon size={20} className="flex-shrink-0 w-5 h-5" />
+                <span className="font-medium text-left">{item.label}</span>
+              </button>
+            ))}
+
+            {paymentsSubItems.length > 0 && (
+              <div className="pt-2">
                 <button
-                  onClick={() => {
-                    onNavigate(item.id);
-                    setSidebarOpen(false);
-                  }}
-                  className={`w-full flex items-center gap-1.5 px-3 py-3 rounded-lg transition-colors duration-200
-                    ${activePage === item.id
-                      ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
-                      : 'text-slate-300 hover:bg-slate-800 hover:text-white'}
-                  `}
+                  type="button"
+                  onClick={() => setPaymentsOpen((prev) => !prev)}
+                  className={`w-full flex items-center justify-between gap-1.5 px-3 py-3 rounded-lg ${
+                    paymentsSubItems.some((subItem) => subItem.id === activePage)
+                      ? 'bg-slate-800 text-white'
+                      : 'text-slate-300'
+                  }`}
                 >
-                  <item.icon size={20} className="flex-shrink-0 w-5 h-5" />
-                  <span className="font-medium text-left">{item.label}</span>
+                  <span className="flex items-center gap-1.5">
+                    <HandCoins size={20} className="flex-shrink-0 w-5 h-5" />
+                    <span className="font-medium text-left">Ödemeler</span>
+                  </span>
+                  <span className="text-xs">{paymentsOpen ? '▾' : '▸'}</span>
                 </button>
 
-                {item.id === 'applications' && paymentsSubItems.length > 0 && (
-                  <div className="pt-2">
-                    <button
-                      type="button"
-                      onClick={() => setPaymentsOpen((prev) => !prev)}
-                      className={`w-full flex items-center justify-between gap-1.5 px-3 py-3 rounded-lg ${
-                        paymentsSubItems.some((subItem) => subItem.id === activePage)
-                          ? 'bg-slate-800 text-white'
-                          : 'text-slate-300'
-                      }`}
-                    >
-                      <span className="flex items-center gap-1.5">
-                        <HandCoins size={20} className="flex-shrink-0 w-5 h-5" />
-                        <span className="font-medium text-left">Ödemeler</span>
-                      </span>
-                      <span className="text-xs">{paymentsOpen ? '▾' : '▸'}</span>
-                    </button>
-
-                    {paymentsOpen && (
-                      <div className="mt-1 space-y-1">
-                        {paymentsSubItems.map((subItem) => (
-                          <button
-                            key={subItem.id}
-                            onClick={() => {
-                              onNavigate(subItem.id);
-                              setSidebarOpen(false);
-                            }}
-                            className={`w-full flex items-center gap-1.5 px-3 py-2 rounded-lg transition-colors duration-200 ${
-                              activePage === subItem.id
-                                ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
-                                : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                            }`}
-                          >
-                            <subItem.icon size={18} className="flex-shrink-0 w-4 h-4 ms-5" />
-                            <span className="font-medium text-left text-sm">{subItem.label}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                {paymentsOpen && (
+                  <div className="mt-1 space-y-1">
+                    {paymentsSubItems.map((subItem) => (
+                      <button
+                        key={subItem.id}
+                        onClick={() => {
+                          onNavigate(subItem.id);
+                          setSidebarOpen(false);
+                        }}
+                        className={`w-full flex items-center gap-1.5 px-3 py-2 rounded-lg transition-colors duration-200 ${
+                          activePage === subItem.id
+                            ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
+                            : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                        }`}
+                      >
+                        <subItem.icon size={18} className="flex-shrink-0 w-4 h-4 ms-5" />
+                        <span className="font-medium text-left text-sm">{subItem.label}</span>
+                      </button>
+                    ))}
                   </div>
                 )}
-              </React.Fragment>
-            ))}
+              </div>
+            )}
 
             {settingsSubItems.length > 0 && (
               <div className="pt-2">
@@ -253,6 +253,21 @@ export const Layout: React.FC<LayoutProps> = ({
                 )}
               </div>
             )}
+
+            <button
+              onClick={() => {
+                onNavigate('account');
+                setSidebarOpen(false);
+              }}
+              className={`w-full flex items-center gap-1.5 px-3 py-3 rounded-lg transition-colors duration-200
+                ${activePage === 'account'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
+                  : 'text-slate-300 hover:bg-slate-800 hover:text-white'}
+              `}
+            >
+              <UserCircle size={20} className="flex-shrink-0 w-5 h-5" />
+              <span className="font-medium text-left">{t.account}</span>
+            </button>
           </nav>
 
           <div className="p-4 border-t border-slate-800 flex-shrink-0">
@@ -290,14 +305,16 @@ export const Layout: React.FC<LayoutProps> = ({
             <LanguageSwitcher />
             {currentUser && (
               <NotificationDropdown
-                currentUserId={currentUser.id}
-                onNavigate={(page, appId) => {
-                  if (appId && onNavigateToApp) {
-                    onNavigateToApp(appId);
+                onNavigate={(page, entityId) => {
+                  if (page === 'applications' && entityId && onNavigateToApp) {
+                    onNavigateToApp(entityId);
+                  } else if (page === 'students' && entityId && onNavigateToStudent) {
+                    onNavigateToStudent(entityId);
                   } else {
                     onNavigate(page);
                   }
                 }}
+                onViewAll={() => onNavigate('notifications')}
               />
             )}
           </div>

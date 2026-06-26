@@ -20,17 +20,20 @@ interface UniversityManagerProps {
 
 const EMPTY_FORM: Partial<University> & {
   educationVatRateInput?: string;
+  abroadVatRateInput?: string;
   commissionValueInput?: string;
   bonusMaxInput?: string;
   bonusMinInput?: string;
 } = {
   name: '', website: '', country: 'Turkey', city: '', description: '', logo: undefined,
   educationVatRate: null,
+  abroadVatRate: null,
   commissionKind: null,
   commissionValue: null,
   bonusMax: null,
   bonusMin: null,
   educationVatRateInput: '',
+  abroadVatRateInput: '',
   commissionValueInput: '',
   bonusMaxInput: '',
   bonusMinInput: ''
@@ -57,6 +60,7 @@ const UNIVERSITY_EXCEL_COLUMNS = [
   'web sitesi',
   'açıklama',
   'eğitim kdv oranı',
+  'yurtdışı kdv oranı',
   'komisyon türü',
   'tutar / oran'
 ] as const;
@@ -90,7 +94,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
   universities, programs,
   onAddUniversity, onEditUniversity, onDeleteUniversity, currentUser
 }) => {
-  const { t, translateDegree, translateCategory } = useTranslation();
+  const { t, translateDegree } = useTranslation();
   const isAdmin = currentUser?.role === UserRole.ADMIN;
   const getCountryLabel = (country?: string) => {
     if (country === 'Turkey') return t.countryTurkey;
@@ -112,6 +116,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
       return {
         ...fresh,
         educationVatRate: fresh.educationVatRate ?? prev.educationVatRate,
+        abroadVatRate: fresh.abroadVatRate ?? prev.abroadVatRate,
         commissionKind: fresh.commissionKind ?? prev.commissionKind,
         commissionValue: fresh.commissionValue ?? prev.commissionValue,
         bonusMax: fresh.bonusMax ?? prev.bonusMax,
@@ -163,11 +168,13 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
     setFormData({
       ...uni,
       educationVatRateInput: uni.educationVatRate != null && !Number.isNaN(uni.educationVatRate) ? String(uni.educationVatRate) : '',
+      abroadVatRateInput: uni.abroadVatRate != null && !Number.isNaN(uni.abroadVatRate) ? String(uni.abroadVatRate) : '',
       commissionValueInput: uni.commissionValue != null && !Number.isNaN(uni.commissionValue) ? String(uni.commissionValue) : '',
       bonusMaxInput: uni.bonusMax != null && !Number.isNaN(uni.bonusMax) ? String(uni.bonusMax) : '',
       bonusMinInput: uni.bonusMin != null && !Number.isNaN(uni.bonusMin) ? String(uni.bonusMin) : ''
     } as Partial<University> & {
       educationVatRateInput?: string;
+      abroadVatRateInput?: string;
       commissionValueInput?: string;
       bonusMaxInput?: string;
       bonusMinInput?: string;
@@ -191,15 +198,18 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
   };
 
   /* -------- Submit -------- */
-  const parseAdminFinance = (): Pick<University, 'educationVatRate' | 'commissionKind' | 'commissionValue' | 'bonusMax' | 'bonusMin'> => {
+  const parseAdminFinance = (): Pick<University, 'educationVatRate' | 'abroadVatRate' | 'commissionKind' | 'commissionValue' | 'bonusMax' | 'bonusMin'> => {
     const ext = formData as Partial<University> & {
       educationVatRateInput?: string;
+      abroadVatRateInput?: string;
       commissionValueInput?: string;
       bonusMaxInput?: string;
       bonusMinInput?: string;
     };
     const vatRaw = (ext.educationVatRateInput ?? '').toString().trim();
     const educationVatRate = vatRaw === '' ? null : parseInt(vatRaw, 10);
+    const abroadVatRaw = (ext.abroadVatRateInput ?? '').toString().trim();
+    const abroadVatRate = abroadVatRaw === '' ? null : parseFloat(abroadVatRaw);
     const kind = (formData.commissionKind || '').toString().trim() as '' | 'amount' | 'rate';
     const commRaw = (ext.commissionValueInput ?? '').toString().trim();
     const commissionValue = commRaw === '' ? null : parseFloat(commRaw);
@@ -210,6 +220,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
     const bonusMin = bonusMinRaw === '' ? null : parseFloat(bonusMinRaw);
     return {
       educationVatRate: vatRaw === '' || Number.isNaN(educationVatRate as number) ? null : educationVatRate,
+      abroadVatRate: abroadVatRaw === '' || Number.isNaN(abroadVatRate as number) ? null : abroadVatRate,
       commissionKind,
       commissionValue: commRaw === '' || Number.isNaN(commissionValue as number) ? null : commissionValue,
       bonusMax: bonusMaxRaw === '' || Number.isNaN(bonusMax as number) ? null : bonusMax,
@@ -222,6 +233,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
     if (!formData.name || !formData.website || !formData.country || !formData.description) return;
     const adminFin = isAdmin ? parseAdminFinance() : {
       educationVatRate: null,
+      abroadVatRate: null,
       commissionKind: null,
       commissionValue: null,
       bonusMax: null,
@@ -230,6 +242,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
     if (isAdmin) {
       const ext = formData as Partial<University> & {
         educationVatRateInput?: string;
+        abroadVatRateInput?: string;
         commissionValueInput?: string;
         bonusMaxInput?: string;
         bonusMinInput?: string;
@@ -237,6 +250,11 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
       const vatRaw = (ext.educationVatRateInput ?? '').toString().trim();
       if (vatRaw !== '' && adminFin.educationVatRate === null) {
         alert('Eğitim KDV oranı geçerli bir tam sayı olmalıdır.');
+        return;
+      }
+      const abroadVatRaw = (ext.abroadVatRateInput ?? '').toString().trim();
+      if (abroadVatRaw !== '' && adminFin.abroadVatRate === null) {
+        alert('Yurtdışı KDV oranı geçerli bir sayı olmalıdır.');
         return;
       }
       if (adminFin.commissionKind && adminFin.commissionValue === null) {
@@ -289,6 +307,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
       'web sitesi': u.website || '',
       'açıklama': u.description || '',
       'eğitim kdv oranı': u.educationVatRate ?? '',
+      'yurtdışı kdv oranı': u.abroadVatRate ?? '',
       'komisyon türü': u.commissionKind === 'amount' ? 'Sabit Tutar' : u.commissionKind === 'rate' ? 'Oran' : '',
       'tutar / oran': u.commissionValue ?? ''
     }));
@@ -334,10 +353,11 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
         const website = String(row[3] ?? '').trim();
         const description = String(row[4] ?? '').trim();
         const educationVatRaw = String(row[5] ?? '').trim();
-        const commissionKind = parseExcelCommissionKind(row[6]);
-        const commissionValueRaw = String(row[7] ?? '').trim();
+        const abroadVatRaw = String(row[6] ?? '').trim();
+        const commissionKind = parseExcelCommissionKind(row[7]);
+        const commissionValueRaw = String(row[8] ?? '').trim();
 
-        const isCompletelyEmpty = [name, row[1], city, website, description, educationVatRaw, row[6], commissionValueRaw]
+        const isCompletelyEmpty = [name, row[1], city, website, description, educationVatRaw, abroadVatRaw, row[7], commissionValueRaw]
           .every((v) => String(v ?? '').trim() === '');
         if (isCompletelyEmpty) continue;
 
@@ -365,6 +385,13 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
           continue;
         }
 
+        const abroadVatRate =
+          abroadVatRaw === '' ? null : Number.isNaN(Number(abroadVatRaw)) ? null : parseFloat(abroadVatRaw);
+        if (abroadVatRaw !== '' && abroadVatRate === null) {
+          errors.push(`Satır ${rowNo}: Yurtdışı KDV oranı sayı olmalı.`);
+          continue;
+        }
+
         const commissionValue =
           commissionValueRaw === '' ? null : Number.isNaN(Number(commissionValueRaw)) ? null : Number(commissionValueRaw);
         if (commissionValueRaw !== '' && commissionValue === null) {
@@ -388,6 +415,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
           website,
           description,
           educationVatRate,
+          abroadVatRate,
           commissionKind,
           commissionValue
         });
@@ -424,7 +452,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
     return () => { document.body.style.overflow = 'auto'; };
   }, [confirmDeleteId]);
 
-  const uniPrograms = (uniId: string) => programs.filter(p => p.universityId === uniId);
+  const uniPrograms = (uniId: string) => programs.filter(p => p.universityId === uniId && !p.isArchived);
 
   const filteredUniversities = universities.filter(uni =>
     !searchQuery.trim() || uni.name.toLowerCase().includes(searchQuery.trim().toLowerCase())
@@ -439,7 +467,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
         case 'country': va = (a.country || '').toLowerCase(); vb = (b.country || '').toLowerCase(); return dir * (va as string).localeCompare(vb as string);
         case 'city': va = (a.city || '').toLowerCase(); vb = (b.city || '').toLowerCase(); return dir * (va as string).localeCompare(vb as string);
         case 'website': va = (a.website || '').toLowerCase(); vb = (b.website || '').toLowerCase(); return dir * (va as string).localeCompare(vb as string);
-        case 'programs': va = programs.filter(p => p.universityId === a.id).length; vb = programs.filter(p => p.universityId === b.id).length; return dir * ((va as number) - (vb as number));
+        case 'programs': va = programs.filter(p => p.universityId === a.id && !p.isArchived).length; vb = programs.filter(p => p.universityId === b.id && !p.isArchived).length; return dir * ((va as number) - (vb as number));
         default: return 0;
       }
     });
@@ -562,7 +590,6 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                         <div>
                           <h5 className="font-semibold text-gray-800">{prog.name}</h5>
                           {prog.nameInArabic && <p className="text-sm text-gray-500 mt-0.5" dir="rtl">{prog.nameInArabic}</p>}
-                          {prog.category && <p className="text-xs text-gray-400 mt-0.5">{translateCategory(prog.category)}</p>}
                         </div>
                         <span className={`text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${DEGREE_COLORS[prog.degree] || 'bg-gray-100 text-gray-600'}`}>
                           {translateDegree(prog.degree)}
@@ -587,6 +614,10 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                     <div>
                       <dt className="text-xs font-semibold text-amber-900/80 uppercase tracking-wide mb-1">Eğitim KDV oranı</dt>
                       <dd className="text-gray-900 font-medium">{detailUni.educationVatRate != null ? String(detailUni.educationVatRate) : '—'}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs font-semibold text-amber-900/80 uppercase tracking-wide mb-1">Yurtdışı KDV oranı</dt>
+                      <dd className="text-gray-900 font-medium">{detailUni.abroadVatRate != null ? String(detailUni.abroadVatRate) : '—'}</dd>
                     </div>
                     <div>
                       <dt className="text-xs font-semibold text-amber-900/80 uppercase tracking-wide mb-1">Komisyon</dt>
@@ -713,6 +744,17 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                       placeholder="Örn. 18"
                       value={(formData as Partial<University> & { educationVatRateInput?: string }).educationVatRateInput ?? ''}
                       onChange={e => setFormData({ ...formData, educationVatRateInput: e.target.value } as Partial<University> & { educationVatRateInput?: string })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-800 mb-1">Yurtdışı KDV oranı (%)</label>
+                    <input
+                      type="number"
+                      step="any"
+                      className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-amber-500 outline-none bg-white"
+                      placeholder="Örn. 10"
+                      value={(formData as Partial<University> & { abroadVatRateInput?: string }).abroadVatRateInput ?? ''}
+                      onChange={e => setFormData({ ...formData, abroadVatRateInput: e.target.value } as Partial<University> & { abroadVatRateInput?: string })}
                     />
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

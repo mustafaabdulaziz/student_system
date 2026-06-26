@@ -60,6 +60,7 @@ export interface Translations {
     clearFilter: string;
     /** Recent applications table on dashboard: student column label (not “select student”) */
     dashboardStudentColumn: string;
+    today: string;
     yesterday: string;
     last7Days: string;
     last30Days: string;
@@ -74,6 +75,7 @@ export interface Translations {
     byAgent: string;
     byAgency: string;
     byUniversity: string;
+    byDegree: string;
     byProgram: string;
     byCountry: string;
     byStatus: string;
@@ -96,6 +98,8 @@ export interface Translations {
 
     // Universities
     universitiesTitle: string;
+    /** Short filter label: university only (no “management”) */
+    university: string;
     addUniversity: string;
     universityName: string;
     universityWebsite: string;
@@ -106,6 +110,8 @@ export interface Translations {
     searchNoResults: string;
     treeView: string;
     kanbanView: string;
+    generalTree: string;
+    financialTree: string;
     visitOfficialWebsite: string;
     overview: string;
     generalInfo: string;
@@ -161,8 +167,24 @@ export interface Translations {
     selectUniversity: string;
     noPrograms: string;
     printResult: string;
+    pdfSelectPrograms: string;
+    pdfMaxPrograms: string;
+    deleteSelected: string;
+    bulkDeleteMaxRecords: string;
+    bulkDeleteConfirmStudents: string;
+    bulkDeleteConfirmPrograms: string;
+    bulkDeleteConfirmApplications: string;
+    programDeleteHasApplications: string;
+    programDeleteBlockedBulk: string;
+    massEdit: string;
+    massEditSelectedRecords: string;
+    massEditField: string;
+    massEditNewValue: string;
+    massEditApply: string;
+    massEditValueRequired: string;
+    selectField: string;
+    massEditPartialResult: string;
     searchProgramNamePlaceholder: string;
-    searchNameInArabicPlaceholder: string;
     filterAll: string;
     clearFilters: string;
     filterCreatedFrom: string;
@@ -171,6 +193,7 @@ export interface Translations {
     bachelor: string;
     master: string;
     phd: string;
+    associateDegree: string;
     combinedPhd: string;
 
     // Students
@@ -208,6 +231,16 @@ export interface Translations {
     noApplicationsInSystem: string;
     noAttachments: string;
     attachAdditionalFiles: string;
+    uploadTypedDocument: string;
+    fileTypeLabel: string;
+    selectFileType: string;
+    selectFileFirst: string;
+    selectDocumentFile: string;
+    fileTypeAcceptanceLetter: string;
+    fileTypeOfferLetter: string;
+    fileTypeOther: string;
+    fileTypeDescription: string;
+    fileTypeDescriptionRequired: string;
     uploadNow: string;
     uploadToWhatsApp: string;
     filesSelected: string;
@@ -280,11 +313,23 @@ export interface Translations {
     // Notifications
     notificationsTitle: string;
     noNotifications: string;
+    notificationsPageSubtitle: string;
+    viewAllNotifications: string;
+    notificationsShown: string;
+    unreadNotifications: string;
+    notificationReadFilter: string;
+    unreadOnly: string;
+    readOnly: string;
+    noNotificationsForFilter: string;
     markAsRead: string;
     markAllAsRead: string;
     newMessage: string;
     statusUpdate: string;
     statusUpdateMessage: string;
+    fileUploadStudentTitle: string;
+    fileUploadStudentMessage: string;
+    fileUploadApplicationTitle: string;
+    fileUploadApplicationMessage: string;
     messageFromAdmin: string;
     messageFromApp: string;
 
@@ -297,6 +342,12 @@ export interface Translations {
     errorDelete: string;
     errorConnection: string;
     confirmDelete: string;
+    archive: string;
+    unarchive: string;
+    activePrograms: string;
+    archivedPrograms: string;
+    confirmArchive: string;
+    confirmUnarchive: string;
 
     // Validation
     requiredField: string;
@@ -371,6 +422,7 @@ export const translations: Record<Language, Translations> = {
         applyFilter: 'تطبيق',
         clearFilter: 'مسح الفلتر',
         dashboardStudentColumn: 'الطالب',
+        today: 'اليوم',
         yesterday: 'أمس',
         last7Days: 'آخر 7 أيام',
         last30Days: 'آخر 30 يوم',
@@ -385,6 +437,7 @@ export const translations: Record<Language, Translations> = {
         byAgent: 'حسب الوكيل',
         byAgency: 'حسب الوكالة',
         byUniversity: 'حسب الجامعة',
+        byDegree: 'حسب الدرجة',
         byProgram: 'حسب البرنامج',
         byCountry: 'حسب الدولة',
         byStatus: 'حسب الحالة',
@@ -405,6 +458,7 @@ export const translations: Record<Language, Translations> = {
 
         // Universities
         universitiesTitle: 'إدارة الجامعات',
+        university: 'جامعة',
         addUniversity: 'إضافة جامعة',
         universityName: 'اسم الجامعة',
         universityWebsite: 'الموقع الإلكتروني',
@@ -415,6 +469,8 @@ export const translations: Record<Language, Translations> = {
         searchNoResults: 'لا توجد نتائج',
         treeView: 'عرض شجري',
         kanbanView: 'عرض كانبان',
+        generalTree: 'شجرة عامة',
+        financialTree: 'شجرة مالية',
         visitOfficialWebsite: 'زيارة الموقع الرسمي',
         overview: 'نظرة عامة',
         generalInfo: 'معلومات عامة',
@@ -469,8 +525,24 @@ export const translations: Record<Language, Translations> = {
         selectUniversity: 'اختر الجامعة',
         noPrograms: 'لا توجد برامج',
         printResult: 'طباعة النتائج (PDF)',
-        searchProgramNamePlaceholder: 'بحث باسم البرنامج...',
-        searchNameInArabicPlaceholder: 'بحث بالاسم بالعربية...',
+        pdfSelectPrograms: 'يرجى تحديد برنامج واحد على الأقل للطباعة',
+        pdfMaxPrograms: 'يمكنك تحديد 50 برنامجاً كحد أقصى',
+        deleteSelected: 'حذف المحدد',
+        bulkDeleteMaxRecords: 'يمكنك تحديد 50 سجلاً كحد أقصى',
+        bulkDeleteConfirmStudents: 'سيتم حذف الطلاب المحددين وجميع طلباتهم المرتبطة.',
+        bulkDeleteConfirmPrograms: 'سيتم حذف البرامج المحددة نهائياً.',
+        bulkDeleteConfirmApplications: 'سيتم حذف الطلبات المحددة نهائياً.',
+        programDeleteHasApplications: 'يوجد طلبات مرتبطة بهذا البرنامج. لا يمكن حذف البرنامج.',
+        programDeleteBlockedBulk: 'لا يمكن حذف البرامج التالية لوجود طلبات مرتبطة بها:',
+        massEdit: 'تعديل جماعي',
+        massEditSelectedRecords: 'سجل محدد',
+        massEditField: 'الحقل',
+        massEditNewValue: 'القيمة الجديدة',
+        massEditApply: 'تطبيق',
+        massEditValueRequired: 'أدخل قيمة',
+        selectField: 'اختر حقلًا',
+        massEditPartialResult: 'تم تحديث {ok}، فشل {fail}',
+        searchProgramNamePlaceholder: 'بحث باسم البرنامج أو الاسم بالعربية...',
         filterAll: 'الكل',
         clearFilters: 'مسح الفلاتر',
         filterCreatedFrom: 'تاريخ بداية الإنشاء',
@@ -479,6 +551,7 @@ export const translations: Record<Language, Translations> = {
         bachelor: 'بكالوريوس',
         master: 'ماجستير',
         phd: 'دكتوراه',
+        associateDegree: 'دبلوم',
         combinedPhd: 'دكتوراه مشتركة',
 
         // Students
@@ -515,6 +588,16 @@ export const translations: Record<Language, Translations> = {
         noApplicationsInSystem: 'لم يتم العثور على أي طلبات في النظام',
         noAttachments: 'لا يوجد مرفقات',
         attachAdditionalFiles: 'إرفاق ملفات إضافية',
+        uploadTypedDocument: 'رفع مستند',
+        fileTypeLabel: 'نوع الملف',
+        selectFileType: 'اختر نوع الملف',
+        selectFileFirst: 'اختر ملفاً أولاً',
+        selectDocumentFile: 'اختر ملف المستند',
+        fileTypeAcceptanceLetter: 'خطاب القبول',
+        fileTypeOfferLetter: 'خطاب العرض',
+        fileTypeOther: 'أخرى',
+        fileTypeDescription: 'الوصف',
+        fileTypeDescriptionRequired: 'الوصف مطلوب عند اختيار أخرى',
         uploadNow: 'رفع الآن',
         uploadToWhatsApp: 'رفع للواتساب',
         filesSelected: 'ملفات تم اختيارها',
@@ -588,11 +671,23 @@ export const translations: Record<Language, Translations> = {
         // Notifications
         notificationsTitle: 'الإشعارات',
         noNotifications: 'لا توجد إشعارات',
+        notificationsPageSubtitle: 'جميع إشعاراتك في مكان واحد',
+        viewAllNotifications: 'عرض جميع الإشعارات',
+        notificationsShown: 'إشعار',
+        unreadNotifications: 'غير مقروء',
+        notificationReadFilter: 'حالة القراءة',
+        unreadOnly: 'غير المقروء فقط',
+        readOnly: 'المقروء فقط',
+        noNotificationsForFilter: 'لا توجد إشعارات تطابق الفلتر',
         markAsRead: 'تعليم كمقروء',
         markAllAsRead: 'تجاهل الكل',
         newMessage: 'رسالة جديدة',
         statusUpdate: 'تحديث الحالة',
         statusUpdateMessage: 'تم تغيير حالة طلبك #{id} إلى {status}',
+        fileUploadStudentTitle: 'رفع ملفات الطالب',
+        fileUploadStudentMessage: 'الوكيل {agent} رفع ملف(ات) للطالب {student}',
+        fileUploadApplicationTitle: 'رفع ملفات البطاقة',
+        fileUploadApplicationMessage: 'الوكيل {agent} رفع ملف(ات) للبطاقة #{id}',
         messageFromAdmin: 'الأدمن: {message}',
         messageFromApp: 'طلب #{id}: {message}',
 
@@ -605,6 +700,12 @@ export const translations: Record<Language, Translations> = {
         errorDelete: 'فشل الحذف',
         errorConnection: 'خطأ في الاتصال بالخادم',
         confirmDelete: 'هل أنت متأكد من الحذف؟',
+        archive: 'أرشفة',
+        unarchive: 'إلغاء الأرشفة',
+        activePrograms: 'نشط',
+        archivedPrograms: 'الأرشيف',
+        confirmArchive: 'أرشفة هذا البرنامج؟',
+        confirmUnarchive: 'إلغاء أرشفة هذا البرنامج؟',
 
         // Validation
         requiredField: 'هذا الحقل مطلوب',
@@ -678,6 +779,7 @@ export const translations: Record<Language, Translations> = {
         applyFilter: 'Apply',
         clearFilter: 'Clear filter',
         dashboardStudentColumn: 'Student',
+        today: 'Today',
         yesterday: 'Yesterday',
         last7Days: 'Last 7 days',
         last30Days: 'Last 30 days',
@@ -692,6 +794,7 @@ export const translations: Record<Language, Translations> = {
         byAgent: 'By agent',
         byAgency: 'By agency',
         byUniversity: 'By university',
+        byDegree: 'By degree',
         byProgram: 'By program',
         byCountry: 'By country',
         byStatus: 'By status',
@@ -712,6 +815,7 @@ export const translations: Record<Language, Translations> = {
 
         // Universities
         universitiesTitle: 'University Management',
+        university: 'University',
         addUniversity: 'Add University',
         universityName: 'University Name',
         universityWebsite: 'Website',
@@ -722,6 +826,8 @@ export const translations: Record<Language, Translations> = {
         searchNoResults: 'No results found',
         treeView: 'Tree view',
         kanbanView: 'Kanban view',
+        generalTree: 'General tree',
+        financialTree: 'Financial tree',
         visitOfficialWebsite: 'Visit Official Website',
         overview: 'Overview',
         generalInfo: 'General information',
@@ -776,8 +882,24 @@ export const translations: Record<Language, Translations> = {
         selectUniversity: 'Select University',
         noPrograms: 'No programs found',
         printResult: 'Print result (PDF)',
-        searchProgramNamePlaceholder: 'Search by program name...',
-        searchNameInArabicPlaceholder: 'Search by name in Arabic...',
+        pdfSelectPrograms: 'Please select at least one program to print',
+        pdfMaxPrograms: 'You can select up to 50 programs',
+        deleteSelected: 'Delete selected',
+        bulkDeleteMaxRecords: 'You can select up to 50 records',
+        bulkDeleteConfirmStudents: 'Selected students and all linked applications will be deleted.',
+        bulkDeleteConfirmPrograms: 'Selected programs will be permanently deleted.',
+        bulkDeleteConfirmApplications: 'Selected applications will be permanently deleted.',
+        programDeleteHasApplications: 'This program has linked applications and cannot be deleted.',
+        programDeleteBlockedBulk: 'The following programs cannot be deleted because they have linked applications:',
+        massEdit: 'Mass edit',
+        massEditSelectedRecords: 'records selected',
+        massEditField: 'Field',
+        massEditNewValue: 'New value',
+        massEditApply: 'Apply',
+        massEditValueRequired: 'Enter a value',
+        selectField: 'Select field',
+        massEditPartialResult: 'Updated {ok}, failed {fail}',
+        searchProgramNamePlaceholder: 'Search by program or Arabic name...',
         filterAll: 'All',
         clearFilters: 'Clear filters',
         filterCreatedFrom: 'Start creation date',
@@ -786,6 +908,7 @@ export const translations: Record<Language, Translations> = {
         bachelor: 'Bachelor',
         master: 'Master',
         phd: 'PhD',
+        associateDegree: 'Associate Degree',
         combinedPhd: 'Combined PhD',
 
         // Students
@@ -822,6 +945,16 @@ export const translations: Record<Language, Translations> = {
         noApplicationsInSystem: 'No applications found in the system',
         noAttachments: 'No attachments',
         attachAdditionalFiles: 'Attach additional files',
+        uploadTypedDocument: 'Upload document',
+        fileTypeLabel: 'File type',
+        selectFileType: 'Select file type',
+        selectFileFirst: 'Select a file first',
+        selectDocumentFile: 'Select document file',
+        fileTypeAcceptanceLetter: 'Acceptance letter',
+        fileTypeOfferLetter: 'Offer letter',
+        fileTypeOther: 'Other',
+        fileTypeDescription: 'Description',
+        fileTypeDescriptionRequired: 'Description is required when type is Other',
         uploadNow: 'Upload now',
         uploadToWhatsApp: 'Upload to WhatsApp',
         filesSelected: 'Files selected',
@@ -895,11 +1028,23 @@ export const translations: Record<Language, Translations> = {
         // Notifications
         notificationsTitle: 'Notifications',
         noNotifications: 'No notifications',
+        notificationsPageSubtitle: 'All your notifications in one place',
+        viewAllNotifications: 'View all notifications',
+        notificationsShown: 'notifications',
+        unreadNotifications: 'unread',
+        notificationReadFilter: 'Read status',
+        unreadOnly: 'Unread only',
+        readOnly: 'Read only',
+        noNotificationsForFilter: 'No notifications match the filter',
         markAsRead: 'Mark as Read',
         markAllAsRead: 'Ignore all',
         newMessage: 'New Message',
         statusUpdate: 'Status Update',
         statusUpdateMessage: 'Your application #{id} status changed to {status}',
+        fileUploadStudentTitle: 'Student Files Uploaded',
+        fileUploadStudentMessage: 'Agent {agent} uploaded file(s) for student {student}',
+        fileUploadApplicationTitle: 'Application Files Uploaded',
+        fileUploadApplicationMessage: 'Agent {agent} uploaded file(s) to application #{id}',
         messageFromAdmin: 'Admin: {message}',
         messageFromApp: 'App #{id}: {message}',
 
@@ -912,6 +1057,12 @@ export const translations: Record<Language, Translations> = {
         errorDelete: 'Failed to delete',
         errorConnection: 'Server connection error',
         confirmDelete: 'Are you sure you want to delete?',
+        archive: 'Archive',
+        unarchive: 'Unarchive',
+        activePrograms: 'Active',
+        archivedPrograms: 'Archive',
+        confirmArchive: 'Archive this program?',
+        confirmUnarchive: 'Restore this program from archive?',
 
         // Validation
         requiredField: 'This field is required',
@@ -985,6 +1136,7 @@ export const translations: Record<Language, Translations> = {
         applyFilter: 'Uygula',
         clearFilter: 'Filtreyi temizle',
         dashboardStudentColumn: 'Öğrenci',
+        today: 'Bugün',
         yesterday: 'Dün',
         last7Days: 'Son 7 gün',
         last30Days: 'Son 30 gün',
@@ -999,6 +1151,7 @@ export const translations: Record<Language, Translations> = {
         byAgent: 'Temsilciye göre',
         byAgency: 'Acenteye göre',
         byUniversity: 'Üniversiteye göre',
+        byDegree: 'Dereceye göre',
         byProgram: 'Bölüme göre',
         byCountry: 'Ülkeye göre',
         byStatus: 'Duruma göre',
@@ -1019,6 +1172,7 @@ export const translations: Record<Language, Translations> = {
 
         // Universities
         universitiesTitle: 'Üniversite Yönetimi',
+        university: 'Üniversite',
         addUniversity: 'Üniversite Ekle',
         universityName: 'Üniversite Adı',
         universityWebsite: 'Web Sitesi',
@@ -1029,6 +1183,8 @@ export const translations: Record<Language, Translations> = {
         searchNoResults: 'Sonuç bulunamadı',
         treeView: 'Ağaç görünümü',
         kanbanView: 'Kanban görünümü',
+        generalTree: 'Genel ağaç',
+        financialTree: 'Finansal ağaç',
         visitOfficialWebsite: 'Resmi Siteyi Ziyaret Et',
         overview: 'Genel Bakış',
         generalInfo: 'Genel Bilgiler',
@@ -1083,8 +1239,24 @@ export const translations: Record<Language, Translations> = {
         selectUniversity: 'Üniversite Seç',
         noPrograms: 'Program bulunamadı',
         printResult: 'Sonucu yazdır (PDF)',
-        searchProgramNamePlaceholder: 'Program adıyla ara...',
-        searchNameInArabicPlaceholder: 'Arapça adla ara...',
+        pdfSelectPrograms: 'PDF için en az bir program seçin',
+        pdfMaxPrograms: 'En fazla 50 program seçebilirsiniz',
+        deleteSelected: 'Seçilenleri sil',
+        bulkDeleteMaxRecords: 'En fazla 50 kayıt seçebilirsiniz',
+        bulkDeleteConfirmStudents: 'Seçilen öğrenciler ve bağlı tüm başvurular silinecek.',
+        bulkDeleteConfirmPrograms: 'Seçilen programlar kalıcı olarak silinecek.',
+        bulkDeleteConfirmApplications: 'Seçilen başvurular kalıcı olarak silinecek.',
+        programDeleteHasApplications: 'Bu programa bağlı başvurular var. Program silinemez.',
+        programDeleteBlockedBulk: 'Bağlı başvurusu olan programlar silinemez:',
+        massEdit: 'Toplu düzenle',
+        massEditSelectedRecords: 'kayıt seçili',
+        massEditField: 'Alan',
+        massEditNewValue: 'Yeni değer',
+        massEditApply: 'Uygula',
+        massEditValueRequired: 'Bir değer girin',
+        selectField: 'Alan seçin',
+        massEditPartialResult: '{ok} güncellendi, {fail} başarısız',
+        searchProgramNamePlaceholder: 'Program adı veya Arapça ad ile ara...',
         filterAll: 'Tümü',
         clearFilters: 'Filtreleri temizle',
         filterCreatedFrom: 'Başlangıç oluşturma tarihi',
@@ -1093,6 +1265,7 @@ export const translations: Record<Language, Translations> = {
         bachelor: 'Lisans',
         master: 'Yüksek Lisans',
         phd: 'Doktora',
+        associateDegree: 'Önlisans',
         combinedPhd: 'Birleşik Doktora',
 
         // Students
@@ -1129,6 +1302,16 @@ export const translations: Record<Language, Translations> = {
         noApplicationsInSystem: 'Sistemde başvuru bulunamadı',
         noAttachments: 'Ek yok',
         attachAdditionalFiles: 'Ek dosya ekle',
+        uploadTypedDocument: 'Belge yükle',
+        fileTypeLabel: 'Dosya tipi',
+        selectFileType: 'Dosya tipi seçin',
+        selectFileFirst: 'Önce dosya seçin',
+        selectDocumentFile: 'Belge dosyası seç',
+        fileTypeAcceptanceLetter: 'Kabul mektubu',
+        fileTypeOfferLetter: 'Teklif mektubu',
+        fileTypeOther: 'Diğer',
+        fileTypeDescription: 'Açıklama',
+        fileTypeDescriptionRequired: 'Diğer seçildiğinde açıklama zorunludur',
         uploadNow: 'Şimdi yükle',
         uploadToWhatsApp: "WhatsApp'a yükle",
         filesSelected: 'Dosyalar seçildi',
@@ -1202,11 +1385,23 @@ export const translations: Record<Language, Translations> = {
         // Notifications
         notificationsTitle: 'Bildirimler',
         noNotifications: 'Bildirim yok',
+        notificationsPageSubtitle: 'Tüm bildirimleriniz tek yerde',
+        viewAllNotifications: 'Tümünü görüntüle',
+        notificationsShown: 'bildirim',
+        unreadNotifications: 'okunmamış',
+        notificationReadFilter: 'Okunma durumu',
+        unreadOnly: 'Yalnızca okunmamış',
+        readOnly: 'Yalnızca okunmuş',
+        noNotificationsForFilter: 'Filtreye uygun bildirim yok',
         markAsRead: 'Okundu Olarak İşaretle',
         markAllAsRead: 'Tümünü okundu işaretle',
         newMessage: 'Yeni Mesaj',
         statusUpdate: 'Durum Güncellemesi',
         statusUpdateMessage: '#{id} numaralı başvurunuzun durumu {status} olarak güncellendi',
+        fileUploadStudentTitle: 'Öğrenci Dosyası Yüklendi',
+        fileUploadStudentMessage: '{agent} adlı acente, {student} öğrencisi için dosya yükledi',
+        fileUploadApplicationTitle: 'Başvuru Dosyası Yüklendi',
+        fileUploadApplicationMessage: '{agent} adlı acente, #{id} numaralı başvuruya dosya yükledi',
         messageFromAdmin: 'Yönetici: {message}',
         messageFromApp: 'Başvuru #{id}: {message}',
 
@@ -1219,6 +1414,12 @@ export const translations: Record<Language, Translations> = {
         errorDelete: 'Silme başarısız',
         errorConnection: 'Sunucu bağlantı hatası',
         confirmDelete: 'Silmek istediğinizden emin misiniz?',
+        archive: 'Arşivle',
+        unarchive: 'Arşivden çıkar',
+        activePrograms: 'Aktif',
+        archivedPrograms: 'Arşiv',
+        confirmArchive: 'Bu program arşivlensin mi?',
+        confirmUnarchive: 'Bu program arşivden çıkarılsın mı?',
 
         // Validation
         requiredField: 'Bu alan gereklidir',

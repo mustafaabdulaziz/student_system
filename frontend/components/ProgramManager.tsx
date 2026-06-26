@@ -3,94 +3,22 @@ import { jsPDF } from 'jspdf';
 import { autoTable } from 'jspdf-autotable';
 import notoSansRegularUrl from '../assets/fonts/NotoSans-Regular.ttf?url';
 import * as XLSX from 'xlsx';
-import { Program, University, User, UserRole, PROGRAM_CATEGORIES, Period } from '../types';
-import { Plus, BookOpen, DollarSign, Trash2, Pencil, Search, Filter, X, ChevronDown, ChevronUp, ArrowLeft, Printer } from 'lucide-react';
+import { Program, University, User, UserRole, Period, Application } from '../types';
+import { Plus, BookOpen, DollarSign, Trash2, Pencil, Search, Filter, X, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ArrowLeft, Printer, Archive, ArchiveRestore, FileEdit } from 'lucide-react';
 import { useTranslation } from '../hooks/useTranslation';
+import { SearchableMultiSelect } from './SearchableMultiSelect';
+import { MassEditModal, type MassEditFieldDef } from './MassEditModal';
 
-interface MultiSelectOption {
-  value: string;
-  label: string;
-}
-
-function MultiSelect({
-  options,
-  selected,
-  onChange,
-  placeholder,
-  className = ''
-}: {
-  options: MultiSelectOption[];
-  selected: string[];
-  onChange: (selected: string[]) => void;
-  placeholder: string;
-  className?: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-  const toggle = (value: string) => {
-    onChange(selected.includes(value) ? selected.filter(s => s !== value) : [...selected, value]);
-  };
-  const remove = (value: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    onChange(selected.filter(s => s !== value));
-  };
-  const getLabel = (value: string) => options.find(o => o.value === value)?.label ?? value;
-  return (
-    <div ref={ref} className={`relative ${className}`}>
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="w-full min-h-[42px] border border-gray-200 rounded-lg px-3 py-2 bg-white text-left text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none flex flex-wrap items-center gap-1.5"
-      >
-        {selected.length === 0 ? (
-          <span className="text-gray-400">{placeholder}</span>
-        ) : (
-          selected.map(value => (
-            <span
-              key={value}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 text-xs font-medium"
-            >
-              {getLabel(value)}
-              <button type="button" onClick={e => remove(value, e)} className="hover:bg-blue-100 rounded p-0.5">
-                <X size={12} />
-              </button>
-            </span>
-          ))
-        )}
-        <ChevronDown size={16} className="ml-auto text-gray-400 flex-shrink-0" />
-      </button>
-      {open && (
-        <div className="absolute z-20 mt-1 w-full rounded-lg border border-gray-200 bg-white shadow-lg py-1 max-h-48 overflow-auto">
-          {options.map(opt => (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => toggle(opt.value)}
-              className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 ${selected.includes(opt.value) ? 'bg-blue-50 text-blue-700' : 'text-gray-700'}`}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
+const BULK_DELETE_MAX = 50;
 
 interface ProgramManagerProps {
   programs: Program[];
   universities: University[];
   periods: Period[];
+  applications?: Application[];
   onAddProgram: (prog: Program) => void;
-  onEditProgram?: (prog: Program) => void;
-  onDeleteProgram: (id: string) => void;
+  onEditProgram?: (prog: Program, opts?: { silent?: boolean }) => void | Promise<boolean>;
+  onDeleteProgram: (id: string) => void | Promise<boolean>;
   currentUser?: User | null;
 }
 
@@ -98,21 +26,30 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
   programs,
   universities,
   periods,
+  applications = [],
   onAddProgram,
   onEditProgram,
   onDeleteProgram,
   currentUser
 }) => {
-  const { t, translateDegree, translateCategory } = useTranslation();
+  const { t, translateDegree, dir: layoutDir } = useTranslation();
+  const isLtr = layoutDir === 'ltr';
+  const tableAlign = isLtr ? 'text-left' : 'text-right';
   const isAdmin = currentUser?.role === UserRole.ADMIN;
+  const isAgent = (currentUser?.role || '').toString().toLowerCase() === UserRole.AGENT;
+
   const [isModalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<'add' | 'edit'>('add');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedProgramForView, setSelectedProgramForView] = useState<Program | null>(null);
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [confirmArchiveId, setConfirmArchiveId] = useState<string | null>(null);
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [massEditOpen, setMassEditOpen] = useState(false);
+  const [massEditApplying, setMassEditApplying] = useState(false);
+  const [archiveView, setArchiveView] = useState<'active' | 'archived'>('active');
   const [searchProgramName, setSearchProgramName] = useState('');
-  const [searchNameInArabic, setSearchNameInArabic] = useState('');
-  const [filterCategories, setFilterCategories] = useState<string[]>([]);
+  const [filterPeriodIds, setFilterPeriodIds] = useState<string[]>([]);
   const [filterUniversityIds, setFilterUniversityIds] = useState<string[]>([]);
   const [filterDegrees, setFilterDegrees] = useState<string[]>([]);
   const [filterLanguages, setFilterLanguages] = useState<string[]>([]);
@@ -131,14 +68,22 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
   const columnsRef = useRef<HTMLDivElement>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const LANGUAGES = ['English', 'Turkish', 'Arabic'];
-  const DEGREES = ['Bachelor', 'Master', 'PhD', 'CombinedPhD', 'Diploma'] as const;
-  const programColumnKeys = useMemo(() => ['name', 'university', 'degree', 'language', 'fee', 'cashPrice', 'deposit', 'isOpen'], []);
+  const DEGREES = ['Bachelor', 'Master', 'PhD', 'Diploma'] as const;
+  const programColumnKeys = useMemo(
+    () => (isAgent
+      ? ['name', 'university', 'degree', 'language', 'fee', 'cashPrice', 'deposit']
+      : ['name', 'university', 'degree', 'language', 'fee', 'cashPrice', 'deposit', 'isOpen']),
+    [isAgent]
+  );
   const [visibleTreeColumns, setVisibleTreeColumns] = useState<string[]>(programColumnKeys);
+  const [selectedProgramIds, setSelectedProgramIds] = useState<Set<string>>(() => new Set());
+  const [treePage, setTreePage] = useState(1);
+  const selectAllCheckboxRef = useRef<HTMLInputElement>(null);
+  const TREE_PAGE_SIZE = 50;
   const [formData, setFormData] = useState<Partial<Program>>({
     name: '',
     nameInArabic: '',
     universityId: '',
-    category: undefined,
     degree: 'Bachelor',
     language: 'English',
     years: 4,
@@ -152,10 +97,56 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
     isOpen: true as boolean
   });
 
+  useEffect(() => {
+    if (!isAdmin) {
+      setModalOpen(false);
+      setSelectedProgramForView(null);
+      setConfirmBulkDelete(false);
+      setConfirmArchiveId(null);
+      setArchiveView('active');
+    }
+  }, [isAdmin]);
+
+  useEffect(() => {
+    setSelectedProgramIds(new Set());
+    setTreePage(1);
+  }, [archiveView]);
+
   const getUniversityName = (id: string) => universities.find(u => u.id === id)?.name || t.noUniversities;
   const getPeriodName = (id: string | undefined) => (id && periods.find(p => p.id === id))?.name ?? '—';
-  const visibleTreeColSpan = visibleTreeColumns.length + 1; // + actions column
-  const programColumnOptions = [
+  const visiblePrograms = useMemo(() => {
+    if (!isAdmin) return programs.filter((p) => !p.isArchived);
+    return programs.filter((p) => (archiveView === 'archived' ? !!p.isArchived : !p.isArchived));
+  }, [programs, isAdmin, archiveView]);
+
+  const programApplicationCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const app of applications) {
+      if (!app.programId) continue;
+      map.set(app.programId, (map.get(app.programId) || 0) + 1);
+    }
+    return map;
+  }, [applications]);
+
+  const programHasApplications = (programId: string) => (programApplicationCounts.get(programId) || 0) > 0;
+
+  const getBlockedDeleteProgramIds = (ids: Iterable<string>) =>
+    Array.from(ids).filter((id) => programHasApplications(id));
+
+  const openBulkDeleteConfirm = () => {
+    const blocked = getBlockedDeleteProgramIds(selectedProgramIds);
+    if (blocked.length > 0) {
+      const names = blocked
+        .map((id) => programs.find((p) => p.id === id)?.name)
+        .filter(Boolean)
+        .join('\n• ');
+      alert(`${t.programDeleteBlockedBulk}\n• ${names}`);
+      return;
+    }
+    setConfirmBulkDelete(true);
+  };
+  const visibleTreeColSpan = visibleTreeColumns.length + (isAdmin ? 2 : 1);
+  const programColumnOptions = useMemo(() => [
     { key: 'name', label: t.programName },
     { key: 'university', label: t.universities },
     { key: 'degree', label: t.programDegree },
@@ -163,14 +154,16 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
     { key: 'fee', label: t.programFee },
     { key: 'cashPrice', label: t.cashPrice },
     { key: 'deposit', label: t.deposit },
-    { key: 'isOpen', label: t.programAvailability }
-  ];
+    ...(!isAgent ? [{ key: 'isOpen', label: t.programAvailability }] : [])
+  ], [t, isAgent]);
 
   const filteredPrograms = useMemo(() => {
-    return programs.filter(prog => {
-      const matchName = !searchProgramName.trim() || prog.name.toLowerCase().includes(searchProgramName.trim().toLowerCase());
-      const matchNameAr = !searchNameInArabic.trim() || (prog.nameInArabic || '').toLowerCase().includes(searchNameInArabic.trim().toLowerCase());
-      const matchCategory = filterCategories.length === 0 || (prog.category != null && filterCategories.includes(prog.category));
+    const term = searchProgramName.trim().toLowerCase();
+    return visiblePrograms.filter(prog => {
+      const matchName = !term
+        || prog.name.toLowerCase().includes(term)
+        || (prog.nameInArabic || '').toLowerCase().includes(term);
+      const matchPeriod = filterPeriodIds.length === 0 || (prog.periodId != null && filterPeriodIds.includes(prog.periodId));
       const matchUniversity = filterUniversityIds.length === 0 || filterUniversityIds.includes(prog.universityId);
       const matchDegree = filterDegrees.length === 0 || filterDegrees.includes(prog.degree);
       const matchLanguage = filterLanguages.length === 0 || filterLanguages.includes(prog.language);
@@ -179,9 +172,9 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
       const maxFee = filterFeeMax.trim() === '' ? null : Number(filterFeeMax);
       const matchMinFee = minFee == null || Number.isNaN(minFee) || feeValue >= minFee;
       const matchMaxFee = maxFee == null || Number.isNaN(maxFee) || feeValue <= maxFee;
-      return matchName && matchNameAr && matchCategory && matchUniversity && matchDegree && matchLanguage && matchMinFee && matchMaxFee;
+      return matchName && matchPeriod && matchUniversity && matchDegree && matchLanguage && matchMinFee && matchMaxFee;
     });
-  }, [programs, searchProgramName, searchNameInArabic, filterCategories, filterUniversityIds, filterDegrees, filterLanguages, filterFeeMin, filterFeeMax]);
+  }, [visiblePrograms, searchProgramName, filterPeriodIds, filterUniversityIds, filterDegrees, filterLanguages, filterFeeMin, filterFeeMax]);
 
   let notoSansVfsPromise: Promise<void> | null = null;
   const ensurePdfFont = async (doc: jsPDF) => {
@@ -212,10 +205,10 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
     return [...filteredPrograms].sort((a, b) => {
       let va: string | number, vb: string | number;
       switch (sortBy) {
-        case 'name': va = a.name.toLowerCase(); vb = b.name.toLowerCase(); return dir * (va as string).localeCompare(vb as string);
-        case 'university': va = getUniversityName(a.universityId); vb = getUniversityName(b.universityId); return dir * (va as string).localeCompare(vb as string);
-        case 'degree': va = a.degree; vb = b.degree; return dir * (va as string).localeCompare(vb as string);
-        case 'language': va = a.language; vb = b.language; return dir * (va as string).localeCompare(vb as string);
+        case 'name': va = a.name.toLowerCase(); vb = b.name.toLowerCase(); return dir * (va as string).localeCompare(vb as string, 'tr');
+        case 'university': va = getUniversityName(a.universityId); vb = getUniversityName(b.universityId); return dir * (va as string).localeCompare(vb as string, 'tr');
+        case 'degree': va = a.degree; vb = b.degree; return dir * (va as string).localeCompare(vb as string, 'tr');
+        case 'language': va = a.language; vb = b.language; return dir * (va as string).localeCompare(vb as string, 'tr');
         case 'fee': va = a.fee ?? 0; vb = b.fee ?? 0; return dir * ((va as number) - (vb as number));
         case 'deposit': va = a.deposit ?? -1; vb = b.deposit ?? -1; return dir * ((va as number) - (vb as number));
         case 'cashPrice': va = a.cashPrice ?? -1; vb = b.cashPrice ?? -1; return dir * ((va as number) - (vb as number));
@@ -225,12 +218,84 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
     });
   }, [filteredPrograms, sortBy, sortDir, getUniversityName]);
 
+  const totalTreePages = Math.max(1, Math.ceil(sortedPrograms.length / TREE_PAGE_SIZE));
+  const paginatedPrograms = useMemo(() => {
+    const start = (treePage - 1) * TREE_PAGE_SIZE;
+    return sortedPrograms.slice(start, start + TREE_PAGE_SIZE);
+  }, [sortedPrograms, treePage]);
+  const treeFrom = sortedPrograms.length === 0 ? 0 : (treePage - 1) * TREE_PAGE_SIZE + 1;
+  const treeTo = Math.min(treePage * TREE_PAGE_SIZE, sortedPrograms.length);
+
+  useEffect(() => {
+    setTreePage(1);
+  }, [searchProgramName, filterPeriodIds, filterUniversityIds, filterDegrees, filterLanguages, filterFeeMin, filterFeeMax]);
+
+  useEffect(() => {
+    setSelectedProgramIds(new Set());
+  }, [treePage]);
+
+  useEffect(() => {
+    if (treePage > totalTreePages) setTreePage(totalTreePages);
+  }, [treePage, totalTreePages]);
+
+  const allOnPageSelected =
+    paginatedPrograms.length > 0 && paginatedPrograms.every((p) => selectedProgramIds.has(p.id));
+  const someOnPageSelected = paginatedPrograms.some((p) => selectedProgramIds.has(p.id));
+
+  useEffect(() => {
+    const el = selectAllCheckboxRef.current;
+    if (el) el.indeterminate = someOnPageSelected && !allOnPageSelected;
+  }, [someOnPageSelected, allOnPageSelected]);
+
+  const toggleProgramSelection = (id: string) => {
+    setSelectedProgramIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+        return next;
+      }
+      if (next.size >= BULK_DELETE_MAX) {
+        alert(t.bulkDeleteMaxRecords);
+        return prev;
+      }
+      next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllOnPage = () => {
+    if (allOnPageSelected) {
+      setSelectedProgramIds((prev) => {
+        const next = new Set(prev);
+        paginatedPrograms.forEach((p) => next.delete(p.id));
+        return next;
+      });
+      return;
+    }
+    setSelectedProgramIds((prev) => {
+      const next = new Set(prev);
+      for (const p of paginatedPrograms) {
+        if (next.size >= BULK_DELETE_MAX) break;
+        next.add(p.id);
+      }
+      if (next.size >= BULK_DELETE_MAX && paginatedPrograms.some((p) => !next.has(p.id))) {
+        alert(t.bulkDeleteMaxRecords);
+      }
+      return next;
+    });
+  };
+
   const toggleSort = (key: string) => {
     setSortBy(prev => (prev === key ? prev : key));
     setSortDir(prev => (sortBy === key ? (prev === 'asc' ? 'desc' : 'asc') : 'asc'));
   };
 
   const storageKey = `tree-columns:programs:${currentUser?.id || 'guest'}`;
+
+  useEffect(() => {
+    if (!isAgent) return;
+    setVisibleTreeColumns(prev => prev.filter(k => k !== 'isOpen'));
+  }, [isAgent]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -280,12 +345,18 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
   };
 
   const handlePrintPDF = async () => {
+    const selected = paginatedPrograms.filter((p) => selectedProgramIds.has(p.id));
+    if (selected.length === 0) {
+      alert(t.pdfSelectPrograms);
+      return;
+    }
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     await ensurePdfFont(doc);
     doc.setFontSize(14);
     doc.text(t.programsTitle, 14, 12);
     doc.setFontSize(9);
     doc.text(new Date().toLocaleDateString(undefined, { dateStyle: 'long' }), 14, 18);
+    doc.text(`${selected.length} ${t.programsTitle}`, 14, 24);
     const head = [
       t.programName,
       t.universities,
@@ -294,9 +365,9 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
       t.programFee,
       t.cashPrice,
       t.deposit,
-      t.programAvailability
+      ...(!isAgent ? [t.programAvailability] : [])
     ];
-    const body = sortedPrograms.map(p => [
+    const body = selected.map(p => [
       p.name,
       getUniversityName(p.universityId),
       translateDegree(p.degree),
@@ -304,12 +375,12 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
       p.currency ? `${p.currency} ${(p.fee ?? 0).toLocaleString()}` : `${(p.fee ?? 0).toLocaleString()}`,
       p.cashPrice != null ? (p.currency ? `${p.currency} ${p.cashPrice.toLocaleString()}` : String(p.cashPrice)) : '—',
       p.deposit != null ? (p.currency ? `${p.currency} ${p.deposit.toLocaleString()}` : String(p.deposit)) : '—',
-      p.isOpen === false ? t.programStatusClosed : t.programStatusOpen
+      ...(!isAgent ? [p.isOpen === false ? t.programStatusClosed : t.programStatusOpen] : [])
     ]);
     autoTable(doc, {
       head: [head],
       body,
-      startY: 22,
+      startY: 28,
       styles: { font: 'NotoSans', fontStyle: 'normal', fontSize: 8, cellPadding: 2 },
       headStyles: { font: 'NotoSans', fontStyle: 'normal', fillColor: [59, 130, 246], textColor: 255 },
       margin: { left: 14, right: 14 }
@@ -318,26 +389,86 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
   };
 
   const SortTh = ({ colKey, label, className = '' }: { colKey: string; label: string; className?: string }) => (
-    <th className={`px-6 py-4 font-bold cursor-pointer select-none hover:bg-gray-100 transition-colors ${className}`} onClick={() => toggleSort(colKey)}>
-      <span className="inline-flex items-center gap-1">
+    <th
+      className={`px-6 py-4 font-bold cursor-pointer select-none hover:bg-gray-100 transition-colors whitespace-nowrap ${tableAlign} ${className}`}
+      onClick={() => toggleSort(colKey)}
+    >
+      <span className={`inline-flex items-center gap-1 ${isLtr ? '' : 'flex-row-reverse'}`}>
         {label}
         {sortBy === colKey ? (sortDir === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />) : <span className="opacity-30"><ChevronDown size={14} /></span>}
       </span>
     </th>
   );
 
-  const hasActiveFilters = !!(searchProgramName.trim() || searchNameInArabic.trim() || filterCategories.length > 0 || filterUniversityIds.length > 0 || filterDegrees.length > 0 || filterLanguages.length > 0 || filterFeeMin.trim() || filterFeeMax.trim());
+  const hasActiveFilters = !!(searchProgramName.trim() || filterPeriodIds.length > 0 || filterUniversityIds.length > 0 || filterDegrees.length > 0 || filterLanguages.length > 0 || filterFeeMin.trim() || filterFeeMax.trim());
 
   const clearFilters = () => {
     setSearchProgramName('');
-    setSearchNameInArabic('');
-    setFilterCategories([]);
+    setFilterPeriodIds([]);
     setFilterUniversityIds([]);
     setFilterDegrees([]);
     setFilterLanguages([]);
     setFilterFeeMin('');
     setFilterFeeMax('');
+    setTreePage(1);
   };
+
+  const programPaginationBar = sortedPrograms.length > 0 ? (
+    <div className="px-4 py-3 border-gray-100 flex flex-wrap items-center justify-between gap-3 text-sm text-gray-600 bg-gray-50/80">
+      <div className="flex items-center gap-3 flex-wrap">
+        {isAdmin && archiveView === 'active' && (
+          <button
+            type="button"
+            onClick={() => setMassEditOpen(true)}
+            disabled={selectedProgramIds.size === 0}
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-blue-700 hover:bg-blue-50 border border-transparent hover:border-blue-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed font-medium"
+          >
+            <FileEdit size={16} />
+            <span>{t.massEdit}</span>
+            {selectedProgramIds.size > 0 && (
+              <span className="text-xs font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">{selectedProgramIds.size}</span>
+            )}
+          </button>
+        )}
+        {isAdmin && archiveView === 'active' && (
+          <button
+            type="button"
+            onClick={openBulkDeleteConfirm}
+            disabled={selectedProgramIds.size === 0}
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-red-600 hover:bg-red-50 border border-transparent hover:border-red-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed font-medium"
+          >
+            <Trash2 size={16} />
+            <span>{t.deleteSelected}</span>
+            {selectedProgramIds.size > 0 && (
+              <span className="text-xs font-bold bg-red-100 text-red-700 px-2 py-0.5 rounded-full">{selectedProgramIds.size}</span>
+            )}
+          </button>
+        )}
+      </div>
+      <div className="flex items-center gap-2 ml-auto">
+        <span>{treeFrom}-{treeTo} / {sortedPrograms.length}</span>
+        <span className="font-medium text-gray-500">{treePage} / {totalTreePages}</span>
+        <button
+          type="button"
+          onClick={() => setTreePage((p) => Math.max(1, p - 1))}
+          disabled={treePage <= 1}
+          className="inline-flex items-center justify-center w-8 h-8 rounded border border-gray-200 bg-white hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+          aria-label={t.back}
+        >
+          <ChevronLeft size={16} />
+        </button>
+        <button
+          type="button"
+          onClick={() => setTreePage((p) => Math.min(totalTreePages, p + 1))}
+          disabled={treePage >= totalTreePages}
+          className="inline-flex items-center justify-center w-8 h-8 rounded border border-gray-200 bg-white hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+          aria-label={t.next}
+        >
+          <ChevronRight size={16} />
+        </button>
+      </div>
+    </div>
+  ) : null;
 
   const normalizeText = (value: unknown): string =>
     String(value ?? '')
@@ -352,7 +483,6 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
     'üniversite',
     'program',
     'arapça ad',
-    'kategori',
     'müsaitlik',
     'derece',
     'dil',
@@ -366,18 +496,9 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
     'açıklama'
   ] as const;
 
-  const categoryMap = useMemo(() => {
-    const m = new Map<string, Program['category']>();
-    PROGRAM_CATEGORIES.forEach(cat => {
-      m.set(normalizeText(cat), cat);
-      m.set(normalizeText(translateCategory(cat)), cat);
-    });
-    return m;
-  }, [translateCategory]);
-
   const degreeMap = useMemo(() => {
     const m = new Map<string, Program['degree']>();
-    const vals: Program['degree'][] = ['Bachelor', 'Master', 'PhD', 'CombinedPhD', 'Diploma'];
+    const vals: Program['degree'][] = ['Bachelor', 'Master', 'PhD', 'Diploma'];
     vals.forEach(v => {
       m.set(normalizeText(v), v);
       m.set(normalizeText(translateDegree(v)), v);
@@ -385,7 +506,8 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
     m.set(normalizeText('Lisans'), 'Bachelor');
     m.set(normalizeText('Yuksek Lisans'), 'Master');
     m.set(normalizeText('Doktora'), 'PhD');
-    m.set(normalizeText('Birlesik Doktora'), 'CombinedPhD');
+    m.set(normalizeText('önlisans'), 'Diploma');
+    m.set(normalizeText('onlisans'), 'Diploma');
     return m;
   }, [translateDegree]);
 
@@ -413,7 +535,6 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
       üniversite: getUniversityName(p.universityId),
       Program: p.name,
       'Arapça ad': p.nameInArabic || '',
-      Kategori: p.category ? translateCategory(p.category) : '',
       Müsaitlik: p.isOpen === false ? t.programStatusClosed : t.programStatusOpen,
       Derece: translateDegree(p.degree),
       Dil: p.language,
@@ -427,7 +548,7 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
       Açıklama: p.description || ''
     }));
     const ws = XLSX.utils.json_to_sheet(rows, {
-      header: ['üniversite', 'Program', 'Arapça ad', 'Kategori', 'Müsaitlik', 'Derece', 'Dil', 'Yıl', 'İndirim öncesi ücret', 'Yıllık ücret', 'Nakit fiyatı', 'Para Birimi', 'Depozito', 'Dönem', 'Açıklama']
+      header: ['üniversite', 'Program', 'Arapça ad', 'Müsaitlik', 'Derece', 'Dil', 'Yıl', 'İndirim öncesi ücret', 'Yıllık ücret', 'Nakit fiyatı', 'Para Birimi', 'Depozito', 'Dönem', 'Açıklama']
     });
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Programlar');
@@ -478,20 +599,19 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
         const uniNameRaw = String(row[0] ?? '').trim();
         const programName = String(row[1] ?? '').trim();
         const nameAr = String(row[2] ?? '').trim();
-        const categoryRaw = String(row[3] ?? '').trim();
-        const availabilityRaw = String(row[4] ?? '').trim();
-        const degreeRaw = String(row[5] ?? '').trim();
-        const languageRaw = String(row[6] ?? '').trim();
-        const yearsRaw = row[7];
-        const feeBeforeRaw = row[8];
-        const feeRaw = row[9];
-        const cashRaw = row[10];
-        const currencyRaw = String(row[11] ?? '').trim();
-        const depositRaw = row[12];
-        const periodRaw = String(row[13] ?? '').trim();
-        const description = String(row[14] ?? '').trim();
+        const availabilityRaw = String(row[3] ?? '').trim();
+        const degreeRaw = String(row[4] ?? '').trim();
+        const languageRaw = String(row[5] ?? '').trim();
+        const yearsRaw = row[6];
+        const feeBeforeRaw = row[7];
+        const feeRaw = row[8];
+        const cashRaw = row[9];
+        const currencyRaw = String(row[10] ?? '').trim();
+        const depositRaw = row[11];
+        const periodRaw = String(row[12] ?? '').trim();
+        const description = String(row[13] ?? '').trim();
 
-        const isEmpty = [uniNameRaw, programName, nameAr, categoryRaw, availabilityRaw, degreeRaw, languageRaw, yearsRaw, feeBeforeRaw, feeRaw, cashRaw, currencyRaw, depositRaw, periodRaw, description]
+        const isEmpty = [uniNameRaw, programName, nameAr, availabilityRaw, degreeRaw, languageRaw, yearsRaw, feeBeforeRaw, feeRaw, cashRaw, currencyRaw, depositRaw, periodRaw, description]
           .every((v) => String(v ?? '').trim() === '');
         if (isEmpty) continue;
 
@@ -502,12 +622,6 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
         }
         if (!programName) {
           errors.push(`Satır ${rowNo}: Program adı boş.`);
-          continue;
-        }
-
-        const category = categoryRaw ? categoryMap.get(normalizeText(categoryRaw)) : undefined;
-        if (categoryRaw && !category) {
-          errors.push(`Satır ${rowNo}: Kategori geçersiz (${categoryRaw}).`);
           continue;
         }
 
@@ -562,7 +676,10 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
         }
 
         const existing = programs.find((p) =>
-          p.universityId === uni.id && normalizeText(p.name) === normalizeText(programName)
+          !p.isArchived &&
+          p.universityId === uni.id &&
+          normalizeText(p.name) === normalizeText(programName) &&
+          (p.periodId ?? '') === (period?.id ?? '')
         );
 
         const payload: Program = {
@@ -570,7 +687,6 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
           universityId: uni.id,
           name: programName,
           nameInArabic: nameAr || undefined,
-          category,
           isOpen,
           degree,
           language,
@@ -635,7 +751,6 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
         universityId: formData.universityId,
         name: formData.name,
         nameInArabic: formData.nameInArabic || undefined,
-        category: formData.category,
         degree: formData.degree as any,
         language: formData.language as any,
         years: formData.years || 4,
@@ -660,17 +775,19 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
   };
 
   const openAddModal = () => {
+    if (!isAdmin) return;
     setSelectedProgramForView(null);
     setModalMode('add');
     setEditingId(null);
     setFormData({
-      name: '', nameInArabic: '', universityId: '', category: undefined, degree: 'Bachelor', language: 'English',
+      name: '', nameInArabic: '', universityId: '', degree: 'Bachelor', language: 'English',
       years: 4, fee: 0, feeBeforeDiscount: undefined, deposit: undefined, cashPrice: undefined, currency: 'USD', periodId: '', description: '', isOpen: true
     });
     setModalOpen(true);
   };
 
   const openEditModal = (prog: Program) => {
+    if (!isAdmin) return;
     setSelectedProgramForView(null);
     setModalMode('edit');
     setEditingId(prog.id);
@@ -688,7 +805,7 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
     setEditingId(null);
     setModalMode('add');
     setFormData({
-      name: '', nameInArabic: '', universityId: '', category: undefined, degree: 'Bachelor', language: 'English',
+      name: '', nameInArabic: '', universityId: '', degree: 'Bachelor', language: 'English',
       years: 4, fee: 0, feeBeforeDiscount: undefined, deposit: undefined, cashPrice: undefined, currency: 'USD', periodId: '', description: '', isOpen: true
     });
     if (shouldReturnToDetail) {
@@ -696,19 +813,97 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
     }
   };
 
-  const handleDeleteConfirm = () => {
-    if (confirmDeleteId) {
-      onDeleteProgram(confirmDeleteId);
-      setConfirmDeleteId(null);
+  const handleBulkDeleteConfirm = async () => {
+    if (selectedProgramIds.size === 0) return;
+    const blocked = getBlockedDeleteProgramIds(selectedProgramIds);
+    if (blocked.length > 0) {
+      openBulkDeleteConfirm();
+      return;
+    }
+    setBulkDeleting(true);
+    try {
+      const ids = Array.from(selectedProgramIds);
+      const remaining = new Set(ids);
+      for (const id of ids) {
+        const ok = await Promise.resolve(onDeleteProgram(id));
+        if (!ok) break;
+        remaining.delete(id);
+      }
+      setSelectedProgramIds(remaining);
+      if (remaining.size === 0) {
+        setConfirmBulkDelete(false);
+        if (selectedProgramForView && ids.includes(selectedProgramForView.id)) {
+          setSelectedProgramForView(null);
+        }
+      }
+    } finally {
+      setBulkDeleting(false);
     }
   };
 
-  const programToDelete = programs.find(p => p.id === confirmDeleteId);
+  const programToArchive = programs.find(p => p.id === confirmArchiveId);
+
+  const programMassEditFields = useMemo((): MassEditFieldDef[] => {
+    if (!isAdmin) return [];
+    return [
+      { key: 'periodId', label: t.period, type: 'select', nullable: true, options: periods.map(p => ({ value: p.id, label: p.name })) },
+      { key: 'universityId', label: t.universities, type: 'select', options: universities.map(u => ({ value: u.id, label: u.name })) },
+      { key: 'degree', label: t.programDegree, type: 'select', options: DEGREES.map(d => ({ value: d, label: translateDegree(d) })) },
+      { key: 'language', label: t.programLanguage, type: 'select', options: LANGUAGES.map(l => ({ value: l, label: l })) },
+      { key: 'currency', label: t.currency, type: 'select', options: [{ value: 'USD', label: 'USD' }, { value: 'TRY', label: 'TRY' }, { value: 'EUR', label: 'EUR' }] },
+      { key: 'fee', label: t.programFee, type: 'number' },
+      { key: 'feeBeforeDiscount', label: t.feeBeforeDiscount, type: 'number', nullable: true },
+      { key: 'deposit', label: t.deposit, type: 'number', nullable: true },
+      { key: 'cashPrice', label: t.cashPrice, type: 'number', nullable: true },
+      { key: 'years', label: t.programYears, type: 'number' },
+      { key: 'isOpen', label: t.programAvailability, type: 'boolean' }
+    ];
+  }, [isAdmin, periods, universities, t, translateDegree]);
+
+  const handleProgramMassEditApply = async (fieldKey: string, value: unknown) => {
+    if (!onEditProgram || selectedProgramIds.size === 0) return;
+    setMassEditApplying(true);
+    let ok = 0;
+    let fail = 0;
+    try {
+      for (const id of Array.from(selectedProgramIds)) {
+        const program = programs.find(p => p.id === id);
+        if (!program) {
+          fail++;
+          continue;
+        }
+        const updated = { ...program, [fieldKey]: value } as Program;
+        const success = await Promise.resolve(onEditProgram(updated, { silent: true }));
+        if (success) ok++;
+        else fail++;
+      }
+      if (fail > 0) {
+        alert(t.massEditPartialResult.replace('{ok}', String(ok)).replace('{fail}', String(fail)));
+      }
+      if (ok > 0) setMassEditOpen(false);
+    } finally {
+      setMassEditApplying(false);
+    }
+  };
+
+  const handleArchiveToggle = async () => {
+    if (!confirmArchiveId || !onEditProgram) return;
+    const program = programs.find((p) => p.id === confirmArchiveId);
+    if (!program) return;
+    const nextArchived = !program.isArchived;
+    await Promise.resolve(onEditProgram({ ...program, isArchived: nextArchived }));
+    setSelectedProgramIds((prev) => {
+      const next = new Set(prev);
+      next.delete(confirmArchiveId);
+      return next;
+    });
+    setConfirmArchiveId(null);
+  };
 
   return (
     <div className="space-y-6">
       {/* Full-screen view */}
-      {selectedProgramForView && (
+      {isAdmin && selectedProgramForView && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 min-h-[calc(100vh-8rem)] overflow-hidden flex flex-col">
           <div className="flex items-center justify-between gap-4 p-6 bg-gradient-to-r from-slate-50 to-white border-b border-gray-200 shrink-0">
             <div className="flex items-center gap-4 min-w-0">
@@ -752,10 +947,6 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
                   <div>
                     <p className="text-xs font-medium text-gray-500 mb-0.5">{t.universities}</p>
                     <p className="text-gray-900">{getUniversityName(selectedProgramForView.universityId)}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium text-gray-500 mb-0.5">{t.programCategory}</p>
-                    <p className="text-gray-900">{selectedProgramForView.category ? translateCategory(selectedProgramForView.category) : '—'}</p>
                   </div>
                   <div>
                     <p className="text-xs font-medium text-gray-500 mb-0.5">{t.programDegree}</p>
@@ -819,7 +1010,7 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
       )}
 
       {/* Full-screen form (Add / Edit) */}
-      {isModalOpen && (
+      {isAdmin && isModalOpen && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 min-h-[calc(100vh-8rem)] overflow-hidden flex flex-col">
           <div className="flex items-center justify-between gap-4 p-6 bg-gradient-to-r from-slate-50 to-white border-b border-gray-200 shrink-0">
             <div className="flex items-center gap-4 min-w-0">
@@ -892,19 +1083,6 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">{t.programCategory}</label>
-                    <select
-                      className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none"
-                      value={formData.category || ''}
-                      onChange={e => setFormData({ ...formData, category: e.target.value ? (e.target.value as Program['category']) : undefined })}
-                    >
-                      <option value="">—</option>
-                      {PROGRAM_CATEGORIES.map(cat => (
-                        <option key={cat} value={cat}>{translateCategory(cat)}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">{t.programAvailability}</label>
                     <select
                       className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none"
@@ -919,14 +1097,12 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
                     <label className="block text-sm font-medium text-gray-700 mb-1">{t.programDegree}</label>
                     <select
                       className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none"
-                      value={formData.degree}
-                      onChange={e => setFormData({ ...formData, degree: e.target.value as any })}
+                      value={(DEGREES as readonly string[]).includes(formData.degree || '') ? formData.degree : 'Bachelor'}
+                      onChange={e => setFormData({ ...formData, degree: e.target.value as Program['degree'] })}
                     >
-                      <option value="Bachelor">{t.bachelor}</option>
-                      <option value="Master">{t.master}</option>
-                      <option value="PhD">{t.phd}</option>
-                      <option value="CombinedPhD">{t.combinedPhd}</option>
-                      <option value="Diploma">Diploma</option>
+                      {DEGREES.map((d) => (
+                        <option key={d} value={d}>{translateDegree(d)}</option>
+                      ))}
                     </select>
                   </div>
                   <div>
@@ -1034,7 +1210,7 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
 
       {/* Main: list only when not viewing and not in form */}
       {!selectedProgramForView && !isModalOpen && (
-        <>
+        <div dir={layoutDir}>
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
@@ -1061,7 +1237,7 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
               <span>{t.columns}</span>
             </button>
             {columnsOpen && (
-              <div className="absolute right-0 mt-2 w-56 bg-white border border-gray-200 rounded-xl shadow-lg p-2 z-30">
+              <div className={`absolute ${isLtr ? 'right-0' : 'left-0'} mt-2 w-56 bg-white border border-gray-200 rounded-xl shadow-lg p-2 z-30`}>
                 {programColumnOptions.map(col => (
                   <label key={col.key} className="flex items-center gap-2 px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-50 rounded-md cursor-pointer">
                     <input
@@ -1079,12 +1255,16 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
           <button
             type="button"
             onClick={handlePrintPDF}
-            className="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors"
+            disabled={selectedProgramIds.size === 0}
+            className="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Printer size={20} />
             <span>{t.printResult}</span>
+            {selectedProgramIds.size > 0 && (
+              <span className="text-xs font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">{selectedProgramIds.size}</span>
+            )}
           </button>
-          {isAdmin && (
+          {isAdmin && archiveView === 'active' && (
             <>
               <button
                 type="button"
@@ -1110,6 +1290,15 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
               </button>
             </>
           )}
+          {isAdmin && archiveView === 'archived' && (
+            <button
+              type="button"
+              onClick={exportProgramsToExcel}
+              className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 transition-colors"
+            >
+              <span>Export Excel</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -1125,6 +1314,27 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
             <Filter size={18} className="text-purple-500" />
             <span className="text-sm font-medium">{t.filter}</span>
           </div>
+          {isAdmin && (
+            <>
+              <div className="h-6 w-px bg-gray-200 hidden sm:block" />
+              <div className="flex rounded-lg border border-gray-200 p-0.5 bg-gray-50">
+                <button
+                  type="button"
+                  onClick={() => setArchiveView('active')}
+                  className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${archiveView === 'active' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+                >
+                  {t.activePrograms}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setArchiveView('archived')}
+                  className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${archiveView === 'archived' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+                >
+                  {t.archivedPrograms}
+                </button>
+              </div>
+            </>
+          )}
           {hasActiveFilters && (
             <button
               type="button"
@@ -1136,7 +1346,7 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
             </button>
           )}
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1.5">{t.programName}</label>
             <input
@@ -1148,50 +1358,47 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1.5">{t.programNameInArabic}</label>
-            <input
-              type="text"
-              dir="rtl"
-              placeholder={t.searchNameInArabicPlaceholder}
-              value={searchNameInArabic}
-              onChange={e => setSearchNameInArabic(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1.5">{t.programCategory}</label>
-            <MultiSelect
-              options={PROGRAM_CATEGORIES.map(cat => ({ value: cat, label: translateCategory(cat) }))}
-              selected={filterCategories}
-              onChange={setFilterCategories}
+            <label className="block text-xs font-medium text-gray-500 mb-1.5">{t.programPeriod}</label>
+            <SearchableMultiSelect
+              options={periods.map(p => ({ value: p.id, label: p.name }))}
+              selected={filterPeriodIds}
+              onChange={setFilterPeriodIds}
               placeholder={t.filterAll}
+              searchPlaceholder={t.search}
+              noResultsText={t.searchNoResults}
             />
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1.5">{t.universities}</label>
-            <MultiSelect
+            <SearchableMultiSelect
               options={universities.map(u => ({ value: u.id, label: u.name }))}
               selected={filterUniversityIds}
               onChange={setFilterUniversityIds}
               placeholder={t.filterAll}
+              searchPlaceholder={t.search}
+              noResultsText={t.searchNoResults}
             />
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1.5">{t.programDegree}</label>
-            <MultiSelect
+            <SearchableMultiSelect
               options={DEGREES.map(d => ({ value: d, label: translateDegree(d) }))}
               selected={filterDegrees}
               onChange={setFilterDegrees}
               placeholder={t.filterAll}
+              searchPlaceholder={t.search}
+              noResultsText={t.searchNoResults}
             />
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1.5">{t.programLanguage}</label>
-            <MultiSelect
+            <SearchableMultiSelect
               options={LANGUAGES.map(lang => ({ value: lang, label: lang }))}
               selected={filterLanguages}
               onChange={setFilterLanguages}
               placeholder={t.filterAll}
+              searchPlaceholder={t.search}
+              noResultsText={t.searchNoResults}
             />
           </div>
           <div>
@@ -1220,10 +1427,22 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
 
       {/* Table */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        {programPaginationBar && <div className="border-b">{programPaginationBar}</div>}
         <div className="overflow-x-auto">
-          <table className="w-full text-right text-sm">
+          <table className={`w-full text-sm ${tableAlign}`}>
             <thead className="bg-gray-50 text-gray-900 border-b border-gray-200">
               <tr>
+                <th className="px-4 py-4 w-12 text-center">
+                  <input
+                    ref={selectAllCheckboxRef}
+                    type="checkbox"
+                    checked={allOnPageSelected}
+                    onChange={toggleSelectAllOnPage}
+                    disabled={paginatedPrograms.length === 0}
+                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                    aria-label={t.filterAll}
+                  />
+                </th>
                 {visibleTreeColumns.includes('name') && <SortTh colKey="name" label={t.programName} />}
                 {visibleTreeColumns.includes('university') && <SortTh colKey="university" label={t.universities} />}
                 {visibleTreeColumns.includes('degree') && <SortTh colKey="degree" label={t.programDegree} />}
@@ -1231,80 +1450,99 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
                 {visibleTreeColumns.includes('fee') && <SortTh colKey="fee" label={t.programFee} />}
                 {visibleTreeColumns.includes('cashPrice') && <SortTh colKey="cashPrice" label={t.cashPrice} />}
                 {visibleTreeColumns.includes('deposit') && <SortTh colKey="deposit" label={t.deposit} />}
-                {visibleTreeColumns.includes('isOpen') && <SortTh colKey="isOpen" label={t.programAvailability} className="text-center" />}
-                <th className="px-6 py-4 font-bold text-center">{t.edit}</th>
+                {!isAgent && visibleTreeColumns.includes('isOpen') && <SortTh colKey="isOpen" label={t.programAvailability} className="text-center" />}
+                {isAdmin && <th className="px-6 py-4 font-bold text-center whitespace-nowrap">{t.edit}</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {sortedPrograms.map((program) => (
+              {paginatedPrograms.map((program) => (
                 <tr
                   key={program.id}
-                  onClick={() => {
-                    if (isAdmin) openEditModal(program);
-                    else setSelectedProgramForView(program);
-                  }}
-                  className="hover:bg-gray-50 transition-colors group cursor-pointer"
+                  onClick={isAdmin && archiveView === 'active' ? () => openEditModal(program) : undefined}
+                  className={`hover:bg-gray-50 transition-colors group ${isAdmin && archiveView === 'active' ? 'cursor-pointer' : ''} ${selectedProgramIds.has(program.id) ? 'bg-blue-50/40' : ''}`}
                 >
+                  <td className="px-4 py-4 text-center" onClick={e => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={selectedProgramIds.has(program.id)}
+                      onChange={() => toggleProgramSelection(program.id)}
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                      aria-label={program.name}
+                    />
+                  </td>
                   {visibleTreeColumns.includes('name') && <td className="px-6 py-4 font-medium text-gray-900">{program.name}</td>}
                   {visibleTreeColumns.includes('university') && <td className="px-6 py-4 text-gray-900">{getUniversityName(program.universityId)}</td>}
                   {visibleTreeColumns.includes('degree') && (
                     <td className="px-6 py-4">
-                      <span className="px-2 py-1 bg-purple-50 text-purple-700 rounded text-xs">
+                      <span className="inline-block px-2.5 py-1 bg-purple-100 text-purple-800 rounded-full text-xs font-bold">
                         {translateDegree(program.degree)}
                       </span>
                     </td>
                   )}
-                  {visibleTreeColumns.includes('language') && <td className="px-6 py-4">{program.language}</td>}
+                  {visibleTreeColumns.includes('language') && <td className="px-6 py-4 text-gray-900">{program.language}</td>}
                   {visibleTreeColumns.includes('fee') && (
-                    <td className="px-6 py-4 font-bold text-gray-900">
+                    <td className="px-6 py-4 font-bold text-gray-900 tabular-nums" dir="ltr">
                       {program.currency ? `${program.currency} ${program.fee.toLocaleString()}` : `$${program.fee.toLocaleString()}`}
                     </td>
                   )}
                   {visibleTreeColumns.includes('cashPrice') && (
-                    <td className="px-6 py-4 text-gray-900">
+                    <td className="px-6 py-4 text-gray-900 tabular-nums" dir="ltr">
                       {program.cashPrice != null ? (program.currency ? `${program.currency} ${program.cashPrice.toLocaleString()}` : program.cashPrice.toLocaleString()) : '—'}
                     </td>
                   )}
                   {visibleTreeColumns.includes('deposit') && (
-                    <td className="px-6 py-4 text-gray-900">
+                    <td className="px-6 py-4 text-gray-900 tabular-nums" dir="ltr">
                       {program.deposit != null ? (program.currency ? `${program.currency} ${program.deposit.toLocaleString()}` : program.deposit.toLocaleString()) : '—'}
                     </td>
                   )}
-                  {visibleTreeColumns.includes('isOpen') && (
+                  {!isAgent && visibleTreeColumns.includes('isOpen') && (
                     <td className="px-6 py-4 text-center">
-                      <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-semibold ${program.isOpen === false ? 'bg-gray-200 text-gray-700' : 'bg-emerald-50 text-emerald-800'}`}>
+                      <span className={`inline-block px-3 py-1 rounded-full text-xs font-bold border-2 ${program.isOpen === false ? 'bg-gray-200 text-gray-800 border-gray-400' : 'bg-emerald-400 text-emerald-950 border-emerald-600'}`}>
                         {program.isOpen === false ? t.programStatusClosed : t.programStatusOpen}
                       </span>
                     </td>
                   )}
+                  {isAdmin && (
                   <td className="px-6 py-4 text-center">
                     <div className="flex justify-center gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
-                      {isAdmin && (
-                        <>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openEditModal(program);
-                            }}
-                            title={t.edit}
-                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-blue-50 text-blue-500 hover:bg-blue-100 hover:text-blue-700 transition-colors"
-                          >
-                            <Pencil size={15} />
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setConfirmDeleteId(program.id);
-                            }}
-                            title={t.delete}
-                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-red-50 text-red-500 hover:bg-red-100 hover:text-red-700 transition-colors"
-                          >
-                            <Trash2 size={15} />
-                          </button>
-                        </>
+                      {archiveView === 'active' && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openEditModal(program);
+                        }}
+                        title={t.edit}
+                        className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-blue-50 text-blue-500 hover:bg-blue-100 hover:text-blue-700 transition-colors"
+                      >
+                        <Pencil size={15} />
+                      </button>
+                      )}
+                      {archiveView === 'active' ? (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setConfirmArchiveId(program.id);
+                        }}
+                        title={t.archive}
+                        className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-100 hover:text-amber-800 transition-colors"
+                      >
+                        <Archive size={15} />
+                      </button>
+                      ) : (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setConfirmArchiveId(program.id);
+                        }}
+                        title={t.unarchive}
+                        className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100 hover:text-emerald-800 transition-colors"
+                      >
+                        <ArchiveRestore size={15} />
+                      </button>
                       )}
                     </div>
                   </td>
+                  )}
                 </tr>
               ))}
               {sortedPrograms.length === 0 && (
@@ -1317,12 +1555,13 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
             </tbody>
           </table>
         </div>
+        {programPaginationBar && <div className="border-t">{programPaginationBar}</div>}
       </div>
-        </>
+        </div>
       )}
 
       {/* Delete Confirmation Dialog */}
-      {confirmDeleteId && (
+      {confirmBulkDelete && selectedProgramIds.size > 0 && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl max-w-sm w-full p-6 shadow-2xl">
             <div className="flex items-center gap-3 mb-4">
@@ -1331,24 +1570,72 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
               </div>
               <h3 className="text-lg font-bold text-gray-800">{t.confirmDelete}</h3>
             </div>
-            <p className="text-gray-700 text-sm font-medium mb-1">
-              {programToDelete?.name}
+            <p className="text-gray-700 text-sm font-medium mb-2">
+              {selectedProgramIds.size} {t.programsTitle.toLowerCase()}
             </p>
+            <p className="text-amber-700 text-xs mb-6">{t.bulkDeleteConfirmPrograms}</p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmBulkDelete(false)}
+                disabled={bulkDeleting}
+                className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {t.cancel}
+              </button>
+              <button
+                type="button"
+                onClick={handleBulkDeleteConfirm}
+                disabled={bulkDeleting}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
+              >
+                {bulkDeleting ? t.loading : t.delete}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <MassEditModal
+        open={massEditOpen}
+        onClose={() => setMassEditOpen(false)}
+        selectedCount={selectedProgramIds.size}
+        fields={programMassEditFields}
+        onApply={handleProgramMassEditApply}
+        applying={massEditApplying}
+      />
+
+      {confirmArchiveId && programToArchive && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl max-w-sm w-full p-6 shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${programToArchive.isArchived ? 'bg-emerald-100' : 'bg-amber-100'}`}>
+                {programToArchive.isArchived ? (
+                  <ArchiveRestore size={20} className="text-emerald-600" />
+                ) : (
+                  <Archive size={20} className="text-amber-600" />
+                )}
+              </div>
+              <h3 className="text-lg font-bold text-gray-800">
+                {programToArchive.isArchived ? t.confirmUnarchive : t.confirmArchive}
+              </h3>
+            </div>
+            <p className="text-gray-700 text-sm font-medium mb-1">{programToArchive.name}</p>
             <p className="text-gray-400 text-xs mb-6">
-              {getUniversityName(programToDelete?.universityId || '')} — {programToDelete && translateDegree(programToDelete.degree)}
+              {getUniversityName(programToArchive.universityId)} — {translateDegree(programToArchive.degree)}
             </p>
             <div className="flex justify-end gap-3">
               <button
-                onClick={() => setConfirmDeleteId(null)}
+                onClick={() => setConfirmArchiveId(null)}
                 className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
               >
                 {t.cancel}
               </button>
               <button
-                onClick={handleDeleteConfirm}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                onClick={handleArchiveToggle}
+                className={`px-4 py-2 text-white rounded-lg transition-colors ${programToArchive.isArchived ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-amber-600 hover:bg-amber-700'}`}
               >
-                {t.delete}
+                {programToArchive.isArchived ? t.unarchive : t.archive}
               </button>
             </div>
           </div>

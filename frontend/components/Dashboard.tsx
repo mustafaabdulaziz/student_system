@@ -1,10 +1,12 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Student, Application, Program, University, User, UserRole, ApplicationListFilters } from '../types';
-import { Users, FileText, School, TrendingUp, Filter, BarChart3, List, DollarSign } from 'lucide-react';
+import { Users, FileText, School, Filter, BarChart3, List, DollarSign } from 'lucide-react';
 import { useTranslation } from '../hooks/useTranslation';
 import { ApplicationStatus } from '../types';
-import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, BarChart, Bar, XAxis, YAxis } from 'recharts';
+import { normalizeApplicationStatus } from '../utils/applicationStatus';
+import { ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis } from 'recharts';
 import { DATE_PRESETS, getDatePreset, getLast30DaysRange } from '../utils/datePresets';
+import { SearchableMultiSelect } from './SearchableMultiSelect';
 
 interface DashboardProps {
   students: Student[];
@@ -19,93 +21,18 @@ interface DashboardProps {
 
 type DrilldownDimension = 'status' | 'university' | 'program' | 'country' | 'degree' | 'responsible' | 'agency';
 
-interface MultiSelectOption {
-  value: string;
-  label: string;
-}
-
-function MultiSelect({
-  options,
-  value,
-  onChange,
-  placeholder
-}: {
-  options: MultiSelectOption[];
-  value: string[];
-  onChange: (v: string[]) => void;
-  placeholder: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const close = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('click', close);
-    return () => document.removeEventListener('click', close);
-  }, []);
-  const toggle = (v: string) => {
-    if (value.includes(v)) onChange(value.filter((x) => x !== v));
-    else onChange([...value, v]);
-  };
-  const clear = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onChange([]);
-  };
-  const label = value.length === 0
-    ? placeholder
-    : value.length === 1
-      ? options.find((o) => o.value === value[0])?.label ?? value[0]
-      : `${value.length} secili`;
-
-  return (
-    <div ref={ref} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center justify-between gap-2 border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white"
-      >
-        <span className={value.length === 0 ? 'text-gray-500' : 'text-gray-800'}>{label}</span>
-        {value.length > 0 ? (
-          <span onClick={clear} className="text-xs text-gray-500 hover:text-gray-700">Temizle</span>
-        ) : (
-          <span className="text-xs text-gray-400">▼</span>
-        )}
-      </button>
-      {open && (
-        <div className="absolute z-20 mt-1 w-full rounded-lg border border-gray-200 bg-white shadow-lg max-h-56 overflow-y-auto">
-          {options.length === 0 ? (
-            <div className="p-3 text-sm text-gray-500">Secenek yok</div>
-          ) : (
-            options.map((opt) => (
-              <label key={opt.value} className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 text-sm cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={value.includes(opt.value)}
-                  onChange={() => toggle(opt.value)}
-                  className="rounded border-gray-300 text-blue-600"
-                />
-                <span>{opt.label}</span>
-              </label>
-            ))
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function dateOnly(iso: string | undefined): string {
   if (!iso) return '';
   return iso.split('T')[0];
 }
 
-const CHART_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#f97316', '#84cc16'];
+
 const TOP_RANKED_CHART_ITEMS = 20;
 
 interface RankedStatRow {
   label: string;
   value: number;
+  key?: string;
 }
 
 function topNWithOthers(
@@ -175,14 +102,15 @@ function RankedStatsCard({
         rank: index + 1,
         label: row.label,
         value: row.value,
+        key: row.key,
         share: Math.round((row.value / total) * 1000) / 10
       }))
       .filter((row) => !query || row.label.toLowerCase().includes(query));
   }, [stats, totalApplications, search]);
 
-  const handleItemClick = (label: string) => {
-    if (!onItemClick || label === othersLabel || label === '—') return;
-    onItemClick(label);
+  const handleItemClick = (row: RankedStatRow) => {
+    if (!onItemClick || row.label === othersLabel || row.label === '—') return;
+    onItemClick(row.key ?? row.label);
   };
 
   return (
@@ -239,7 +167,7 @@ function RankedStatsCard({
                         {onItemClick ? (
                           <button
                             type="button"
-                            onClick={() => handleItemClick(row.label)}
+                            onClick={() => handleItemClick(row)}
                             className="text-left text-blue-600 hover:text-blue-800 hover:underline truncate max-w-full"
                             title={row.label}
                           >
@@ -273,7 +201,10 @@ function RankedStatsCard({
                 fill={barColor}
                 radius={[0, 4, 4, 0]}
                 cursor={onItemClick ? 'pointer' : undefined}
-                onClick={(data) => handleItemClick(String(data?.label ?? ''))}
+                onClick={(data) => {
+                  const row = data?.payload as RankedStatRow | undefined;
+                  if (row) handleItemClick(row);
+                }}
               />
             </BarChart>
           </ResponsiveContainer>
@@ -293,7 +224,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   universitiesCount,
   onDrilldownToApplications
 }) => {
-  const { t, translateStatus } = useTranslation();
+  const { t, translateStatus, translateDegree } = useTranslation();
   const isAdmin = currentUser?.role === UserRole.ADMIN;
   const canSeeCountryChart = currentUser?.role === UserRole.ADMIN || currentUser?.role === UserRole.USER;
   const defaultRange = getLast30DaysRange();
@@ -342,7 +273,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       const d = dateOnly(app.createdAt);
       if (filterActive && fromDate && toDate && (!d || d < fromDate || d > toDate)) return false;
       const program = programs.find((p) => p.id === app.programId);
-      if (statusFilter.length > 0 && !statusFilter.includes(app.status)) return false;
+      if (statusFilter.length > 0 && !statusFilter.includes(normalizeApplicationStatus(app.status) as string)) return false;
       if (universityFilter.length > 0 && (!program || !universityFilter.includes(program.universityId))) return false;
       if (programFilter.length > 0 && !programFilter.includes(app.programId)) return false;
       if (degreeFilter.length > 0 && (!program || !degreeFilter.includes(program.degree))) return false;
@@ -391,8 +322,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     setCurrencyFilter([]);
   };
 
-  // Helper to get program name (use full students list for name lookup)
-  const getProgramName = (progId: string) => programs.find(p => p.id === progId)?.name || t.noPrograms;
+  const getProgramName = (progId: string) => programs.find((p) => p.id === progId)?.name || t.noPrograms;
   const getUniversityName = (uniId: string) => universities.find((u) => u.id === uniId)?.name || '—';
   const programById = useMemo(() => {
     const map = new Map<string, Program>();
@@ -442,9 +372,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const statusStats = useMemo(() => {
     const map = new Map<string, number>();
     filteredApplications.forEach((app) => {
-      map.set(app.status, (map.get(app.status) || 0) + 1);
+      const key = normalizeApplicationStatus(app.status) as string;
+      map.set(key, (map.get(key) || 0) + 1);
     });
-    return Array.from(map.entries()).map(([key, value]) => ({ key, label: translateStatus(key as any), value }));
+    return Array.from(map.entries())
+      .map(([key, value]) => ({ key, label: translateStatus(key), value }))
+      .sort((a, b) => b.value - a.value);
   }, [filteredApplications, translateStatus]);
 
   const universityStats = useMemo(() => {
@@ -457,6 +390,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
     return Array.from(map.entries()).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
   }, [filteredApplications, programById, universities]);
 
+  const degreeStats = useMemo(() => {
+    const map = new Map<string, number>();
+    filteredApplications.forEach((app) => {
+      const degree = programById.get(app.programId)?.degree || '—';
+      map.set(degree, (map.get(degree) || 0) + 1);
+    });
+    return Array.from(map.entries())
+      .map(([key, value]) => ({ key, label: translateDegree(key), value }))
+      .sort((a, b) => b.value - a.value);
+  }, [filteredApplications, programById, translateDegree]);
+
   const programStats = useMemo(() => {
     const map = new Map<string, number>();
     filteredApplications.forEach((app) => {
@@ -464,16 +408,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       map.set(progName, (map.get(progName) || 0) + 1);
     });
     return Array.from(map.entries()).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
-  }, [filteredApplications, programs]);
-
-  const degreeStats = useMemo(() => {
-    const map = new Map<string, number>();
-    filteredApplications.forEach((app) => {
-      const degree = programById.get(app.programId)?.degree || '—';
-      map.set(degree, (map.get(degree) || 0) + 1);
-    });
-    return Array.from(map.entries()).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
-  }, [filteredApplications, programById]);
+  }, [filteredApplications, programs, t.noPrograms]);
 
   const countryStats = useMemo(() => {
     const map = new Map<string, number>();
@@ -504,34 +439,61 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   const totals = useMemo(() => {
     let annualPayment = 0,
+      educationVat = 0,
+      grossCommission = 0,
+      abroadVat = 0,
       netCommission = 0,
       bonusMax = 0,
       bonusMin = 0,
       agencyCommission = 0,
       agencyBonus = 0,
+      agencyContractAmount = 0,
       remainingMin = 0,
       remainingMax = 0;
     filteredApplications.forEach((app) => {
       annualPayment += Number(app.annualPayment) || 0;
+      educationVat += Number(app.educationVat) || 0;
+      grossCommission += Number(app.grossCommission) || 0;
+      abroadVat += Number(app.abroadVat) || 0;
       netCommission += Number(app.netCommission) || 0;
       bonusMax += Number(app.bonusMax) || 0;
       bonusMin += Number(app.bonusMin) || 0;
       agencyCommission += Number(app.agencyCommission) || 0;
       agencyBonus += Number(app.agencyBonus) || 0;
+      agencyContractAmount += Number(app.agencyContractAmount) || 0;
       remainingMin += Number(app.remainingMin) || 0;
       remainingMax += Number(app.remainingMax) || 0;
     });
     return {
       annualPayment,
+      educationVat,
+      grossCommission,
+      abroadVat,
       netCommission,
       bonusMax,
       bonusMin,
       agencyCommission,
       agencyBonus,
+      agencyContractAmount,
       remainingMin,
       remainingMax
     };
   }, [filteredApplications]);
+
+  const financialTotalCards = [
+    { label: 'Yıllık ödeme', value: totals.annualPayment, bg: 'bg-blue-50', text: 'text-blue-600', border: 'border-blue-100' },
+    { label: 'Eğitim KDV tutarı', value: totals.educationVat, bg: 'bg-sky-50', text: 'text-sky-600', border: 'border-sky-100' },
+    { label: 'Brüt komisyon', value: totals.grossCommission, bg: 'bg-indigo-50', text: 'text-indigo-600', border: 'border-indigo-100' },
+    { label: 'Yurtdışı KDV tutarı', value: totals.abroadVat, bg: 'bg-violet-50', text: 'text-violet-600', border: 'border-violet-100' },
+    { label: 'Net komisyon', value: totals.netCommission, bg: 'bg-emerald-50', text: 'text-emerald-600', border: 'border-emerald-100' },
+    { label: 'Bonus Max', value: totals.bonusMax, bg: 'bg-purple-50', text: 'text-purple-600', border: 'border-purple-100' },
+    { label: 'Bonus Min', value: totals.bonusMin, bg: 'bg-amber-50', text: 'text-amber-600', border: 'border-amber-100' },
+    { label: 'Acenta komisyon', value: totals.agencyCommission, bg: 'bg-cyan-50', text: 'text-cyan-700', border: 'border-cyan-100' },
+    { label: 'Acenta Bonus', value: totals.agencyBonus, bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-100' },
+    { label: 'Acenta anlaşma miktarı', value: totals.agencyContractAmount, bg: 'bg-fuchsia-50', text: 'text-fuchsia-700', border: 'border-fuchsia-100' },
+    { label: 'Kalan Min', value: totals.remainingMin, bg: 'bg-lime-50', text: 'text-lime-700', border: 'border-lime-100' },
+    { label: 'Kalan Max', value: totals.remainingMax, bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-100' }
+  ];
 
   const rankedCardLabels = {
     othersLabel: t.others,
@@ -606,7 +568,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
     { label: t.totalStudents, value: filteredStudents.length, icon: Users, color: 'bg-blue-500' },
     { label: t.totalApplications, value: filteredApplications.length, icon: FileText, color: 'bg-emerald-500' },
     { label: t.totalUniversities, value: universitiesCount, icon: School, color: 'bg-purple-500' },
-    { label: t.totalPrograms, value: programs.length, icon: TrendingUp, color: 'bg-orange-500' },
   ];
 
   return (
@@ -670,72 +631,88 @@ export const Dashboard: React.FC<DashboardProps> = ({
       </div>
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-          <MultiSelect
+          <SearchableMultiSelect
             options={Object.values(ApplicationStatus).map((status) => ({
               value: status,
               label: translateStatus(status as any)
             }))}
-            value={statusFilter}
+            selected={statusFilter}
             onChange={setStatusFilter}
-            placeholder={t.applicationStatus}
+            placeholder={`${t.applicationStatus} (${t.filterAll})`}
+            searchPlaceholder={t.search}
+            noResultsText={t.searchNoResults}
           />
-          <MultiSelect
+          <SearchableMultiSelect
             options={universities.map((u) => ({ value: u.id, label: u.name }))}
-            value={universityFilter}
+            selected={universityFilter}
             onChange={setUniversityFilter}
-            placeholder={t.universitiesTitle}
+            placeholder={`${t.university} (${t.filterAll})`}
+            searchPlaceholder={t.searchUniversities}
+            noResultsText={t.searchNoResults}
           />
-          <MultiSelect
+          <SearchableMultiSelect
             options={programs
               .filter((p) => universityFilter.length === 0 || universityFilter.includes(p.universityId))
               .map((p) => ({ value: p.id, label: p.name }))}
-            value={programFilter}
+            selected={programFilter}
             onChange={setProgramFilter}
-            placeholder={t.programsTitle}
+            placeholder={`${t.program} (${t.filterAll})`}
+            searchPlaceholder={t.searchProgramNamePlaceholder}
+            noResultsText={t.searchNoResults}
           />
-          <MultiSelect
+          <SearchableMultiSelect
             options={uniqueDegrees.map((d) => ({ value: d, label: d }))}
-            value={degreeFilter}
+            selected={degreeFilter}
             onChange={setDegreeFilter}
-            placeholder={t.programDegree}
+            placeholder={`${t.programDegree} (${t.filterAll})`}
+            searchPlaceholder={t.search}
+            noResultsText={t.searchNoResults}
           />
           {canSeeNationalityFilter && (
-            <MultiSelect
+            <SearchableMultiSelect
               options={uniqueNationalities}
-              value={nationalityFilter}
+              selected={nationalityFilter}
               onChange={setNationalityFilter}
-              placeholder={t.nationality}
+              placeholder={`${t.nationality} (${t.filterAll})`}
+              searchPlaceholder={t.search}
+              noResultsText={t.searchNoResults}
             />
           )}
           {isAdmin && (
-            <MultiSelect
+            <SearchableMultiSelect
               options={uniqueAgents}
-              value={agentFilter}
+              selected={agentFilter}
               onChange={setAgentFilter}
-              placeholder={t.agent}
+              placeholder={`${t.agent} (${t.filterAll})`}
+              searchPlaceholder={t.search}
+              noResultsText={t.searchNoResults}
             />
           )}
           {isAdmin && (
-            <MultiSelect
+            <SearchableMultiSelect
               options={uniqueResponsibles}
-              value={responsibleFilter}
+              selected={responsibleFilter}
               onChange={setResponsibleFilter}
-              placeholder={t.responsible}
+              placeholder={`${t.responsible} (${t.filterAll})`}
+              searchPlaceholder={t.search}
+              noResultsText={t.searchNoResults}
             />
           )}
           {isAdmin && (
-            <MultiSelect
+            <SearchableMultiSelect
               options={uniqueCurrencies}
-              value={currencyFilter}
+              selected={currencyFilter}
               onChange={setCurrencyFilter}
-              placeholder={t.currency}
+              placeholder={`${t.currency} (${t.filterAll})`}
+              searchPlaceholder={t.search}
+              noResultsText={t.searchNoResults}
             />
           )}
         </div>
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {stats.map((stat, idx) => (
           <div key={idx} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center gap-5">
             <div className={`p-4 rounded-lg text-white shrink-0 ${stat.color}`}>
@@ -756,38 +733,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
             {t.totalsByFilter}
           </h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
-              <p className="text-xs font-medium text-blue-600 uppercase">Yıllık ödeme</p>
-              <p className="text-xl font-bold text-gray-900 mt-1">{totals.annualPayment.toLocaleString()}</p>
-            </div>
-            <div className="bg-emerald-50 rounded-xl p-4 border border-emerald-100">
-              <p className="text-xs font-medium text-emerald-600 uppercase">Net komisyon</p>
-              <p className="text-xl font-bold text-gray-900 mt-1">{totals.netCommission.toLocaleString()}</p>
-            </div>
-            <div className="bg-purple-50 rounded-xl p-4 border border-purple-100">
-              <p className="text-xs font-medium text-purple-600 uppercase">Bonus Max</p>
-              <p className="text-xl font-bold text-gray-900 mt-1">{totals.bonusMax.toLocaleString()}</p>
-            </div>
-            <div className="bg-amber-50 rounded-xl p-4 border border-amber-100">
-              <p className="text-xs font-medium text-amber-600 uppercase">Bonus Min</p>
-              <p className="text-xl font-bold text-gray-900 mt-1">{totals.bonusMin.toLocaleString()}</p>
-            </div>
-            <div className="bg-cyan-50 rounded-xl p-4 border border-cyan-100">
-              <p className="text-xs font-medium text-cyan-700 uppercase">Acenta komisyon</p>
-              <p className="text-xl font-bold text-gray-900 mt-1">{totals.agencyCommission.toLocaleString()}</p>
-            </div>
-            <div className="bg-rose-50 rounded-xl p-4 border border-rose-100">
-              <p className="text-xs font-medium text-rose-700 uppercase">Acenta Bonus</p>
-              <p className="text-xl font-bold text-gray-900 mt-1">{totals.agencyBonus.toLocaleString()}</p>
-            </div>
-            <div className="bg-lime-50 rounded-xl p-4 border border-lime-100">
-              <p className="text-xs font-medium text-lime-700 uppercase">Kalan Min</p>
-              <p className="text-xl font-bold text-gray-900 mt-1">{totals.remainingMin.toLocaleString()}</p>
-            </div>
-            <div className="bg-orange-50 rounded-xl p-4 border border-orange-100">
-              <p className="text-xs font-medium text-orange-700 uppercase">Kalan Max</p>
-              <p className="text-xl font-bold text-gray-900 mt-1">{totals.remainingMax.toLocaleString()}</p>
-            </div>
+            {financialTotalCards.map((card) => (
+              <div key={card.label} className={`${card.bg} rounded-xl p-4 border ${card.border}`}>
+                <p className={`text-xs font-medium ${card.text} uppercase`}>{card.label}</p>
+                <p className="text-xl font-bold text-gray-900 mt-1">{card.value.toLocaleString()}</p>
+              </div>
+            ))}
           </div>
           <p className="text-sm text-gray-500 mt-3">
             {filteredApplications.length} {t.applicationsTitle.toLowerCase()}
@@ -796,36 +747,30 @@ export const Dashboard: React.FC<DashboardProps> = ({
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-xl border border-gray-100 p-4">
-          <h3 className="font-semibold text-gray-800 mb-3">{t.byStatus}</h3>
-          {statusStats.length === 0 ? (
-            <p className="text-sm text-gray-400">{t.noApplications}</p>
-          ) : (
-            <ResponsiveContainer width="100%" height={260}>
-              <PieChart>
-                <Pie
-                  data={statusStats}
-                  dataKey="value"
-                  nameKey="label"
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={90}
-                  label={({ label, value }) => `${label}: ${value}`}
-                  style={{ cursor: 'pointer' }}
-                  onClick={(_, index) => {
-                    const item = statusStats[index];
-                    if (item?.key) handleDrilldown('status', item.key);
-                  }}
-                >
-                  {statusStats.map((_, i) => (
-                    <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-          )}
-        </div>
+        <RankedStatsCard
+          title={t.byStatus}
+          stats={statusStats}
+          totalApplications={filteredApplications.length}
+          barColor="#3b82f6"
+          searchPlaceholder={t.search}
+          nameColumnLabel={t.applicationStatus}
+          countSummary={`${statusStats.length} ${t.applicationStatus.toLowerCase()} · ${filteredApplications.length} ${t.totalApplications.toLowerCase()}`}
+          onItemClick={(value) => handleDrilldown('status', value)}
+          {...rankedCardLabels}
+        />
+        {isAdmin && (
+          <RankedStatsCard
+            title={t.byAgency}
+            stats={agencyStats}
+            totalApplications={filteredApplications.length}
+            barColor="#ef4444"
+            searchPlaceholder={t.search}
+            nameColumnLabel={t.agent}
+            countSummary={`${agencyStats.length} ${t.agent.toLowerCase()} · ${filteredApplications.length} ${t.totalApplications.toLowerCase()}`}
+            onItemClick={(label) => handleDrilldown('agency', label)}
+            {...rankedCardLabels}
+          />
+        )}
         <RankedStatsCard
           title={t.byUniversity}
           stats={universityStats}
@@ -838,6 +783,20 @@ export const Dashboard: React.FC<DashboardProps> = ({
           {...rankedCardLabels}
         />
         <RankedStatsCard
+          title={t.byDegree}
+          stats={degreeStats}
+          totalApplications={filteredApplications.length}
+          barColor="#f59e0b"
+          searchPlaceholder={t.search}
+          nameColumnLabel={t.byDegree}
+          countSummary={`${degreeStats.length} ${t.programDegree.toLowerCase()} · ${filteredApplications.length} ${t.totalApplications.toLowerCase()}`}
+          onItemClick={(value) => handleDrilldown('degree', value)}
+          {...rankedCardLabels}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <RankedStatsCard
           title={t.byProgram}
           stats={programStats}
           totalApplications={filteredApplications.length}
@@ -848,101 +807,33 @@ export const Dashboard: React.FC<DashboardProps> = ({
           onItemClick={(label) => handleDrilldown('program', label)}
           {...rankedCardLabels}
         />
-        <div className="bg-white rounded-xl border border-gray-100 p-4 min-w-0">
-          <h3 className="font-semibold text-gray-800 mb-3">{t.programDegree}</h3>
-          {degreeStats.length === 0 ? (
-            <p className="text-sm text-gray-400">{t.noApplications}</p>
-          ) : (
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={degreeStats} margin={{ top: 5, right: 12, left: 0, bottom: 24 }}>
-                <XAxis dataKey="label" angle={-20} textAnchor="end" height={50} tick={{ fontSize: 11 }} />
-                <YAxis allowDecimals={false} />
-                <Tooltip />
-                <Bar
-                  dataKey="value"
-                  fill="#f59e0b"
-                  radius={[4, 4, 0, 0]}
-                  cursor="pointer"
-                  onClick={(data) => handleDrilldown('degree', String(data?.label ?? ''))}
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </div>
+        {canSeeCountryChart && (
+          <RankedStatsCard
+            title={t.byCountry}
+            stats={countryStats}
+            totalApplications={filteredApplications.length}
+            barColor="#06b6d4"
+            searchPlaceholder={t.search}
+            nameColumnLabel={t.byCountry}
+            countSummary={`${countryStats.length} ${t.nationality.toLowerCase()} · ${filteredApplications.length} ${t.totalApplications.toLowerCase()}`}
+            onItemClick={(label) => handleDrilldown('country', label)}
+            {...rankedCardLabels}
+          />
+        )}
+        {isAdmin && (
+          <RankedStatsCard
+            title={t.byResponsible}
+            stats={responsibleStats}
+            totalApplications={filteredApplications.length}
+            barColor="#6366f1"
+            searchPlaceholder={t.search}
+            nameColumnLabel={t.byResponsible}
+            countSummary={`${responsibleStats.length} ${t.responsible.toLowerCase()} · ${filteredApplications.length} ${t.totalApplications.toLowerCase()}`}
+            onItemClick={(label) => handleDrilldown('responsible', label)}
+            {...rankedCardLabels}
+          />
+        )}
       </div>
-
-      {(canSeeCountryChart || isAdmin) && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {canSeeCountryChart && (
-            <RankedStatsCard
-              title={t.byCountry}
-              stats={countryStats}
-              totalApplications={filteredApplications.length}
-              barColor="#06b6d4"
-              searchPlaceholder={t.search}
-              nameColumnLabel={t.byCountry}
-              countSummary={`${countryStats.length} ${t.nationality.toLowerCase()} · ${filteredApplications.length} ${t.totalApplications.toLowerCase()}`}
-              onItemClick={(label) => handleDrilldown('country', label)}
-              {...rankedCardLabels}
-            />
-          )}
-          {isAdmin && (
-            <div className="bg-white rounded-xl border border-gray-100 p-4">
-              <h3 className="font-semibold text-gray-800 mb-3">{t.byResponsible}</h3>
-              {responsibleStats.length === 0 ? (
-                <p className="text-sm text-gray-400">{t.noApplications}</p>
-              ) : (
-                <ResponsiveContainer width="100%" height={260}>
-                  <PieChart>
-                    <Pie
-                      data={responsibleStats}
-                      dataKey="value"
-                      nameKey="label"
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={90}
-                      label={({ label, value }) => `${label}: ${value}`}
-                      style={{ cursor: 'pointer' }}
-                      onClick={(_, index) => {
-                        const item = responsibleStats[index];
-                        if (item?.label) handleDrilldown('responsible', item.label);
-                      }}
-                    >
-                      {responsibleStats.map((_, i) => (
-                        <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip />
-                  </PieChart>
-                </ResponsiveContainer>
-              )}
-            </div>
-          )}
-          {isAdmin && (
-            <div className="bg-white rounded-xl border border-gray-100 p-4">
-              <h3 className="font-semibold text-gray-800 mb-3">{t.byAgency}</h3>
-              {agencyStats.length === 0 ? (
-                <p className="text-sm text-gray-400">{t.noApplications}</p>
-              ) : (
-                <ResponsiveContainer width="100%" height={260}>
-                  <BarChart data={agencyStats} margin={{ top: 5, right: 12, left: 0, bottom: 24 }}>
-                    <XAxis dataKey="label" angle={-20} textAnchor="end" height={50} tick={{ fontSize: 11 }} />
-                    <YAxis allowDecimals={false} />
-                    <Tooltip />
-                    <Bar
-                      dataKey="value"
-                      fill="#ef4444"
-                      radius={[4, 4, 0, 0]}
-                      cursor="pointer"
-                      onClick={(data) => handleDrilldown('agency', String(data?.label ?? ''))}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 };

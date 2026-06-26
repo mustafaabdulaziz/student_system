@@ -29,6 +29,7 @@ class Student(db.Model):
     residence_country = db.Column(db.String, nullable=False)
     user_id = db.Column(db.String, db.ForeignKey('users.id'), nullable=True)  # Added to link student to agent
     files = db.Column(db.ARRAY(db.String))
+    file_metadata = db.Column(db.JSON, nullable=True)
     created_at = db.Column(db.String, nullable=True)
     updated_at = db.Column(db.String, nullable=True)
 
@@ -43,6 +44,7 @@ class University(db.Model):
     logo = db.Column(db.Text, nullable=True)  # URL or base64 - optional
     # Admin-only financial defaults (optional)
     education_vat_rate = db.Column(db.Integer, nullable=True)
+    abroad_vat_rate = db.Column(db.Float, nullable=True)
     commission_kind = db.Column(db.String, nullable=True)  # 'amount' | 'rate'
     commission_value = db.Column(db.Float, nullable=True)
     bonus_max = db.Column(db.Float, nullable=True)
@@ -67,6 +69,7 @@ class Program(db.Model):
     currency = db.Column(db.String, nullable=False, default='USD')
     description = db.Column(db.Text)
     is_open = db.Column(db.Boolean, nullable=False, default=True)
+    is_archived = db.Column(db.Boolean, nullable=False, default=False)
 
 
 class AgencyCompany(db.Model):
@@ -183,6 +186,7 @@ class IncomingPayment(db.Model):
     currency = db.Column(db.String, nullable=False, default='USD')
     description_1 = db.Column(db.String, nullable=True)
     description_2 = db.Column(db.String, nullable=True)
+    receipt_files = db.Column(db.ARRAY(db.String))
     created_at = db.Column(db.String, nullable=False)
     updated_at = db.Column(db.String, nullable=True)
 
@@ -198,6 +202,7 @@ class OutgoingPayment(db.Model):
     payment_reason = db.Column(db.String, nullable=False)  # commission / debt / company_expense
     expense_type = db.Column(db.String, nullable=True)  # when company_expense: rateb, kira, ...
     description_1 = db.Column(db.String, nullable=True)
+    receipt_files = db.Column(db.ARRAY(db.String))
     user_id = db.Column(db.String, db.ForeignKey('users.id'), nullable=True)
     user = db.relationship('User', foreign_keys=[user_id])
     created_at = db.Column(db.String, nullable=False)

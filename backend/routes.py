@@ -1,6 +1,6 @@
 
 from flask import Blueprint, request, jsonify, session, current_app, send_from_directory, url_for
-from models import db, Student, University, Program, Application, User, Notification, Period, NewsItem, IncomingPayment, OutgoingPayment, AgencyCompany, UserUniversityCommission, PaymentSource
+from models import db, Student, University, Program, Application, ApplicationMessage, User, Notification, Period, NewsItem, IncomingPayment, OutgoingPayment, AgencyCompany, UserUniversityCommission, PaymentSource
 import os
 import uuid
 from datetime import datetime
@@ -15,6 +15,7 @@ UPLOADS_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__fi
 
 OUTGOING_PAYMENT_REASONS = frozenset({'commission', 'debt', 'company_expense'})
 COMPANY_EXPENSE_TYPES = frozenset({'rateb', 'kira', 'terwij', 'ulasim', 'yemek', 'others'})
+STUDENT_FILE_TYPES = frozenset({'acceptance_letter', 'offer_letter', 'other'})
 
 
 def _iso_timestamp():
@@ -55,14 +56,25 @@ def _touch_application_and_student(application):
         st.updated_at = now
 
 
-def _files_info_list(filenames):
-    return [
-        {
+def _files_info_list(filenames, metadata=None):
+    metadata = metadata if isinstance(metadata, dict) else {}
+    items = []
+    for f in (filenames or []):
+        info = {
             'name': f.split('_', 1)[1] if '_' in f else f,
             'filename': f,
             'url': url_for('api.upload_file', filename=f, _external=False)
-        } for f in (filenames or [])
-    ]
+        }
+        meta = metadata.get(f)
+        if isinstance(meta, dict):
+            file_type = meta.get('fileType')
+            if file_type:
+                info['fileType'] = file_type
+            description = meta.get('description')
+            if description:
+                info['description'] = description
+        items.append(info)
+    return items
 
 
 def _save_upload_files(file_storage_list):
@@ -91,6 +103,80 @@ def _student_files_raw(student):
     return list(getattr(student, 'files', None) or [])
 
 
+def _student_file_metadata_raw(student):
+    if not student:
+        return {}
+    meta = getattr(student, 'file_metadata', None)
+    return meta if isinstance(meta, dict) else {}
+
+
+def _ensure_student_file_metadata_column():
+    try:
+        inspector = inspect(db.engine)
+        if 'students' not in inspector.get_table_names():
+            return
+        cols = [c['name'] for c in inspector.get_columns('students')]
+        if 'file_metadata' in cols:
+            return
+        with db.engine.connect() as conn:
+            conn.execute(text('ALTER TABLE students ADD COLUMN file_metadata JSONB'))
+            conn.commit()
+    except Exception as e:
+        print('ensure students.file_metadata column:', e)
+
+
+def _file_type_label(file_type, description=None):
+    labels = {
+        'acceptance_letter': 'Acceptance letter',
+        'offer_letter': 'Offer letter',
+        'other': 'Other document'
+    }
+    label = labels.get(file_type, file_type or 'file')
+    if file_type == 'other' and description:
+        return f'{label}: {description}'
+    return label
+
+
+def _parse_upload_file_type():
+    file_type = (request.form.get('fileType') or '').strip()
+    if not file_type:
+        return None, None
+    if file_type not in STUDENT_FILE_TYPES:
+        return None, 'Invalid fileType'
+    description = (request.form.get('fileDescription') or '').strip() or None
+    if file_type == 'other' and not description:
+        return None, 'fileDescription is required when fileType is other'
+    return file_type, None
+
+
+def _apply_student_file_metadata(student, filenames, file_type=None, file_description=None, uploader_id=None):
+    if not file_type or not filenames:
+        return
+    _ensure_student_file_metadata_column()
+    meta = dict(_student_file_metadata_raw(student))
+    for fn in filenames:
+        entry = {'fileType': file_type}
+        if file_type == 'other':
+            entry['description'] = file_description
+        if uploader_id:
+            entry['uploadedBy'] = uploader_id
+        meta[fn] = entry
+    student.file_metadata = meta
+    flag_modified(student, 'file_metadata')
+
+
+def _remove_student_file_metadata(student, filename):
+    meta = dict(_student_file_metadata_raw(student))
+    if filename in meta:
+        del meta[filename]
+        student.file_metadata = meta
+        flag_modified(student, 'file_metadata')
+
+
+def _student_files_info(student):
+    return _files_info_list(_student_files_raw(student), _student_file_metadata_raw(student))
+
+
 def _application_files_raw(application, student=None):
     if student is None and application:
         student = Student.query.get(application.student_id)
@@ -116,6 +202,39 @@ def _ensure_student_files_column():
         print('ensure students.files column:', e)
 
 
+def _ensure_payment_receipt_columns():
+    """Create payment receipt_files columns if missing."""
+    try:
+        inspector = inspect(db.engine)
+        table_names = inspector.get_table_names()
+        with db.engine.connect() as conn:
+            if 'incoming_payments' in table_names:
+                incoming_cols = [c['name'] for c in inspector.get_columns('incoming_payments')]
+                if 'receipt_files' not in incoming_cols:
+                    conn.execute(text('ALTER TABLE incoming_payments ADD COLUMN receipt_files VARCHAR[]'))
+                    conn.commit()
+            if 'outgoing_payments' in table_names:
+                outgoing_cols = [c['name'] for c in inspector.get_columns('outgoing_payments')]
+                if 'receipt_files' not in outgoing_cols:
+                    conn.execute(text('ALTER TABLE outgoing_payments ADD COLUMN receipt_files VARCHAR[]'))
+                    conn.commit()
+    except Exception as e:
+        print('ensure payment receipt_files columns:', e)
+
+
+def _payment_receipt_files_raw(record):
+    if not record:
+        return []
+    return list(getattr(record, 'receipt_files', None) or [])
+
+
+def _append_payment_receipts(record, filenames):
+    _ensure_payment_receipt_columns()
+    combined = _payment_receipt_files_raw(record) + list(filenames)
+    record.receipt_files = combined
+    flag_modified(record, 'receipt_files')
+
+
 def _append_student_files(student, filenames):
     _ensure_student_files_column()
     combined = list(_student_files_raw(student)) + list(filenames)
@@ -127,6 +246,84 @@ def _touch_student(student):
     if not student:
         return
     student.updated_at = _iso_timestamp()
+
+
+def _is_agent_user(user):
+    return bool(user and (user.role or '').strip().lower() == 'agent')
+
+
+def _staff_users():
+    """Admin and USER role accounts (case-insensitive)."""
+    return [u for u in User.query.all() if (u.role or '').strip().upper() in ('ADMIN', 'USER')]
+
+
+def _form_uploader_id():
+    return (request.form.get('user_id') or request.form.get('userId') or '').strip() or None
+
+
+def _notify_staff_agent_file_upload(uploader, title, message, link, extra_user_ids=None):
+    """Notify all admin/user accounts when an agent uploads files."""
+    if not _is_agent_user(uploader):
+        return
+    notify_ids = {u.id for u in _staff_users()}
+    for uid in (extra_user_ids or []):
+        if uid:
+            notify_ids.add(uid)
+    notify_ids.discard(uploader.id)
+    if not notify_ids:
+        return
+    now = datetime.utcnow().isoformat()
+    for uid in notify_ids:
+        db.session.add(Notification(
+            id=str(uuid.uuid4()),
+            user_id=uid,
+            title=title,
+            message=message,
+            link=link,
+            created_at=now,
+            type='FILE_UPLOAD'
+        ))
+    db.session.commit()
+
+
+def _notify_agent_owner_file_upload(student, application, uploader, link, file_type=None, file_description=None):
+    """Notify the student's agent when admin/user uploads files."""
+    if not uploader or not student:
+        return
+    role = (uploader.role or '').strip().upper()
+    if role not in ('ADMIN', 'USER'):
+        return
+    agent_id = getattr(student, 'user_id', None)
+    if not agent_id:
+        return
+    student_name = f"{student.first_name} {student.last_name}".strip()
+    uploader_name = uploader.name or 'Staff'
+    if file_type:
+        doc_label = _file_type_label(file_type, file_description)
+        if application:
+            message = f"{uploader_name} uploaded {doc_label} for application #{application.id} (student {student_name})."
+            title = 'Application document uploaded'
+        else:
+            message = f"{uploader_name} uploaded {doc_label} for student {student_name}."
+            title = 'Student document uploaded'
+    else:
+        if application:
+            message = f"{uploader_name} uploaded file(s) for application #{application.id} (student {student_name})."
+            title = 'Application files uploaded'
+        else:
+            message = f"{uploader_name} uploaded file(s) for student {student_name}."
+            title = 'Student files uploaded'
+    now = datetime.utcnow().isoformat()
+    db.session.add(Notification(
+        id=str(uuid.uuid4()),
+        user_id=agent_id,
+        title=title,
+        message=message,
+        link=link,
+        created_at=now,
+        type='FILE_UPLOAD'
+    ))
+    db.session.commit()
 
 
 def _student_by_id_for_applications(applications):
@@ -177,13 +374,38 @@ def _serialize_student(s):
     }
 
 
+def _period_is_active(period):
+    return period is not None and getattr(period, 'active', True)
+
+
+def _sync_program_archive_for_period(period_id, archived):
+    return Program.query.filter_by(period_id=period_id).update(
+        {'is_archived': bool(archived)},
+        synchronize_session=False
+    )
+
+
+def _validate_application_period_and_program(period_id, program_id):
+    program = Program.query.get(program_id) if program_id else None
+    if program and getattr(program, 'is_archived', False):
+        return jsonify({'message': 'Program is archived'}), 400
+    effective_period_id = period_id or (program.period_id if program else None)
+    if not effective_period_id:
+        return None
+    period = Period.query.get(effective_period_id)
+    if not period:
+        return jsonify({'message': 'Period not found'}), 404
+    if not _period_is_active(period):
+        return jsonify({'message': 'Period is not active'}), 400
+    return None
+
+
 def _serialize_program(p):
     return {
         'id': p.id,
         'universityId': p.university_id,
         'name': p.name,
         'nameInArabic': getattr(p, 'name_in_arabic', None),
-        'category': getattr(p, 'category', None),
         'degree': p.degree,
         'language': p.language,
         'years': p.years,
@@ -195,7 +417,8 @@ def _serialize_program(p):
         'cashPrice': getattr(p, 'cash_price', None),
         'currency': getattr(p, 'currency', 'USD'),
         'description': p.description,
-        'isOpen': bool(getattr(p, 'is_open', True))
+        'isOpen': bool(getattr(p, 'is_open', True)),
+        'isArchived': bool(getattr(p, 'is_archived', False))
     }
 
 
@@ -265,7 +488,34 @@ def _apply_acceptance_payment_markers(application):
         application.payment_month = now.strftime('%Y-%m')
 
 
+def _delete_upload_file(filename):
+    if not filename:
+        return
+    file_path = os.path.join(UPLOADS_DIR, filename)
+    if os.path.isfile(file_path):
+        try:
+            os.remove(file_path)
+        except OSError:
+            pass
+
+
+def _delete_notifications_for_link_fragment(fragment):
+    if not fragment:
+        return
+    Notification.query.filter(Notification.link.like(f'%{fragment}%')).delete(synchronize_session=False)
+
+
+def _delete_application_record(application):
+    app_id = application.id
+    ApplicationMessage.query.filter_by(application_id=app_id).delete(synchronize_session=False)
+    _delete_notifications_for_link_fragment(f'/applications/{app_id}')
+    db.session.delete(application)
+
+
 def _request_role_value():
+    q_role = (request.args.get('role') or '').strip()
+    if q_role:
+        return q_role.upper()
     if request.method == 'GET':
         return (request.args.get('role') or '').upper()
     if request.is_json:
@@ -342,6 +592,9 @@ def _compute_application_finance(application, prefer_user_agency_commission=Fals
     if application.education_vat_rate is None and university:
         uv = getattr(university, 'education_vat_rate', None)
         application.education_vat_rate = float(uv) if uv is not None else None
+    if application.abroad_vat_rate is None and university:
+        uv = getattr(university, 'abroad_vat_rate', None)
+        application.abroad_vat_rate = float(uv) if uv is not None else None
     if application.bonus_max is None and university:
         uv = getattr(university, 'bonus_max', None)
         application.bonus_max = float(uv) if uv is not None else None
@@ -684,14 +937,14 @@ def add_student():
     # 7. Notify admin and users when an agent adds a student
     if user_id:
         agent_user = User.query.get(user_id)
-        if agent_user and (agent_user.role or '').lower() == 'agent':
-            for u in User.query.filter(User.role.in_(['ADMIN', 'USER'])).all():
+        if agent_user and _is_agent_user(agent_user):
+            for u in _staff_users():
                 n = Notification(
                     id=str(uuid.uuid4()),
                     user_id=u.id,
                     title="New student by agent",
                     message=f"Agent {agent_user.name} added student {student.first_name} {student.last_name}.",
-                    link="/students",
+                    link=f"/students/{student.id}",
                     created_at=datetime.utcnow().isoformat(),
                     type="STATUS"
                 )
@@ -726,6 +979,26 @@ def update_student(student_id):
     return jsonify({'message': 'Student updated', 'updatedAt': student.updated_at})
 
 
+@api_bp.route('/students/<student_id>', methods=['DELETE'])
+def delete_student(student_id):
+    denied = _require_admin()
+    if denied:
+        return denied
+    student = Student.query.get(student_id)
+    if not student:
+        return jsonify({'message': 'Student not found'}), 404
+    apps = Application.query.filter_by(student_id=student_id).all()
+    deleted_app_ids = [a.id for a in apps]
+    for app in apps:
+        _delete_application_record(app)
+    for filename in _student_files_raw(student):
+        _delete_upload_file(filename)
+    _delete_notifications_for_link_fragment(f'/students/{student_id}')
+    db.session.delete(student)
+    db.session.commit()
+    return jsonify({'message': 'Student deleted', 'deletedApplicationIds': deleted_app_ids}), 200
+
+
 # Universities
 @api_bp.route('/universities', methods=['GET'])
 def get_universities():
@@ -739,6 +1012,7 @@ def get_universities():
         'description': u.description,
         'logo': getattr(u, 'logo', None),
         'educationVatRate': getattr(u, 'education_vat_rate', None),
+        'abroadVatRate': getattr(u, 'abroad_vat_rate', None),
         'commissionKind': getattr(u, 'commission_kind', None),
         'commissionValue': getattr(u, 'commission_value', None),
         'bonusMax': getattr(u, 'bonus_max', None),
@@ -759,6 +1033,14 @@ def add_university():
             return jsonify({'message': 'educationVatRate must be an integer'}), 400
     else:
         evr = None
+    avr = data.get('abroadVatRate')
+    if avr is not None and avr != '':
+        try:
+            avr = float(avr)
+        except (TypeError, ValueError):
+            return jsonify({'message': 'abroadVatRate must be a number'}), 400
+    else:
+        avr = None
     ck = (data.get('commissionKind') or '').strip() or None
     if ck is not None and ck not in ('amount', 'rate'):
         return jsonify({'message': 'commissionKind must be amount or rate'}), 400
@@ -800,6 +1082,7 @@ def add_university():
         description=data['description'],
         logo=data.get('logo'),  # optional logo (base64 or URL)
         education_vat_rate=evr,
+        abroad_vat_rate=avr,
         commission_kind=ck,
         commission_value=cv,
         bonus_max=bmax,
@@ -812,7 +1095,17 @@ def add_university():
 # Programs
 @api_bp.route('/programs', methods=['GET'])
 def get_programs():
+    role = _request_role_value()
+    include_archived = request.args.get('includeArchived') in ('1', 'true', 'yes', 'True')
+    archived_only = request.args.get('archivedOnly') in ('1', 'true', 'yes', 'True')
+
     query = Program.query.order_by(Program.name.asc())
+    if role != 'ADMIN':
+        query = query.filter(Program.is_archived == False)
+    elif archived_only:
+        query = query.filter(Program.is_archived == True)
+    elif not include_archived:
+        query = query.filter(Program.is_archived == False)
     if _wants_pagination():
         page = _query_int_arg('page', 1, min_value=1, max_value=1000000)
         page_size = _query_int_arg('pageSize', 80, min_value=1, max_value=500)
@@ -830,10 +1123,10 @@ def get_programs():
 
 @api_bp.route('/programs', methods=['POST'])
 def add_program():
+    denied = _require_admin()
+    if denied:
+        return denied
     data = request.json or {}
-    user_role = data.get('role')
-    if user_role == 'agent':
-        return jsonify({'message': 'Agents are not allowed to add programs'}), 403
     # deadline: frontend may not send it (replaced by period); use empty string if DB column is NOT NULL
     deadline_val = data.get('deadline') if data.get('deadline') else ''
     fee_val = data.get('fee')
@@ -848,7 +1141,6 @@ def add_program():
         university_id=data.get('universityId') or '',
         name=data.get('name') or '',
         name_in_arabic=data.get('nameInArabic') or None,
-        category=data.get('category') or None,
         degree=data.get('degree') or 'Bachelor',
         language=data.get('language') or 'English',
         years=int(data.get('years', 4)) if data.get('years') is not None else 4,
@@ -860,7 +1152,8 @@ def add_program():
         cash_price=data.get('cashPrice'),
         currency=data.get('currency') or 'USD',
         description=data.get('description') or '',
-        is_open=True if data.get('isOpen') is None else bool(data.get('isOpen'))
+        is_open=True if data.get('isOpen') is None else bool(data.get('isOpen')),
+        is_archived=False
     )
     try:
         db.session.add(program)
@@ -873,9 +1166,19 @@ def add_program():
 # Delete Program
 @api_bp.route('/programs/<prog_id>', methods=['DELETE'])
 def delete_program(prog_id):
+    denied = _require_admin()
+    if denied:
+        return denied
     program = Program.query.get(prog_id)
     if not program:
         return jsonify({'message': 'البرنامج غير موجود'}), 404
+    linked_count = Application.query.filter_by(program_id=prog_id).count()
+    if linked_count > 0:
+        return jsonify({
+            'message': 'Program has linked applications',
+            'code': 'PROGRAM_HAS_APPLICATIONS',
+            'applicationCount': linked_count
+        }), 409
     db.session.delete(program)
     db.session.commit()
     return jsonify({'message': 'تم حذف البرنامج'}), 200
@@ -883,6 +1186,9 @@ def delete_program(prog_id):
 # Update Program
 @api_bp.route('/programs/<prog_id>', methods=['PUT'])
 def update_program(prog_id):
+    denied = _require_admin()
+    if denied:
+        return denied
     program = Program.query.get(prog_id)
     if not program:
         return jsonify({'message': 'البرنامج غير موجود'}), 404
@@ -891,8 +1197,6 @@ def update_program(prog_id):
     program.name = data.get('name', program.name)
     if 'nameInArabic' in data:
         program.name_in_arabic = data['nameInArabic'] or None
-    if 'category' in data:
-        program.category = data['category'] or None
     program.degree = data.get('degree', program.degree)
     program.language = data.get('language', program.language)
     if 'years' in data:
@@ -915,6 +1219,8 @@ def update_program(prog_id):
         program.description = data['description']
     if 'isOpen' in data:
         program.is_open = bool(data['isOpen'])
+    if 'isArchived' in data:
+        program.is_archived = bool(data['isArchived'])
     
     db.session.commit()
     return jsonify({'message': 'تم تحديث البرنامج', 'id': program.id}), 200
@@ -943,6 +1249,15 @@ def update_university(uni_id):
                 university.education_vat_rate = int(evr)
             except (TypeError, ValueError):
                 return jsonify({'message': 'educationVatRate must be an integer'}), 400
+    if 'abroadVatRate' in data:
+        avr = data.get('abroadVatRate')
+        if avr is None or avr == '':
+            university.abroad_vat_rate = None
+        else:
+            try:
+                university.abroad_vat_rate = float(avr)
+            except (TypeError, ValueError):
+                return jsonify({'message': 'abroadVatRate must be a number'}), 400
     if 'commissionKind' in data:
         ck = (data.get('commissionKind') or '').strip() or None
         if ck and ck not in ('amount', 'rate'):
@@ -1037,10 +1352,18 @@ def update_period(period_id):
         period.start_date = data['startDate']
     if data.get('endDate'):
         period.end_date = data['endDate']
+    programs_updated = 0
     if 'active' in data and isinstance(data['active'], bool):
-        period.active = data['active']
+        new_active = data['active']
+        if new_active != period.active:
+            programs_updated = _sync_program_archive_for_period(period_id, archived=not new_active)
+        period.active = new_active
     db.session.commit()
-    return jsonify({'message': 'Period updated'})
+    resp = {'message': 'Period updated'}
+    if programs_updated:
+        resp['programsUpdated'] = programs_updated
+        resp['programsArchived'] = not period.active
+    return jsonify(resp)
 
 
 @api_bp.route('/periods/<period_id>', methods=['DELETE'])
@@ -1207,6 +1530,9 @@ def add_application():
     user_id = request.form.get('user_id')
     responsible_id = request.form.get('responsible_id') or None
     agency_company_id = request.form.get('agency_company_id') or None
+    period_error = _validate_application_period_and_program(period_id, program_id)
+    if period_error:
+        return period_error
     created_at = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
     saved_files = _save_upload_files(files)
     if files and any((getattr(f, 'filename', None) or '').strip() for f in files) and not saved_files:
@@ -1238,8 +1564,8 @@ def add_application():
     # 7. Notify admin and users when an agent adds an application
     if user_id:
         agent_user = User.query.get(user_id)
-        if agent_user and (agent_user.role or '').lower() == 'agent':
-            for u in User.query.filter(User.role.in_(['ADMIN', 'USER'])).all():
+        if agent_user and _is_agent_user(agent_user):
+            for u in _staff_users():
                 n = Notification(
                     id=str(uuid.uuid4()),
                     user_id=u.id,
@@ -1292,6 +1618,9 @@ def add_application_v2():
     status = request.form.get('status')
     semester = request.form.get('semester')
     agency_company_id = request.form.get('agency_company_id') or None
+    period_error = _validate_application_period_and_program(period_id, program_id)
+    if period_error:
+        return period_error
     created_at = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
     saved_files = _save_upload_files(files)
 
@@ -1392,7 +1721,7 @@ def post_application_message(app_id):
                 db.session.add(n)
         else:
             # Notify Admins and Users (managers)
-            admins_and_users = User.query.filter(User.role.in_(['ADMIN', 'USER'])).all()
+            admins_and_users = _staff_users()
             for user in admins_and_users:
                 if user.id == application.user_id: continue # Don't notify self if user is owner
                 n = Notification(
@@ -1494,7 +1823,12 @@ def student_files(student_id):
         return jsonify({'message': 'Student not found'}), 404
 
     if request.method == 'GET':
-        return jsonify(_files_info_list(_student_files_raw(student)))
+        return jsonify(_student_files_info(student))
+
+    file_type, type_error = _parse_upload_file_type()
+    if type_error:
+        return jsonify({'message': type_error}), 400
+    file_description = (request.form.get('fileDescription') or '').strip() or None
 
     uploaded = request.files.getlist('files')
     if not uploaded or not any((getattr(f, 'filename', None) or '').strip() for f in uploaded):
@@ -1504,6 +1838,8 @@ def student_files(student_id):
         return jsonify({'message': 'Could not save uploaded files'}), 400
     try:
         _append_student_files(student, saved)
+        uploader_id = _form_uploader_id() or getattr(student, 'user_id', None)
+        _apply_student_file_metadata(student, saved, file_type, file_description, uploader_id)
         _touch_student(student)
         db.session.commit()
         db.session.refresh(student)
@@ -1512,26 +1848,24 @@ def student_files(student_id):
         print('student_files POST error:', e)
         return jsonify({'message': f'Failed to save files: {e}'}), 500
 
-    uploader_id = (request.form.get('user_id') or request.form.get('userId') or '').strip() or None
-    if uploader_id:
-        uploader = User.query.get(uploader_id)
-        if uploader and (uploader.role or '').lower() == 'agent':
-            for u in User.query.filter(User.role.in_(['ADMIN', 'USER'])).all():
-                n = Notification(
-                    id=str(uuid.uuid4()),
-                    user_id=u.id,
-                    title='Student files uploaded',
-                    message=f"Agent {uploader.name} uploaded file(s) for student {student.first_name} {student.last_name}.",
-                    link=f"/students",
-                    created_at=datetime.utcnow().isoformat(),
-                    type='STATUS'
-                )
-                db.session.add(n)
-            db.session.commit()
+    uploader = User.query.get(uploader_id) if uploader_id else None
+    link = f'/students/{student.id}'
+    if _is_agent_user(uploader):
+        _notify_staff_agent_file_upload(
+            uploader,
+            title='Student files uploaded',
+            message=f"Agent {uploader.name if uploader else 'Unknown'} uploaded file(s) for student {student.first_name} {student.last_name}.",
+            link=link
+        )
+    else:
+        _notify_agent_owner_file_upload(
+            student, None, uploader, link,
+            file_type=file_type, file_description=file_description
+        )
 
     return jsonify({
         'message': 'Files added',
-        'files': _files_info_list(_student_files_raw(student)),
+        'files': _student_files_info(student),
         'studentId': student.id,
         'studentUpdatedAt': _student_updated_at_for_api(student)
     }), 201
@@ -1548,6 +1882,7 @@ def delete_student_file(student_id, filename):
         return jsonify({'message': 'File not found'}), 404
 
     student.files = [f for f in current_files if f != filename]
+    _remove_student_file_metadata(student, filename)
     _touch_student(student)
     db.session.commit()
 
@@ -1577,7 +1912,12 @@ def application_files(app_id):
         return jsonify({'message': 'Student not found'}), 404
 
     if request.method == 'GET':
-        return jsonify(_files_info_list(_application_files_raw(application, student)))
+        return jsonify(_student_files_info(student))
+
+    file_type, type_error = _parse_upload_file_type()
+    if type_error:
+        return jsonify({'message': type_error}), 400
+    file_description = (request.form.get('fileDescription') or '').strip() or None
 
     uploaded = request.files.getlist('files')
     if not uploaded or not any((getattr(f, 'filename', None) or '').strip() for f in uploaded):
@@ -1587,6 +1927,8 @@ def application_files(app_id):
         return jsonify({'message': 'Could not save uploaded files'}), 400
     try:
         _append_student_files(student, saved)
+        uploader_id = _form_uploader_id() or getattr(application, 'user_id', None)
+        _apply_student_file_metadata(student, saved, file_type, file_description, uploader_id)
         _touch_application_and_student(application)
         db.session.commit()
         db.session.refresh(student)
@@ -1595,30 +1937,26 @@ def application_files(app_id):
         print('application_files POST error:', e)
         return jsonify({'message': f'Failed to save files: {e}'}), 500
 
-    uploader_id = (request.form.get('user_id') or request.form.get('userId') or '').strip() or None
-    if uploader_id:
-        uploader = User.query.get(uploader_id)
-        if uploader and (uploader.role or '').lower() == 'agent':
-            notify_ids = {u.id for u in User.query.filter(User.role.in_(['ADMIN', 'USER'])).all()}
-            if getattr(application, 'responsible_id', None):
-                notify_ids.add(application.responsible_id)
-            notify_ids.discard(uploader_id)
-            for uid in notify_ids:
-                n = Notification(
-                    id=str(uuid.uuid4()),
-                    user_id=uid,
-                    title='Application files uploaded',
-                    message=f"Agent {uploader.name} uploaded file(s) to application #{application.id}.",
-                    link=f"/applications/{application.id}",
-                    created_at=datetime.utcnow().isoformat(),
-                    type='STATUS'
-                )
-                db.session.add(n)
-            db.session.commit()
+    uploader = User.query.get(uploader_id) if uploader_id else None
+    link = f"/applications/{application.id}"
+    if _is_agent_user(uploader):
+        extra = [application.responsible_id] if getattr(application, 'responsible_id', None) else None
+        _notify_staff_agent_file_upload(
+            uploader,
+            title='Application files uploaded',
+            message=f"Agent {uploader.name if uploader else 'Unknown'} uploaded file(s) to application #{application.id}.",
+            link=link,
+            extra_user_ids=extra
+        )
+    else:
+        _notify_agent_owner_file_upload(
+            student, application, uploader, link,
+            file_type=file_type, file_description=file_description
+        )
 
     return jsonify({
         'message': 'Files added',
-        'files': _files_info_list(_application_files_raw(application, student)),
+        'files': _student_files_info(student),
         'updatedAt': _application_updated_at_for_api(application),
         'studentId': application.student_id,
         'studentUpdatedAt': _student_updated_at_for_api(student)
@@ -1640,6 +1978,7 @@ def delete_application_file(app_id, filename):
 
     student.files = [f for f in _student_files_raw(student) if f != filename]
     application.files = [f for f in (application.files or []) if f != filename]
+    _remove_student_file_metadata(student, filename)
     _touch_application_and_student(application)
     db.session.commit()
 
@@ -1688,7 +2027,14 @@ def update_application_status(app_id):
         db.session.add(notification)
     
     # 6. Notify admin(s) when application is sent to review (e.g. by agent)
-    if new_status in ('Teklif Mektubu Bekleniyor', 'Under Review', 'UnderReview', 'UNDER_REVIEW'):
+    if new_status in (
+        'Basvuruldu',
+        'Teklif mektubu bekleniyor',
+        'Teklif Mektubu Bekleniyor',
+        'Under Review',
+        'UnderReview',
+        'UNDER_REVIEW',
+    ):
         admins = User.query.filter(User.role == 'ADMIN').all()
         for admin in admins:
             n = Notification(
@@ -1794,6 +2140,29 @@ def update_application(app_id):
     }), 200
 
 
+@api_bp.route('/applications/<app_id>', methods=['DELETE'])
+def delete_application(app_id):
+    denied = _require_admin()
+    if denied:
+        return denied
+    application = Application.query.get(app_id)
+    if not application:
+        return jsonify({'message': 'Application not found'}), 404
+    student_id = application.student_id
+    _delete_application_record(application)
+    stu = Student.query.get(student_id)
+    student_updated_at = None
+    if stu:
+        stu.updated_at = _iso_timestamp()
+        student_updated_at = stu.updated_at
+    db.session.commit()
+    return jsonify({
+        'message': 'Application deleted',
+        'studentId': student_id,
+        'studentUpdatedAt': student_updated_at
+    }), 200
+
+
 @api_bp.route('/incoming-payments', methods=['GET'])
 def get_incoming_payments():
     guard = _require_admin()
@@ -1811,6 +2180,7 @@ def get_incoming_payments():
         'currency': getattr(r, 'currency', None) or 'USD',
         'description1': r.description_1,
         'description2': r.description_2,
+        'receiptFiles': _files_info_list(_payment_receipt_files_raw(r)),
         'createdAt': r.created_at,
         'updatedAt': r.updated_at
     } for r in records])
@@ -1923,9 +2293,65 @@ def delete_incoming_payment(payment_id):
     record = IncomingPayment.query.get(payment_id)
     if not record:
         return jsonify({'message': 'Incoming payment not found'}), 404
+    for filename in _payment_receipt_files_raw(record):
+        _delete_upload_file(filename)
     db.session.delete(record)
     db.session.commit()
     return jsonify({'message': 'Incoming payment deleted'})
+
+
+@api_bp.route('/incoming-payments/<payment_id>/receipts', methods=['GET', 'POST'])
+def incoming_payment_receipts(payment_id):
+    guard = _require_admin()
+    if guard:
+        return guard
+    record = IncomingPayment.query.get(payment_id)
+    if not record:
+        return jsonify({'message': 'Incoming payment not found'}), 404
+
+    if request.method == 'GET':
+        return jsonify(_files_info_list(_payment_receipt_files_raw(record)))
+
+    uploaded = request.files.getlist('files')
+    if not uploaded or not any((getattr(f, 'filename', None) or '').strip() for f in uploaded):
+        return jsonify({'message': 'No files provided'}), 400
+    saved = _save_upload_files(uploaded)
+    if not saved:
+        return jsonify({'message': 'Could not save uploaded files'}), 400
+    try:
+        _append_payment_receipts(record, saved)
+        record.updated_at = _iso_timestamp()
+        db.session.commit()
+        db.session.refresh(record)
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'message': f'Failed to save receipts: {e}'}), 500
+    return jsonify({
+        'message': 'Receipts added',
+        'receiptFiles': _files_info_list(_payment_receipt_files_raw(record))
+    }), 201
+
+
+@api_bp.route('/incoming-payments/<payment_id>/receipts/<path:filename>', methods=['DELETE'])
+def delete_incoming_payment_receipt(payment_id, filename):
+    guard = _require_admin()
+    if guard:
+        return guard
+    record = IncomingPayment.query.get(payment_id)
+    if not record:
+        return jsonify({'message': 'Incoming payment not found'}), 404
+    current_files = _payment_receipt_files_raw(record)
+    if filename not in current_files:
+        return jsonify({'message': 'File not found'}), 404
+    record.receipt_files = [f for f in current_files if f != filename]
+    flag_modified(record, 'receipt_files')
+    record.updated_at = _iso_timestamp()
+    db.session.commit()
+    _delete_upload_file(filename)
+    return jsonify({
+        'message': 'Receipt deleted',
+        'receiptFiles': _files_info_list(_payment_receipt_files_raw(record))
+    }), 200
 
 
 @api_bp.route('/outgoing-payments', methods=['GET'])
@@ -1944,6 +2370,7 @@ def get_outgoing_payments():
         'paymentReason': r.payment_reason,
         'expenseType': getattr(r, 'expense_type', None),
         'description1': r.description_1,
+        'receiptFiles': _files_info_list(_payment_receipt_files_raw(r)),
         'userId': getattr(r, 'user_id', None),
         'userName': (r.user.name if getattr(r, 'user', None) else None),
         'userRole': ((r.user.role or '').lower() if getattr(r, 'user', None) else None),
@@ -2074,9 +2501,65 @@ def delete_outgoing_payment(payment_id):
     record = OutgoingPayment.query.get(payment_id)
     if not record:
         return jsonify({'message': 'Outgoing payment not found'}), 404
+    for filename in _payment_receipt_files_raw(record):
+        _delete_upload_file(filename)
     db.session.delete(record)
     db.session.commit()
     return jsonify({'message': 'Outgoing payment deleted'})
+
+
+@api_bp.route('/outgoing-payments/<payment_id>/receipts', methods=['GET', 'POST'])
+def outgoing_payment_receipts(payment_id):
+    guard = _require_admin()
+    if guard:
+        return guard
+    record = OutgoingPayment.query.get(payment_id)
+    if not record:
+        return jsonify({'message': 'Outgoing payment not found'}), 404
+
+    if request.method == 'GET':
+        return jsonify(_files_info_list(_payment_receipt_files_raw(record)))
+
+    uploaded = request.files.getlist('files')
+    if not uploaded or not any((getattr(f, 'filename', None) or '').strip() for f in uploaded):
+        return jsonify({'message': 'No files provided'}), 400
+    saved = _save_upload_files(uploaded)
+    if not saved:
+        return jsonify({'message': 'Could not save uploaded files'}), 400
+    try:
+        _append_payment_receipts(record, saved)
+        record.updated_at = _iso_timestamp()
+        db.session.commit()
+        db.session.refresh(record)
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'message': f'Failed to save receipts: {e}'}), 500
+    return jsonify({
+        'message': 'Receipts added',
+        'receiptFiles': _files_info_list(_payment_receipt_files_raw(record))
+    }), 201
+
+
+@api_bp.route('/outgoing-payments/<payment_id>/receipts/<path:filename>', methods=['DELETE'])
+def delete_outgoing_payment_receipt(payment_id, filename):
+    guard = _require_admin()
+    if guard:
+        return guard
+    record = OutgoingPayment.query.get(payment_id)
+    if not record:
+        return jsonify({'message': 'Outgoing payment not found'}), 404
+    current_files = _payment_receipt_files_raw(record)
+    if filename not in current_files:
+        return jsonify({'message': 'File not found'}), 404
+    record.receipt_files = [f for f in current_files if f != filename]
+    flag_modified(record, 'receipt_files')
+    record.updated_at = _iso_timestamp()
+    db.session.commit()
+    _delete_upload_file(filename)
+    return jsonify({
+        'message': 'Receipt deleted',
+        'receiptFiles': _files_info_list(_payment_receipt_files_raw(record))
+    }), 200
 
 
 # News and Updates (Haberler ve Güncellemeler)
@@ -2144,6 +2627,19 @@ def post_news():
         'createdBy': news.created_by,
         'createdByName': creator.name
     }), 201
+
+
+@api_bp.route('/news/<news_id>', methods=['DELETE'])
+def delete_news(news_id):
+    denied = _require_admin()
+    if denied:
+        return denied
+    news = NewsItem.query.get(news_id)
+    if not news:
+        return jsonify({'message': 'News not found'}), 404
+    db.session.delete(news)
+    db.session.commit()
+    return jsonify({'message': 'News deleted'}), 200
 
 
 # Notifications

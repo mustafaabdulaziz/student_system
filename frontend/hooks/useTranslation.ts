@@ -1,41 +1,11 @@
 // Simple translation wrapper for quick integration
 import { useLanguage } from '../contexts/LanguageContext';
+import { translateApplicationStatus } from '../utils/applicationStatus';
 
 export const useTranslation = () => {
     const { t, dir, language } = useLanguage();
 
-    // Helper function to translate status
-    const translateStatus = (status: string) => {
-        const statusMap: Record<string, any> = {
-            'PENDING': t.pending,
-            'Pending': t.pending,
-            'APPROVED': t.approved,
-            'Approved': t.approved,
-            'ACCEPTED': t.approved,
-            'Accepted': t.approved,
-            'REJECTED': t.rejected,
-            'Rejected': t.rejected,
-            'DRAFT': t.draft,
-            'Draft': t.draft,
-            'MISSING_DOCS': t.missingDocs,
-            'Missing Documents': t.missingDocs,
-            'UNDER_REVIEW': t.underReview,
-            'Under Review': t.underReview,
-            'Taslak': 'Taslak',
-            'Eksik Evrak': 'Eksik Evrak',
-            'Teklif Mektubu Bekleniyor': 'Teklif Mektubu Bekleniyor',
-            'Kabul Mektubu Bekleniyor': 'Kabul Mektubu Bekleniyor',
-            'Ogrenci Belgesi Bekleniyor': 'Ogrenci Belgesi Bekleniyor',
-            'Yillik Odemesi Tamamlamasi Bekleniyor': 'Yillik Odemesi Tamamlamasi Bekleniyor',
-            'Kayit Bekleniyor': 'Kayit Bekleniyor',
-            'Reddedildi': 'Reddedildi',
-            'Baska Acenta Uzerinden Kayitli': 'Baska Acenta Uzerinden Kayitli',
-            'Odeme Red Edildi': 'Odeme Red Edildi',
-            'Kota Dolu': 'Kota Dolu',
-            'Onaylandi': 'Onaylandi'
-        };
-        return statusMap[status] || status;
-    };
+    const translateStatus = (status: string) => translateApplicationStatus(status, language);
 
     // Helper function to translate degree
     const translateDegree = (degree: string) => {
@@ -46,6 +16,7 @@ export const useTranslation = () => {
             'ماجستير': t.master,
             'PhD': t.phd,
             'دكتوراه': t.phd,
+            'Diploma': t.associateDegree,
             'CombinedPhD': t.combinedPhd,
         };
         return degreeMap[degree] || degree;
@@ -89,7 +60,29 @@ export const useTranslation = () => {
     };
 
     const translateNotification = (n: { type: string; title: string; message: string }) => {
-        if (n.type === 'STATUS') {
+        if (n.type === 'FILE_UPLOAD' || (n.type === 'STATUS' && n.message.includes('uploaded file(s)'))) {
+            const studentMatch = n.message.match(/Agent (.+?) uploaded file\(s\) for student (.+?)\./);
+            if (studentMatch) {
+                return {
+                    title: t.fileUploadStudentTitle,
+                    message: t.fileUploadStudentMessage
+                        .replace('{agent}', studentMatch[1])
+                        .replace('{student}', studentMatch[2])
+                };
+            }
+            const appMatch = n.message.match(/Agent (.+?) uploaded file\(s\) to application #(.+?)\./);
+            if (appMatch) {
+                return {
+                    title: t.fileUploadApplicationTitle,
+                    message: t.fileUploadApplicationMessage
+                        .replace('{agent}', appMatch[1])
+                        .replace('{id}', appMatch[2])
+                };
+            }
+            return { title: n.title, message: n.message };
+        }
+
+        if (n.type === 'STATUS' && /status changed to/i.test(n.message)) {
             const idMatch = n.message.match(/#([A-Za-z0-9-]+)/);
             const id = idMatch ? idMatch[1] : '';
             // Try to extract status - it's at the end

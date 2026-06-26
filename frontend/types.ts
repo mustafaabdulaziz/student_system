@@ -32,6 +32,8 @@ export interface University {
   logo?: string; // URL or base64 - optional
   /** Admin-only: education VAT rate (integer, e.g. percent points) */
   educationVatRate?: number | null;
+  /** Admin-only: overseas VAT rate default for new applications (percent, e.g. 10) */
+  abroadVatRate?: number | null;
   /** Admin-only: commission as fixed amount or rate */
   commissionKind?: 'amount' | 'rate' | null;
   commissionValue?: number | null;
@@ -40,31 +42,11 @@ export interface University {
   bonusMin?: number | null;
 }
 
-export type ProgramCategory =
-  | 'medicine_health_sciences'
-  | 'engineering_technology'
-  | 'natural_sciences'
-  | 'social_economic_admin_sciences'
-  | 'education_teaching'
-  | 'law_communication_humanities'
-  | 'art_design_sports';
-
-export const PROGRAM_CATEGORIES: ProgramCategory[] = [
-  'medicine_health_sciences',
-  'engineering_technology',
-  'natural_sciences',
-  'social_economic_admin_sciences',
-  'education_teaching',
-  'law_communication_humanities',
-  'art_design_sports'
-];
-
 export interface Program {
   id: string;
   universityId: string;
   name: string; // Branch name
   nameInArabic?: string;
-  category?: ProgramCategory;
   degree: 'Bachelor' | 'Master' | 'PhD' | 'Diploma' | 'CombinedPhD';
   language: 'English' | 'Turkish' | 'Arabic';
   years: number;
@@ -78,6 +60,8 @@ export interface Program {
   description?: string;
   /** Program intake / listing availability (false = closed) */
   isOpen?: boolean;
+  /** Admin-only: archived programs hidden from agents/users */
+  isArchived?: boolean;
 }
 
 export interface Student {
@@ -101,18 +85,30 @@ export interface Student {
 }
 
 export enum ApplicationStatus {
-  DRAFT = 'Taslak',
-  MISSING_DOCS = 'Eksik Evrak',
-  UNDER_REVIEW = 'Teklif Mektubu Bekleniyor',
-  ACCEPTANCE_LETTER_WAITING = 'Kabul Mektubu Bekleniyor',
-  STUDENT_CERT_WAITING = 'Ogrenci Belgesi Bekleniyor',
-  ANNUAL_PAYMENT_WAITING = 'Yillik Odemesi Tamamlamasi Bekleniyor',
-  REGISTRATION_WAITING = 'Kayit Bekleniyor',
-  REJECTED = 'Reddedildi',
-  REGISTERED_WITH_OTHER_AGENCY = 'Baska Acenta Uzerinden Kayitli',
-  PAYMENT_REJECTED = 'Odeme Red Edildi',
-  QUOTA_FULL = 'Kota Dolu',
-  ACCEPTED = 'Onaylandi'
+  NEW = 'Yeni',
+  TO_BE_APPLIED = 'Basvurulacak',
+  APPLIED = 'Basvuruldu',
+  REJECTED = 'Red edildi',
+  REGISTERED_WITH_OTHER_AGENCY = 'Baska agenta uzerinden kayitli',
+  MISSING_DOCS = 'Eksik evrak',
+  QUOTA_FULL = 'Kota ful',
+  OFFER_LETTER_WAITING = 'Teklif mektubu bekleniyor',
+  OFFER_LETTER_SEND_TO_COMPANY_WAITING = "Teklif mektubu gonderilmesi bekleniyor (Firma'ya)",
+  OFFER_LETTER_UPLOADED = 'Teklif mektubu Yüklendi',
+  DEPOSIT_PAID = 'Depozito ödemesi Yapildi',
+  PAYMENT_REJECTED = 'Ödeme red edildi',
+  PAYMENT_REUPLOADED = 'Ödeme yeniden yüklendi',
+  ACCEPTANCE_LETTER_WAITING = 'Kabul mektubu bekleniyor',
+  ACCEPTANCE_LETTER_SEND_TO_COMPANY_WAITING = "Kabul mektubu gonderilmesi bekleniyor (Firma'ya)",
+  ACCEPTANCE_LETTER_UPLOADED = 'Kabul mektubu Yüklendi',
+  STUDENT_CARD_WAITING = 'Öğrenci kartı bekleniyor',
+  ANNUAL_PAYMENT_RECEIPT_WAITING = 'Yıllık ödemesi dekonto bekleniyor',
+  ANNUAL_PAYMENT_RECEIVED_BY_SCHOOL = 'Yıllık ödemesi okul hesabına geçti',
+  DEPOSIT_REFUND_APPLIED = 'Depozito iade başvurusu Yapildi',
+  DEPOSIT_REFUND_WAITING = 'Depozito iadesi hesaba ulaşması bekleniyor',
+  SCHOOL_REGISTRATION_APPROVED = 'Okul kayıt listesinde onaylandı',
+  SCHOOL_PAYMENT_DONE = 'Okul ödemesi Yapildi',
+  COMPLETED = 'Tamamlandı',
 }
 
 export interface Application {

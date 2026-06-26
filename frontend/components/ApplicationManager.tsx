@@ -4,12 +4,52 @@ import {
   Plus, Filter, FileText,
   MessageSquare, User as UserIcon, GraduationCap,
   Send, Upload, Paperclip, ChevronLeft, MapPin, Trash2, Mail, Phone, FileEdit,
-  List, LayoutGrid, Search, X, ChevronDown, ChevronUp, ChevronRight
+  List, LayoutGrid, Search, X, ChevronDown, ChevronUp, ChevronRight, DollarSign
 } from 'lucide-react';
 import { useTranslation } from '../hooks/useTranslation';
 import { useLanguage } from '../contexts/LanguageContext';
 import { matchesCreatedAtRange } from '../utils/createdAtRangeFilter';
 import { getApplicationStatusBadgeClass } from '../utils/applicationStatusStyles';
+import { normalizeApplicationStatus } from '../utils/applicationStatus';
+import { useNotifications } from '../contexts/NotificationContext';
+import { buildNotificationEntityIndex } from '../utils/notifications';
+import { NotificationUnreadDot } from './NotificationUnreadDot';
+import { CreatedAtRangeFilter } from './CreatedAtRangeFilter';
+import { StaffTypedFileUpload } from './StaffTypedFileUpload';
+import { getStudentFileTypeLabel, type StudentFileTypeCode } from '../constants/studentFileTypes';
+import { MassEditModal, type MassEditFieldDef } from './MassEditModal';
+
+const BULK_DELETE_MAX = 50;
+import { SearchableMultiSelect } from './SearchableMultiSelect';
+
+const FINANCIAL_TREE_FIELDS: { key: keyof Application; label: string }[] = [
+  { key: 'annualPayment', label: 'Yıllık ödeme' },
+  { key: 'educationVat', label: 'Eğitim KDV tutarı' },
+  { key: 'grossCommission', label: 'Brüt komisyon' },
+  { key: 'abroadVat', label: 'Yurtdışı KDV tutarı' },
+  { key: 'netCommission', label: 'Net komisyon' },
+  { key: 'bonusMax', label: 'Bonus Max' },
+  { key: 'bonusMin', label: 'Bonus Min' },
+  { key: 'agencyCommission', label: 'Acenta komisyon' },
+  { key: 'agencyBonus', label: 'Acenta bonus' },
+  { key: 'agencyContractAmount', label: 'Acenta anlaşma' },
+  { key: 'currency', label: 'Para birimi' },
+  { key: 'remainingMin', label: 'Kalan Min' },
+  { key: 'remainingMax', label: 'Kalan Max' },
+  { key: 'paymentDeserved', label: 'Ödemeyi hak etti' },
+  { key: 'paymentDate', label: 'Ödeme tarihi' },
+  { key: 'paymentMonth', label: 'Ödeme ayı' }
+];
+
+const formatApplicationFinanceValue = (app: Application, key: keyof Application): string => {
+  const v = app[key];
+  if (key === 'paymentDeserved') return v === true ? 'Açık' : 'Kapalı';
+  if (key === 'currency') return v ? String(v) : 'USD';
+  if (key === 'paymentDate' || key === 'paymentMonth') return v ? String(v) : '—';
+  if (v == null || v === '') return '—';
+  const n = Number(v);
+  return Number.isNaN(n) ? '—' : n.toLocaleString();
+};
 
 function MultiSelectFilter({
   selected,
@@ -28,104 +68,18 @@ function MultiSelectFilter({
   searchPlaceholder?: string;
   className?: string;
 }) {
-  const [open, setOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const ref = useRef<HTMLDivElement>(null);
-  const searchInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-        setSearchQuery('');
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  useEffect(() => {
-    if (open) {
-      setSearchQuery('');
-      setTimeout(() => searchInputRef.current?.focus(), 50);
-    }
-  }, [open]);
-
-  const toggle = (value: string) => {
-    onChange(selected.includes(value) ? selected.filter(s => s !== value) : [...selected, value]);
-  };
-  const remove = (value: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    onChange(selected.filter(s => s !== value));
-  };
-  const label = (value: string) => optionLabels?.[value] ?? value;
-
-  const filteredOptions = useMemo(() => {
-    if (!searchQuery.trim()) return options;
-    const q = searchQuery.trim().toLowerCase();
-    return options.filter(opt => label(opt).toLowerCase().includes(q));
-  }, [options, searchQuery]);
-
+  const { t } = useTranslation();
   return (
-    <div ref={ref} className={`relative ${className}`}>
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="w-full min-h-[42px] border border-gray-200 rounded-lg px-3 py-2 bg-white text-left text-sm focus:ring-2 focus:ring-blue-500 outline-none flex flex-wrap items-center gap-1.5"
-      >
-        {selected.length === 0 ? (
-          <span className="text-gray-400">{placeholder}</span>
-        ) : (
-          selected.map(value => (
-            <span
-              key={value}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 text-xs font-medium"
-            >
-              {label(value)}
-              <button type="button" onClick={e => remove(value, e)} className="hover:bg-blue-100 rounded p-0.5">
-                <X size={12} />
-              </button>
-            </span>
-          ))
-        )}
-        <ChevronDown size={16} className="ml-auto text-gray-400 flex-shrink-0" />
-      </button>
-      {open && (
-        <div className="absolute z-20 mt-1 w-full min-w-[200px] rounded-lg border border-gray-200 bg-white shadow-lg overflow-hidden">
-          <div className="p-2 border-b border-gray-100 bg-gray-50/50 sticky top-0">
-            <div className="relative">
-              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-              <input
-                ref={searchInputRef}
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyDown={(e) => e.stopPropagation()}
-                placeholder={searchPlaceholder ?? 'Search'}
-                className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 outline-none"
-              />
-            </div>
-          </div>
-          <div className="py-1 max-h-48 overflow-auto">
-            {filteredOptions.length === 0 ? (
-              <div className="px-3 py-4 text-sm text-gray-500 text-center">{searchQuery ? 'No matches' : '—'}</div>
-            ) : (
-              filteredOptions.map(opt => (
-                <button
-                  key={opt}
-                  type="button"
-                  onClick={() => toggle(opt)}
-                  className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 flex items-center gap-2 ${selected.includes(opt) ? 'bg-blue-50 text-blue-700' : 'text-gray-700'}`}
-                >
-                  {selected.includes(opt) && <span className="text-blue-600">✓</span>}
-                  {label(opt)}
-                </button>
-              ))
-            )}
-          </div>
-        </div>
-      )}
-    </div>
+    <SearchableMultiSelect
+      selected={selected}
+      onChange={onChange}
+      options={options}
+      optionLabels={optionLabels}
+      placeholder={placeholder}
+      searchPlaceholder={searchPlaceholder ?? t.search}
+      noResultsText={t.searchNoResults}
+      className={className}
+    />
   );
 }
 
@@ -154,7 +108,8 @@ interface ApplicationManagerProps {
     agencyCompanyId?: string | null;
     currency?: string | null;
     paymentDeserved?: boolean;
-  }) => void | Promise<void>;
+  }, opts?: { silent?: boolean }) => void | Promise<boolean | void>;
+  onDeleteApplication?: (id: string) => void | Promise<void>;
   onSyncApplicationTimestamps?: (payload: {
     applicationId: string;
     applicationUpdatedAt: string;
@@ -177,7 +132,7 @@ interface ApplicationManagerProps {
 }
 
 export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
-  applications, students, programs, universities, periods = [], agencyCompanies = [], users = [], onAddApplication, onUpdateStatus, onUpdateApplication,
+  applications, students, programs, universities, periods = [], agencyCompanies = [], users = [], onAddApplication, onUpdateStatus, onUpdateApplication, onDeleteApplication,
   onSyncApplicationTimestamps, onStudentFilesChange,
   initialStudentId, clearInitialStudent, targetApplicationId, clearTargetApplication,
   initialListFilters, clearInitialListFilters,
@@ -185,6 +140,11 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   embedMode, embedApplicationId, onEmbedBack
 }) => {
   const { t, translateStatus, translateDegree } = useTranslation();
+  const { notifications, markAsReadForApplication } = useNotifications();
+  const notificationIndex = useMemo(
+    () => buildNotificationEntityIndex(notifications, applications),
+    [notifications, applications]
+  );
   const { language } = useLanguage();
   const dateLocale = { ar: 'ar-EG', en: 'en-GB', tr: 'tr-TR' }[language] || 'en-GB';
   const scrollContentTop = () => {
@@ -196,6 +156,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const [view, setView] = useState<'list' | 'create' | 'detail'>('list');
   const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
   const [listViewMode, setListViewMode] = useState<'tree' | 'kanban'>('tree');
+  const [treeDataMode, setTreeDataMode] = useState<'general' | 'financial'>('general');
   const [searchApplicationNumber, setSearchApplicationNumber] = useState('');
   const [searchStudentName, setSearchStudentName] = useState('');
   const [filterAgents, setFilterAgents] = useState<string[]>([]);
@@ -218,39 +179,10 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const applicationColumnKeys = useMemo(() => ['number', 'status', 'agent', 'responsible', 'student', 'program', 'createdAt', 'updatedAt'], []);
   const [visibleTreeColumns, setVisibleTreeColumns] = useState<string[]>(applicationColumnKeys);
 
-  const normalizeStatusValue = (status: string | undefined | null): string => {
-    const raw = String(status || '').trim().toLocaleLowerCase('tr');
-    const aliases: Record<string, string> = {
-      draft: ApplicationStatus.DRAFT,
-      taslak: ApplicationStatus.DRAFT,
-      'eksik belgeler iste': ApplicationStatus.MISSING_DOCS,
-      'eksik belgeler i̇ste': ApplicationStatus.MISSING_DOCS,
-      'eksik evrak': ApplicationStatus.MISSING_DOCS,
-      'under review': ApplicationStatus.UNDER_REVIEW,
-      underreview: ApplicationStatus.UNDER_REVIEW,
-      'teklif mektubu bekleniyor': ApplicationStatus.UNDER_REVIEW,
-      'kabul mektubu bekleniyor': ApplicationStatus.ACCEPTANCE_LETTER_WAITING,
-      'ogrenci belgesi bekleniyor': ApplicationStatus.STUDENT_CERT_WAITING,
-      'ögrenci belgesi bekleniyor': ApplicationStatus.STUDENT_CERT_WAITING,
-      'yillik odemesi tamamlamasi bekleniyor': ApplicationStatus.ANNUAL_PAYMENT_WAITING,
-      'kayit bekleniyor': ApplicationStatus.REGISTRATION_WAITING,
-      reddedildi: ApplicationStatus.REJECTED,
-      rejected: ApplicationStatus.REJECTED,
-      'baska acenta uzerinden kayitli': ApplicationStatus.REGISTERED_WITH_OTHER_AGENCY,
-      'baska acenta üzerinden kayitli': ApplicationStatus.REGISTERED_WITH_OTHER_AGENCY,
-      'odeme red edildi': ApplicationStatus.PAYMENT_REJECTED,
-      'ödeme red edildi': ApplicationStatus.PAYMENT_REJECTED,
-      'kota dolu': ApplicationStatus.QUOTA_FULL,
-      onaylandi: ApplicationStatus.ACCEPTED,
-      approved: ApplicationStatus.ACCEPTED
-    };
-    return aliases[raw] || String(status || '');
-  };
-
   const [messages, setMessages] = React.useState<Array<{ id: string; sender: string; message: string; createdAt: string; senderName?: string | null }>>([]);
   const [newMessage, setNewMessage] = React.useState('');
   const chatMessagesRef = useRef<HTMLDivElement>(null);
-  const [detailFiles, setDetailFiles] = React.useState<Array<{ url: string; name: string; filename?: string }>>([]);
+  const [detailFiles, setDetailFiles] = React.useState<Array<{ url: string; name: string; filename?: string; fileType?: string; description?: string }>>([]);
   const [attachFiles, setAttachFiles] = React.useState<FileList | null>(null);
 
   // Create Form State
@@ -280,10 +212,16 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     paymentMonth: ''
   });
   const [detailEditMode, setDetailEditMode] = useState(false);
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [massEditOpen, setMassEditOpen] = useState(false);
+  const [massEditApplying, setMassEditApplying] = useState(false);
+  const [selectedApplicationIds, setSelectedApplicationIds] = useState<Set<string>>(() => new Set());
+  const selectAllCheckboxRef = useRef<HTMLInputElement>(null);
   const [editFormAgentId, setEditFormAgentId] = useState('');
   const [editFormResponsibleId, setEditFormResponsibleId] = useState('');
   const [editFormAgencyCompanyId, setEditFormAgencyCompanyId] = useState('');
-  const [editFormStatus, setEditFormStatus] = useState<ApplicationStatus>(ApplicationStatus.DRAFT);
+  const [editFormStatus, setEditFormStatus] = useState<ApplicationStatus>(ApplicationStatus.NEW);
 
   const agentUsers = useMemo(() => users.filter(u => (u.role || '').toString().toLowerCase() === 'agent'), [users]);
   const responsibleUsers = useMemo(() => users.filter(u => { const r = (u.role || '').toString().toUpperCase(); return r === 'ADMIN' || r === 'USER'; }), [users]);
@@ -291,6 +229,15 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const canSeeAgentColumn = !!isAdminOrUser;
   const isAdmin = currentUser && (currentUser.role || '').toString().toUpperCase() === 'ADMIN';
   const isAgent = currentUser && (currentUser.role || '').toString().toLowerCase() === 'agent';
+  const showFinancialTree = !!(isAdmin && listViewMode === 'tree' && treeDataMode === 'financial');
+
+  useEffect(() => {
+    if (!isAdmin && treeDataMode === 'financial') setTreeDataMode('general');
+  }, [isAdmin, treeDataMode]);
+
+  useEffect(() => {
+    if (showFinancialTree) setColumnsOpen(false);
+  }, [showFinancialTree]);
 
   const [filterPeriod, setFilterPeriod] = useState('');
   const [filterDegree, setFilterDegree] = useState('');
@@ -360,6 +307,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const availablePrograms = useMemo(() => {
     return programs.filter(p =>
       p.isOpen !== false &&
+      !p.isArchived &&
       (!filterPeriod || p.periodId === filterPeriod) &&
       (!filterDegree || p.degree === filterDegree)
     );
@@ -428,7 +376,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
         studentId: selectedStudent,
         programId: finalProgramId,
         periodId: filterPeriod || program?.periodId,
-        status: ApplicationStatus.DRAFT,
+        status: ApplicationStatus.NEW,
         semester: 'Fall 2024',
         createdAt: new Date().toISOString().split('T')[0],
         files: [],
@@ -471,24 +419,38 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   }, [embedMode, embedApplicationId]);
 
   useEffect(() => {
+    if (view !== 'detail' || !selectedAppId) return;
+    void markAsReadForApplication(selectedAppId);
+  }, [view, selectedAppId, notifications, markAsReadForApplication]);
+
+  useEffect(() => {
     if (!initialListFilters) return;
     setView('list');
     setSelectedAppId(null);
     setSearchApplicationNumber('');
     setSearchStudentName('');
-    setFilterAgents(initialListFilters.agents ?? []);
-    setFilterResponsibles(initialListFilters.responsibles ?? []);
+    if (!isAgent) {
+      setFilterAgents(initialListFilters.agents ?? []);
+      setFilterResponsibles(initialListFilters.responsibles ?? []);
+      setFilterCurrencies(initialListFilters.currencies ?? []);
+    }
     setFilterUniversities(initialListFilters.universityIds ?? []);
     setFilterPrograms(initialListFilters.programIds ?? []);
     setFilterNationalities(initialListFilters.nationalities ?? []);
-    setFilterCurrencies(initialListFilters.currencies ?? []);
     setFilterStatuses(initialListFilters.statuses ?? []);
     setFilterDegrees(initialListFilters.degrees ?? []);
     setFilterAppCreatedFrom(initialListFilters.createdFrom ?? '');
     setFilterAppCreatedTo(initialListFilters.createdTo ?? '');
     scrollContentTop();
     if (typeof clearInitialListFilters === 'function') clearInitialListFilters();
-  }, [initialListFilters, clearInitialListFilters]);
+  }, [initialListFilters, clearInitialListFilters, isAgent]);
+
+  useEffect(() => {
+    if (!isAgent) return;
+    setFilterAgents([]);
+    setFilterResponsibles([]);
+    setFilterCurrencies([]);
+  }, [isAgent]);
 
   useEffect(() => {
     if (view === 'create' || view === 'detail') {
@@ -538,7 +500,13 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
           const r = await fetch(`/api/applications/${selectedAppId}/files`);
           if (r.ok) {
             const list = await r.json();
-            setDetailFiles(list.map((x: any) => ({ url: x.url, name: x.name || x.url.split('/').pop(), filename: x.filename })));
+            setDetailFiles(list.map((x: { url: string; name?: string; filename?: string; fileType?: string; description?: string }) => ({
+              url: x.url,
+              name: x.name || x.url.split('/').pop() || '',
+              filename: x.filename,
+              fileType: x.fileType,
+              description: x.description
+            })));
           } else { setDetailFiles([]); }
         } catch (e) {
           console.error('Failed to load application files', e);
@@ -559,6 +527,53 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     (app.responsibleName && app.responsibleName.trim()) ||
     (app.responsibleId ? users.find(u => u.id === app.responsibleId)?.name : '') ||
     '—';
+
+  const refreshDetailFiles = async (appId: string) => {
+    const r = await fetch(`/api/applications/${appId}/files`);
+    if (!r.ok) return;
+    const list = await r.json();
+    setDetailFiles(list.map((x: { url: string; name?: string; filename?: string; fileType?: string; description?: string }) => ({
+      url: x.url,
+      name: x.name || x.url.split('/').pop() || '',
+      filename: x.filename,
+      fileType: x.fileType,
+      description: x.description
+    })));
+  };
+
+  const uploadTypedApplicationFile = async (file: File, fileType: StudentFileTypeCode, description: string) => {
+    if (!selectedAppId || !currentUser) return false;
+    const fd = new FormData();
+    fd.append('files', file);
+    fd.append('fileType', fileType);
+    if (fileType === 'other') fd.append('fileDescription', description);
+    fd.append('user_id', currentUser.id);
+    if (currentUser.role) fd.append('role', currentUser.role);
+    try {
+      const r = await fetch(`/api/applications/${selectedAppId}/files`, { method: 'POST', body: fd });
+      const data = await r.json();
+      if (!r.ok) {
+        alert(data.message || t.uploadFailed);
+        return false;
+      }
+      await refreshDetailFiles(selectedAppId);
+      if (data.studentId && onStudentFilesChange) {
+        onStudentFilesChange(data.studentId, data.files.map((x: { url: string }) => x.url));
+      }
+      if (data.updatedAt && onSyncApplicationTimestamps) {
+        onSyncApplicationTimestamps({
+          applicationId: selectedAppId,
+          applicationUpdatedAt: data.updatedAt,
+          studentId: data.studentId,
+          studentUpdatedAt: data.studentUpdatedAt ?? undefined
+        });
+      }
+      return true;
+    } catch {
+      alert(t.errorConnection);
+      return false;
+    }
+  };
 
   const uniqueAgents = useMemo(() => {
     const names = new Set<string>();
@@ -620,8 +635,8 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
       const matchProgram = filterPrograms.length === 0 || filterPrograms.includes(app.programId);
       const matchNationality = filterNationalities.length === 0 || (s?.nationality && filterNationalities.includes(s.nationality));
       const matchCurrency = filterCurrencies.length === 0 || filterCurrencies.includes((app.currency || 'USD').toUpperCase());
-      const appStatusNorm = normalizeStatusValue(app.status);
-      const selectedNorm = filterStatuses.map((s) => normalizeStatusValue(s));
+      const appStatusNorm = normalizeApplicationStatus(app.status);
+      const selectedNorm = filterStatuses.map((s) => normalizeApplicationStatus(s));
       const matchStatus = filterStatuses.length === 0 || selectedNorm.includes(appStatusNorm);
       const matchDegree = filterDegrees.length === 0 || (p?.degree && filterDegrees.includes(p.degree));
       const matchCreated = matchesCreatedAtRange(app.createdAt, filterAppCreatedFrom, filterAppCreatedTo);
@@ -687,6 +702,154 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   }, [treePage, totalTreePages]);
 
   useEffect(() => {
+    setSelectedApplicationIds(new Set());
+  }, [treePage]);
+
+  const allOnPageSelected =
+    pagedApplications.length > 0 && pagedApplications.every((a) => selectedApplicationIds.has(a.id));
+  const someOnPageSelected = pagedApplications.some((a) => selectedApplicationIds.has(a.id));
+  const showBulkDelete = !!(isAdmin && onDeleteApplication && listViewMode === 'tree' && view === 'list');
+  const showMassEdit = !!(isAdminOrUser && onUpdateApplication && listViewMode === 'tree' && view === 'list');
+  const showBulkSelect = showBulkDelete || showMassEdit;
+
+  useEffect(() => {
+    const el = selectAllCheckboxRef.current;
+    if (el) el.indeterminate = someOnPageSelected && !allOnPageSelected;
+  }, [someOnPageSelected, allOnPageSelected]);
+
+  const toggleApplicationSelection = (id: string) => {
+    setSelectedApplicationIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+        return next;
+      }
+      if (next.size >= BULK_DELETE_MAX) {
+        alert(t.bulkDeleteMaxRecords);
+        return prev;
+      }
+      next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllApplicationsOnPage = () => {
+    if (allOnPageSelected) {
+      setSelectedApplicationIds((prev) => {
+        const next = new Set(prev);
+        pagedApplications.forEach((a) => next.delete(a.id));
+        return next;
+      });
+      return;
+    }
+    setSelectedApplicationIds((prev) => {
+      const next = new Set(prev);
+      for (const a of pagedApplications) {
+        if (next.size >= BULK_DELETE_MAX) break;
+        next.add(a.id);
+      }
+      if (next.size >= BULK_DELETE_MAX && pagedApplications.some((a) => !next.has(a.id))) {
+        alert(t.bulkDeleteMaxRecords);
+      }
+      return next;
+    });
+  };
+
+  const handleBulkDeleteConfirm = async () => {
+    if (!onDeleteApplication || selectedApplicationIds.size === 0) return;
+    setBulkDeleting(true);
+    try {
+      const ids = Array.from(selectedApplicationIds);
+      const detailId = selectedAppId;
+      for (const id of ids) {
+        await onDeleteApplication(id);
+      }
+      setConfirmBulkDelete(false);
+      setSelectedApplicationIds(new Set());
+      if (detailId && ids.includes(detailId)) {
+        setSelectedAppId(null);
+        setDetailEditMode(false);
+        if (embedMode === 'students' && onEmbedBack) onEmbedBack();
+        else setView('list');
+      }
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  const applicationMassEditFields = useMemo((): MassEditFieldDef[] => {
+    if (!isAdminOrUser) return [];
+    const fin = (key: keyof Application) => FINANCIAL_TREE_FIELDS.find(f => f.key === key)?.label || String(key);
+    const fields: MassEditFieldDef[] = [
+      {
+        key: 'status',
+        label: t.applicationStatus,
+        type: 'select',
+        options: Object.values(ApplicationStatus).map(st => ({ value: st, label: translateStatus(st) }))
+      },
+      { key: 'currency', label: fin('currency'), type: 'select', options: [{ value: 'USD', label: 'USD' }, { value: 'TRY', label: 'TRY' }, { value: 'EUR', label: 'EUR' }] },
+      { key: 'paymentDeserved', label: fin('paymentDeserved'), type: 'boolean' },
+      { key: 'annualPayment', label: fin('annualPayment'), type: 'number', nullable: true },
+      { key: 'educationVatRate', label: 'Eğitim KDV %', type: 'number', nullable: true },
+      { key: 'grossCommission', label: fin('grossCommission'), type: 'number', nullable: true },
+      { key: 'abroadVatRate', label: 'Yurtdışı KDV %', type: 'number', nullable: true },
+      { key: 'bonusMax', label: fin('bonusMax'), type: 'number', nullable: true },
+      { key: 'bonusMin', label: fin('bonusMin'), type: 'number', nullable: true },
+      { key: 'agencyCommission', label: fin('agencyCommission'), type: 'number', nullable: true },
+      { key: 'agencyBonus', label: fin('agencyBonus'), type: 'number', nullable: true }
+    ];
+    if (agentUsers.length > 0) {
+      fields.splice(1, 0, {
+        key: 'userId',
+        label: t.agent,
+        type: 'select',
+        nullable: true,
+        options: agentUsers.map(u => ({ value: u.id, label: u.name }))
+      });
+    }
+    if (responsibleUsers.length > 0) {
+      fields.splice(agentUsers.length > 0 ? 2 : 1, 0, {
+        key: 'responsibleId',
+        label: t.responsible,
+        type: 'select',
+        nullable: true,
+        options: responsibleUsers.map(u => ({ value: u.id, label: u.name }))
+      });
+    }
+    if (agencyCompanies.length > 0) {
+      fields.push({
+        key: 'agencyCompanyId',
+        label: 'Aracı firma',
+        type: 'select',
+        nullable: true,
+        options: agencyCompanies.map(c => ({ value: c.id, label: c.name }))
+      });
+    }
+    return fields;
+  }, [isAdminOrUser, agentUsers, responsibleUsers, agencyCompanies, t, translateStatus]);
+
+  const handleApplicationMassEditApply = async (fieldKey: string, value: unknown) => {
+    if (!onUpdateApplication || selectedApplicationIds.size === 0) return;
+    setMassEditApplying(true);
+    let ok = 0;
+    let fail = 0;
+    try {
+      const payload = { [fieldKey]: value } as Parameters<NonNullable<typeof onUpdateApplication>>[1];
+      for (const id of Array.from(selectedApplicationIds)) {
+        const success = await Promise.resolve(onUpdateApplication(id, payload, { silent: true }));
+        if (success) ok++;
+        else fail++;
+      }
+      if (fail > 0) {
+        alert(t.massEditPartialResult.replace('{ok}', String(ok)).replace('{fail}', String(fail)));
+      }
+      if (ok > 0) setMassEditOpen(false);
+    } finally {
+      setMassEditApplying(false);
+    }
+  };
+
+  useEffect(() => {
     if (kanbanPage > totalKanbanPages) setKanbanPage(totalKanbanPages);
   }, [kanbanPage, totalKanbanPages]);
 
@@ -737,12 +900,12 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
 
   useEffect(() => {
     const hiddenByConfig = sortBy && applicationColumnKeys.includes(sortBy) && !visibleTreeColumns.includes(sortBy);
-    const hiddenByRole = (sortBy === 'responsible' || sortBy === 'agent') && !canSeeAgentColumn;
+    const hiddenByRole = ((sortBy === 'responsible' || sortBy === 'agent') && !canSeeAgentColumn) || (sortBy === 'updatedAt' && isAgent);
     if (hiddenByConfig || hiddenByRole) {
       setSortBy(null);
       setSortDir('asc');
     }
-  }, [sortBy, visibleTreeColumns, canSeeAgentColumn, applicationColumnKeys]);
+  }, [sortBy, visibleTreeColumns, canSeeAgentColumn, isAgent, applicationColumnKeys]);
 
   const toggleTreeColumn = (key: string) => {
     setVisibleTreeColumns(prev => {
@@ -755,14 +918,15 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   };
 
   useEffect(() => {
-    const allowed = canSeeAgentColumn ? applicationColumnKeys : applicationColumnKeys.filter(k => k !== 'agent' && k !== 'responsible');
+    let allowed = canSeeAgentColumn ? applicationColumnKeys : applicationColumnKeys.filter(k => k !== 'agent' && k !== 'responsible');
+    if (isAgent) allowed = allowed.filter(k => k !== 'updatedAt');
     const normalized = visibleTreeColumns.filter(k => allowed.includes(k));
     if (normalized.length !== visibleTreeColumns.length) {
       setVisibleTreeColumns(normalized.length > 0 ? normalized : allowed);
       return;
     }
     if (normalized.length === 0) setVisibleTreeColumns(allowed);
-  }, [canSeeAgentColumn, applicationColumnKeys, visibleTreeColumns]);
+  }, [canSeeAgentColumn, isAgent, applicationColumnKeys, visibleTreeColumns]);
   const SortTh = ({ colKey, label, className = '' }: { colKey: string; label: string; className?: string }) => (
     <th style={{ fontWeight: 700 }} className={`px-6 py-5 text-gray-900 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100/80 transition-colors ${className}`} onClick={() => toggleSort(colKey)}>
       <span style={{ fontWeight: 700 }} className="inline-flex items-center gap-1 text-gray-900">
@@ -1115,9 +1279,11 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
               <span className="text-xs bg-gray-100 px-3 py-1 rounded-full text-gray-600 font-medium" title={t.createdAt}>
                 {t.createdAt}: {app.createdAt ? new Date(app.createdAt).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
               </span>
+              {!isAgent && (
               <span className="text-xs bg-blue-50 px-3 py-1 rounded-full text-blue-800 font-medium" title={t.lastUpdatedAt}>
                 {t.lastUpdatedAt}: {(app.updatedAt || app.createdAt) ? new Date(app.updatedAt || app.createdAt).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
               </span>
+              )}
             </div>
           </div>
         </div>
@@ -1295,7 +1461,12 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                         </div>
                         <div className="flex-1 min-w-0 pr-2 text-right">
                           <p className="text-[11px] font-bold text-gray-700 truncate" dir="ltr">{f.name}</p>
-                          <span className="text-[9px] text-gray-400 uppercase">View File</span>
+                          {getStudentFileTypeLabel(f.fileType, t, f.description) && (
+                            <span className="text-[9px] text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded mt-0.5 inline-block">
+                              {getStudentFileTypeLabel(f.fileType, t, f.description)}
+                            </span>
+                          )}
+                          <span className="text-[9px] text-gray-400 uppercase block mt-0.5">View File</span>
                         </div>
                       </a>
                       {f.filename && (
@@ -1360,17 +1531,29 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                     }
                   </span>
                 </label>
+                {isAdminOrUser && (
+                  <StaffTypedFileUpload onUpload={uploadTypedApplicationFile} />
+                )}
                 <button
                   onClick={async () => {
                     if (!attachFiles || !selectedAppId) return;
                     const fd = new FormData();
                     Array.from(attachFiles as FileList).forEach(f => fd.append('files', f));
-                    if (currentUser?.id) fd.append('user_id', currentUser.id);
+                    if (currentUser?.id) {
+                      fd.append('user_id', currentUser.id);
+                      if (currentUser.role) fd.append('role', currentUser.role);
+                    }
                     try {
                       const r = await fetch(`/api/applications/${selectedAppId}/files`, { method: 'POST', body: fd });
                       const data = await r.json();
                       if (r.ok) {
-                        setDetailFiles(data.files.map((x: any) => ({ url: x.url, name: x.name || x.url.split('/').pop(), filename: x.filename })));
+                        setDetailFiles(data.files.map((x: { url: string; name?: string; filename?: string; fileType?: string; description?: string }) => ({
+                          url: x.url,
+                          name: x.name || x.url.split('/').pop() || '',
+                          filename: x.filename,
+                          fileType: x.fileType,
+                          description: x.description
+                        })));
                         if (data.studentId && onStudentFilesChange) {
                           onStudentFilesChange(data.studentId, data.files.map((x: { url: string }) => x.url));
                         }
@@ -1743,7 +1926,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                   <Filter size={18} className="text-purple-500" />
                   <span className="text-sm font-medium">{t.filter}</span>
                 </div>
-                {(searchApplicationNumber || searchStudentName || filterAgents.length > 0 || filterResponsibles.length > 0 || filterUniversities.length > 0 || filterPrograms.length > 0 || filterNationalities.length > 0 || filterCurrencies.length > 0 || filterStatuses.length > 0 || filterDegrees.length > 0 || filterAppCreatedFrom || filterAppCreatedTo) && (
+                {(searchApplicationNumber || searchStudentName || (!isAgent && (filterAgents.length > 0 || filterResponsibles.length > 0 || filterCurrencies.length > 0)) || filterUniversities.length > 0 || filterPrograms.length > 0 || filterNationalities.length > 0 || filterStatuses.length > 0 || filterDegrees.length > 0 || filterAppCreatedFrom || filterAppCreatedTo) && (
                   <button
                     type="button"
                     onClick={() => { setSearchApplicationNumber(''); setSearchStudentName(''); setFilterAgents([]); setFilterResponsibles([]); setFilterUniversities([]); setFilterPrograms([]); setFilterNationalities([]); setFilterCurrencies([]); setFilterStatuses([]); setFilterDegrees([]); setFilterAppCreatedFrom(''); setFilterAppCreatedTo(''); }}
@@ -1759,14 +1942,19 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                   <button
                     type="button"
                     onClick={() => setColumnsOpen(prev => !prev)}
-                    className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors rounded-md text-gray-600 hover:bg-gray-100"
+                    disabled={showFinancialTree}
+                    className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors rounded-md text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <Filter size={16} />
                     <span className="hidden sm:inline">{t.columns}</span>
                   </button>
                   {columnsOpen && (
                     <div className="absolute right-0 mt-2 w-56 bg-white border border-gray-200 rounded-xl shadow-lg p-2 z-30">
-                      {applicationColumnOptions.filter(col => canSeeAgentColumn || (col.key !== 'agent' && col.key !== 'responsible')).map(col => (
+                      {applicationColumnOptions.filter(col => {
+                        if (!canSeeAgentColumn && (col.key === 'agent' || col.key === 'responsible')) return false;
+                        if (isAgent && col.key === 'updatedAt') return false;
+                        return true;
+                      }).map(col => (
                         <label key={col.key} className="flex items-center gap-2 px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-50 rounded-md cursor-pointer">
                           <input
                             type="checkbox"
@@ -1815,6 +2003,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                 value={searchStudentName}
                 onChange={(e) => setSearchStudentName(e.target.value)}
               />
+              {!isAgent && (
               <MultiSelectFilter
                 selected={filterAgents}
                 onChange={setFilterAgents}
@@ -1822,6 +2011,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                 placeholder={`${t.agent} (${t.filterAll})`}
                 searchPlaceholder={t.search}
               />
+              )}
               <MultiSelectFilter
                 selected={filterUniversities}
                 onChange={setFilterUniversities}
@@ -1845,6 +2035,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                 placeholder={`${t.nationality} (${t.filterAll})`}
                 searchPlaceholder={t.search}
               />
+              {!isAgent && (
               <MultiSelectFilter
                 selected={filterCurrencies}
                 onChange={setFilterCurrencies}
@@ -1852,6 +2043,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                 placeholder={`${t.currency} (${t.filterAll})`}
                 searchPlaceholder={t.search}
               />
+              )}
               <MultiSelectFilter
                 selected={filterStatuses}
                 onChange={setFilterStatuses}
@@ -1867,7 +2059,18 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                 placeholder={`${t.programDegree} (${t.filterAll})`}
                 searchPlaceholder={t.search}
               />
+              {isAgent && (
+                <div className="sm:col-span-2">
+                  <CreatedAtRangeFilter
+                    from={filterAppCreatedFrom}
+                    to={filterAppCreatedTo}
+                    onFromChange={setFilterAppCreatedFrom}
+                    onToChange={setFilterAppCreatedTo}
+                  />
+                </div>
+              )}
             </div>
+            {!isAgent && (
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full mt-3">
               <div>
                 <label className="block text-xs text-gray-500 mb-1">{t.responsible}</label>
@@ -1879,30 +2082,72 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                   searchPlaceholder={t.search}
                 />
               </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">{t.filterCreatedFrom}</label>
-                <input
-                  type="date"
-                  value={filterAppCreatedFrom}
-                  onChange={e => setFilterAppCreatedFrom(e.target.value)}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">{t.filterCreatedTo}</label>
-                <input
-                  type="date"
-                  value={filterAppCreatedTo}
-                  onChange={e => setFilterAppCreatedTo(e.target.value)}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+              <div className="sm:col-span-2">
+                <CreatedAtRangeFilter
+                  from={filterAppCreatedFrom}
+                  to={filterAppCreatedTo}
+                  onFromChange={setFilterAppCreatedFrom}
+                  onToChange={setFilterAppCreatedTo}
                 />
               </div>
             </div>
+            )}
           </div>
 
           {listViewMode === 'tree' && (
             <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden mt-4 overflow-x-auto">
-              <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-end gap-2 text-sm text-gray-600">
+              <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-3 flex-wrap">
+                {isAdmin ? (
+                  <div className="flex rounded-lg border border-gray-200 p-0.5 bg-gray-50">
+                    <button
+                      type="button"
+                      onClick={() => setTreeDataMode('general')}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors rounded-md ${treeDataMode === 'general' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+                    >
+                      <List size={15} />
+                      <span>{t.generalTree}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTreeDataMode('financial')}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors rounded-md ${treeDataMode === 'financial' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+                    >
+                      <DollarSign size={15} />
+                      <span>{t.financialTree}</span>
+                    </button>
+                  </div>
+                ) : null}
+                {showMassEdit && (
+                  <button
+                    type="button"
+                    onClick={() => setMassEditOpen(true)}
+                    disabled={selectedApplicationIds.size === 0}
+                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-blue-700 hover:bg-blue-50 border border-transparent hover:border-blue-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed font-medium text-sm"
+                  >
+                    <FileEdit size={16} />
+                    <span>{t.massEdit}</span>
+                    {selectedApplicationIds.size > 0 && (
+                      <span className="text-xs font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">{selectedApplicationIds.size}</span>
+                    )}
+                  </button>
+                )}
+                {showBulkDelete && (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmBulkDelete(true)}
+                    disabled={selectedApplicationIds.size === 0}
+                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-red-600 hover:bg-red-50 border border-transparent hover:border-red-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed font-medium text-sm"
+                  >
+                    <Trash2 size={16} />
+                    <span>{t.deleteSelected}</span>
+                    {selectedApplicationIds.size > 0 && (
+                      <span className="text-xs font-bold bg-red-100 text-red-700 px-2 py-0.5 rounded-full">{selectedApplicationIds.size}</span>
+                    )}
+                  </button>
+                )}
+                </div>
+                <div className="flex items-center gap-2 text-sm text-gray-600 ml-auto">
                 <span>{treeFrom}-{treeTo} / {sortedApplications.length}</span>
                 <button
                   type="button"
@@ -1920,10 +2165,94 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                 >
                   <ChevronRight size={16} />
                 </button>
+                </div>
               </div>
+              {showFinancialTree ? (
+              <table className="w-full text-right text-sm min-w-[1200px]">
+                <thead style={{ fontWeight: 700 }} className="bg-gray-50/50 text-gray-900 border-b border-gray-100">
+                  <tr>
+                    {showBulkSelect && (
+                      <th className="px-4 py-4 w-12 text-center">
+                        <input
+                          ref={selectAllCheckboxRef}
+                          type="checkbox"
+                          checked={allOnPageSelected}
+                          onChange={toggleSelectAllApplicationsOnPage}
+                          disabled={pagedApplications.length === 0}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                          aria-label={t.filterAll}
+                        />
+                      </th>
+                    )}
+                    <SortTh colKey="number" label={t.number} />
+                    <SortTh colKey="program" label={t.program} />
+                    <SortTh colKey="student" label={t.studentInfo} />
+                    {FINANCIAL_TREE_FIELDS.map((col) => (
+                      <th key={col.key} className="px-4 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                        {col.label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {pagedApplications.map((app) => {
+                    const s = getStudent(app.studentId);
+                    const p = getProgram(app.programId);
+                    const hasUnreadNotifications = notificationIndex.unreadApplicationIds.has(app.id);
+                    return (
+                      <tr
+                        key={app.id}
+                        className={`hover:bg-blue-50/30 cursor-pointer transition-colors group ${hasUnreadNotifications ? 'bg-blue-50/50 border-l-4 border-l-blue-500' : ''} ${selectedApplicationIds.has(app.id) ? 'bg-blue-50/40' : ''}`}
+                        onClick={() => { setSelectedAppId(app.id); setView('detail'); }}
+                      >
+                        {showBulkSelect && (
+                          <td className="px-4 py-3 text-center" onClick={e => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={selectedApplicationIds.has(app.id)}
+                              onChange={() => toggleApplicationSelection(app.id)}
+                              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                              aria-label={`#${app.id}`}
+                            />
+                          </td>
+                        )}
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <span className="inline-flex items-center gap-2 font-mono font-bold text-gray-900 group-hover:text-blue-600 transition-colors text-xs">
+                            #{app.id}
+                            {hasUnreadNotifications && (
+                              <NotificationUnreadDot title={t.unreadNotifications} />
+                            )}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 font-bold text-gray-900 whitespace-nowrap">{p?.name || '—'}</td>
+                        <td className="px-4 py-3 font-bold text-gray-900 whitespace-nowrap">{s?.firstName} {s?.lastName}</td>
+                        {FINANCIAL_TREE_FIELDS.map((col) => (
+                          <td key={col.key} className="px-4 py-3 text-gray-900 tabular-nums whitespace-nowrap text-xs">
+                            {formatApplicationFinanceValue(app, col.key)}
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              ) : (
               <table className="w-full text-right text-sm">
                 <thead style={{ fontWeight: 700 }} className="bg-gray-50/50 text-gray-900 border-b border-gray-100">
                   <tr>
+                    {showBulkSelect && (
+                      <th className="px-4 py-5 w-12 text-center">
+                        <input
+                          ref={selectAllCheckboxRef}
+                          type="checkbox"
+                          checked={allOnPageSelected}
+                          onChange={toggleSelectAllApplicationsOnPage}
+                          disabled={pagedApplications.length === 0}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                          aria-label={t.filterAll}
+                        />
+                      </th>
+                    )}
                     <th className="px-6 py-5"></th>
                     {visibleTreeColumns.includes('number') && <SortTh colKey="number" label={t.number} />}
                     {visibleTreeColumns.includes('status') && <SortTh colKey="status" label={t.applicationStatus} className="text-center" />}
@@ -1932,7 +2261,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                     {visibleTreeColumns.includes('student') && <SortTh colKey="student" label={t.studentInfo} />}
                     {visibleTreeColumns.includes('program') && <SortTh colKey="program" label={t.program} />}
                     {visibleTreeColumns.includes('createdAt') && <SortTh colKey="createdAt" label={t.createdAt} />}
-                    {visibleTreeColumns.includes('updatedAt') && <SortTh colKey="updatedAt" label={t.lastUpdatedAt} />}
+                    {!isAgent && visibleTreeColumns.includes('updatedAt') && <SortTh colKey="updatedAt" label={t.lastUpdatedAt} />}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -1942,7 +2271,9 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                     const uni = p ? getUni(p.universityId) : null;
                     const period = getPeriod(app.periodId || p?.periodId);
                     const isExpanded = expandedAppIds.has(app.id);
+                    const hasUnreadNotifications = notificationIndex.unreadApplicationIds.has(app.id);
                     const treeColSpan =
+                      (showBulkSelect ? 1 : 0) +
                       (visibleTreeColumns.includes('number') ? 1 : 0) +
                       (visibleTreeColumns.includes('status') ? 1 : 0) +
                       (canSeeAgentColumn && visibleTreeColumns.includes('agent') ? 1 : 0) +
@@ -1950,14 +2281,25 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                       (visibleTreeColumns.includes('student') ? 1 : 0) +
                       (visibleTreeColumns.includes('program') ? 1 : 0) +
                       (visibleTreeColumns.includes('createdAt') ? 1 : 0) +
-                      (visibleTreeColumns.includes('updatedAt') ? 1 : 0) +
+                      (!isAgent && visibleTreeColumns.includes('updatedAt') ? 1 : 0) +
                       1; // expand toggle column
                     return (
                       <React.Fragment key={app.id}>
                         <tr
-                          className="hover:bg-blue-50/30 cursor-pointer transition-colors group"
+                          className={`hover:bg-blue-50/30 cursor-pointer transition-colors group ${hasUnreadNotifications ? 'bg-blue-50/50 border-l-4 border-l-blue-500' : ''} ${selectedApplicationIds.has(app.id) ? 'bg-blue-50/40' : ''}`}
                           onClick={() => { setSelectedAppId(app.id); setView('detail'); }}
                         >
+                          {showBulkSelect && (
+                            <td className="px-4 py-4 text-center" onClick={e => e.stopPropagation()}>
+                              <input
+                                type="checkbox"
+                                checked={selectedApplicationIds.has(app.id)}
+                                onChange={() => toggleApplicationSelection(app.id)}
+                                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                                aria-label={`#${app.id}`}
+                              />
+                            </td>
+                          )}
                           <td className="px-6 py-4 text-left" onClick={e => e.stopPropagation()}>
                             <button
                               type="button"
@@ -1977,7 +2319,12 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                           </td>
                           {visibleTreeColumns.includes('number') && (
                             <td className="px-6 py-4">
-                              <span className="font-mono font-bold text-gray-900 group-hover:text-blue-600 transition-colors">#{app.id}</span>
+                              <span className="inline-flex items-center gap-2 font-mono font-bold text-gray-900 group-hover:text-blue-600 transition-colors">
+                                #{app.id}
+                                {hasUnreadNotifications && (
+                                  <NotificationUnreadDot title={t.unreadNotifications} />
+                                )}
+                              </span>
                             </td>
                           )}
                           {visibleTreeColumns.includes('status') && (
@@ -2004,7 +2351,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                               {app.createdAt ? new Date(app.createdAt).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
                             </td>
                           )}
-                          {visibleTreeColumns.includes('updatedAt') && (
+                          {!isAgent && visibleTreeColumns.includes('updatedAt') && (
                             <td className="px-6 py-4 text-gray-900 font-medium">
                               {(app.updatedAt || app.createdAt) ? new Date(app.updatedAt || app.createdAt).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
                             </td>
@@ -2041,6 +2388,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                   })}
                 </tbody>
               </table>
+              )}
               {sortedApplications.length === 0 && (
                 <div className="py-20 text-center">
                   <FileText size={48} className="mx-auto text-gray-100 mb-4" />
@@ -2100,8 +2448,12 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                         )}
                         <p className="text-[10px] text-gray-400 mt-2">
                           {t.createdAt}: {app.createdAt ? new Date(app.createdAt).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
-                          <br />
-                          {t.lastUpdatedAt}: {(app.updatedAt || app.createdAt) ? new Date(app.updatedAt || app.createdAt).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+                          {!isAgent && (
+                            <>
+                              <br />
+                              {t.lastUpdatedAt}: {(app.updatedAt || app.createdAt) ? new Date(app.updatedAt || app.createdAt).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+                            </>
+                          )}
                         </p>
                         <span className={`inline-block mt-2 ${getApplicationStatusBadgeClass(app.status, 'compact')}`}>
                           {translateStatus(app.status)}
@@ -2118,6 +2470,50 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
 
       {view === 'create' && renderCreate()}
       {view === 'detail' && renderDetail()}
+
+      {confirmBulkDelete && selectedApplicationIds.size > 0 && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl max-w-sm w-full p-6 shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                <Trash2 size={20} className="text-red-600" />
+              </div>
+              <h3 className="text-lg font-bold text-gray-800">{t.confirmDelete}</h3>
+            </div>
+            <p className="text-gray-700 text-sm font-medium mb-2">
+              {selectedApplicationIds.size} {t.applicationsTitle.toLowerCase()}
+            </p>
+            <p className="text-amber-700 text-xs mb-6">{t.bulkDeleteConfirmApplications}</p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmBulkDelete(false)}
+                disabled={bulkDeleting}
+                className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {t.cancel}
+              </button>
+              <button
+                type="button"
+                onClick={handleBulkDeleteConfirm}
+                disabled={bulkDeleting}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
+              >
+                {bulkDeleting ? t.loading : t.delete}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <MassEditModal
+        open={massEditOpen}
+        onClose={() => setMassEditOpen(false)}
+        selectedCount={selectedApplicationIds.size}
+        fields={applicationMassEditFields}
+        onApply={handleApplicationMassEditApply}
+        applying={massEditApplying}
+      />
     </div>
   );
 };
