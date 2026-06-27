@@ -906,23 +906,30 @@ export default function App() {
 
   const deleteUser = async (id: string) => {
     try {
-      const res = await fetch(`/api/users/${id}`, {
+      const role = state.currentUser?.role || 'ADMIN';
+      const res = await fetch(`/api/users/${id}?role=${encodeURIComponent(role)}`, {
         method: 'DELETE'
       });
+      let data: { message?: string } = {};
+      try {
+        data = await res.json();
+      } catch {
+        /* non-JSON error body */
+      }
       if (res.ok) {
         setState(prev => ({ ...prev, users: prev.users.filter(u => u.id !== id) }));
       } else {
-        const data = await res.json();
-        alert(data.message || 'فشل حذف المستخدم');
+        alert(data.message || t.errorDelete);
       }
-    } catch (err) {
-      alert('خطأ في الاتصال بالخادم');
+    } catch {
+      alert(t.errorConnection);
     }
   };
 
   const editUser = async (user: User & { password?: string }) => {
     try {
-      const res = await fetch(`/api/users/${user.id}`, {
+      const role = state.currentUser?.role || 'ADMIN';
+      const res = await fetch(`/api/users/${user.id}?role=${encodeURIComponent(role)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -963,7 +970,8 @@ export default function App() {
 
   const setUserActive = async (id: string, active: boolean) => {
     try {
-      const res = await fetch(`/api/users/${id}`, {
+      const role = state.currentUser?.role || 'ADMIN';
+      const res = await fetch(`/api/users/${id}?role=${encodeURIComponent(role)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ active })

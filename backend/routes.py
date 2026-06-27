@@ -690,29 +690,37 @@ def add_user():
 # تحديث الملف الشخصي (كلمة السر والهاتف)
 @api_bp.route('/users/update-profile', methods=['PUT'])
 def update_profile():
-    data = request.json
+    data = request.json or {}
     user_id = data.get('user_id')
     user = User.query.get(user_id)
     if not user:
-        return jsonify({'message': 'المستخدم غير موجود'}), 404
-    
+        return jsonify({'message': 'Kullanıcı bulunamadı'}), 404
+
     if 'name' in data and data['name']:
         user.name = data['name'].strip()
     if 'email' in data and data['email']:
         existing = User.query.filter(User.email == data['email'].strip(), User.id != user_id).first()
         if existing:
-            return jsonify({'message': 'الإيميل مستخدم من قبل مستخدم آخر'}), 409
+            return jsonify({'message': 'Bu e-posta başka bir kullanıcı tarafından kullanılıyor'}), 409
         user.email = data['email'].strip()
     if data.get('password'):
-        user.password = data['password']
+        current = (data.get('currentPassword') or '').strip()
+        if not current:
+            return jsonify({'message': 'Mevcut şifre gerekli'}), 400
+        if user.password != current:
+            return jsonify({'message': 'Mevcut şifre hatalı'}), 400
+        new_password = str(data['password']).strip()
+        if len(new_password) < 4:
+            return jsonify({'message': 'Yeni şifre en az 4 karakter olmalı'}), 400
+        user.password = new_password
     if 'phone' in data:
         user.phone = data['phone']
     if 'countryCode' in data:
         user.country_code = data.get('countryCode')
-        
+
     db.session.commit()
     return jsonify({
-        'message': 'تم تحديث البيانات بنجاح',
+        'message': 'Bilgiler güncellendi',
         'user': {
             'id': user.id,
             'name': user.name,
@@ -747,28 +755,77 @@ def get_users():
     } for u in users])
 
 # حذف مستخدم
+def _user_delete_blockers(user_id):
+    return {
+        'studentCount': Student.query.filter_by(user_id=user_id).count(),
+        'agentApplicationCount': Application.query.filter_by(user_id=user_id).count(),
+        'responsibleApplicationCount': Application.query.filter_by(responsible_id=user_id).count(),
+        'newsCount': NewsItem.query.filter_by(created_by=user_id).count(),
+        'outgoingPaymentCount': OutgoingPayment.query.filter_by(user_id=user_id).count(),
+    }
+
+
+def _user_delete_block_message(blockers):
+    parts = []
+    if blockers['studentCount']:
+        parts.append(f"{blockers['studentCount']} öğrenci")
+    if blockers['agentApplicationCount']:
+        parts.append(f"{blockers['agentApplicationCount']} başvuru (temsilci)")
+    if blockers['responsibleApplicationCount']:
+        parts.append(f"{blockers['responsibleApplicationCount']} başvuru (sorumlu)")
+    if blockers['newsCount']:
+        parts.append(f"{blockers['newsCount']} haber")
+    if blockers['outgoingPaymentCount']:
+        parts.append(f"{blockers['outgoingPaymentCount']} giden ödeme")
+    if not parts:
+        return None
+    return 'Bu kullanıcıya bağlı kayıtlar var: ' + ', '.join(parts) + '. Silmeden önce bu kayıtları kaldırın veya başka kullanıcıya aktarın.'
+
+
 @api_bp.route('/users/<user_id>', methods=['DELETE'])
 def delete_user(user_id):
+    admin_err = _require_admin()
+    if admin_err:
+        return admin_err
     user = User.query.get(user_id)
     if not user:
-        return jsonify({'message': 'المستخدم غير موجود'}), 404
-    UserUniversityCommission.query.filter_by(user_id=user_id).delete()
-    db.session.delete(user)
-    db.session.commit()
-    return jsonify({'message': 'تم حذف المستخدم'}), 200
+        return jsonify({'message': 'Kullanıcı bulunamadı'}), 404
+
+    blockers = _user_delete_blockers(user_id)
+    block_message = _user_delete_block_message(blockers)
+    if block_message:
+        return jsonify({'message': block_message, 'blockers': blockers}), 400
+
+    Notification.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    ApplicationMessage.query.filter_by(sender_user_id=user_id).update(
+        {ApplicationMessage.sender_user_id: None},
+        synchronize_session=False
+    )
+    UserUniversityCommission.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+
+    try:
+        db.session.delete(user)
+        db.session.commit()
+        return jsonify({'message': 'Kullanıcı silindi'}), 200
+    except Exception:
+        db.session.rollback()
+        return jsonify({'message': 'Kullanıcı silinemedi. Bağlı kayıtlar olabilir.'}), 400
 
 # تحديث مستخدم (تعديل + تفعيل/إلغاء تفعيل)
 @api_bp.route('/users/<user_id>', methods=['PUT'])
 def update_user(user_id):
+    admin_err = _require_admin()
+    if admin_err:
+        return admin_err
     user = User.query.get(user_id)
     if not user:
-        return jsonify({'message': 'المستخدم غير موجود'}), 404
+        return jsonify({'message': 'Kullanıcı bulunamadı'}), 404
     data = request.json or {}
     if 'name' in data:
         user.name = data['name']
     if 'email' in data:
         if User.query.filter(User.email == data['email'], User.id != user_id).first():
-            return jsonify({'message': 'الإيميل مستخدم من قبل مستخدم آخر'}), 409
+            return jsonify({'message': 'Bu e-posta başka bir kullanıcı tarafından kullanılıyor'}), 409
         user.email = data['email']
     if 'role' in data:
         user.role = data['role']
@@ -777,7 +834,10 @@ def update_user(user_id):
     if 'countryCode' in data:
         user.country_code = data['countryCode']
     if 'password' in data and data['password']:
-        user.password = data['password']
+        new_password = str(data['password']).strip()
+        if len(new_password) < 4:
+            return jsonify({'message': 'Yeni şifre en az 4 karakter olmalı'}), 400
+        user.password = new_password
     if 'active' in data:
         user.is_active = bool(data['active'])
     if 'agentCommissions' in data or (user.role or '').lower() == 'agent':

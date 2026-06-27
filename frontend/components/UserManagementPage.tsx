@@ -18,6 +18,7 @@ const EMPTY_FORM = {
   name: '',
   email: '',
   password: '',
+  confirmPassword: '',
   role: UserRole.USER as UserRole,
   phone: '',
   countryCode: ''
@@ -107,6 +108,7 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
       name: user.name,
       email: user.email,
       password: '',
+      confirmPassword: '',
       role: user.role as UserRole,
       phone: user.phone || '',
       countryCode: user.countryCode || ''
@@ -120,6 +122,10 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
   const handleEditSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (editingUser && formData.name && formData.email) {
+      if (formData.password && formData.password !== formData.confirmPassword) {
+        alert(t.passwordMismatch);
+        return;
+      }
       const payload: User & { password?: string } = {
         ...editingUser,
         name: formData.name,
@@ -136,6 +142,7 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
         name: payload.name,
         email: payload.email,
         password: '',
+        confirmPassword: '',
         role: payload.role as UserRole,
         phone: payload.phone || '',
         countryCode: payload.countryCode || ''
@@ -276,12 +283,41 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
               <label className="block text-sm font-medium text-gray-700 mb-1">{t.email}</label>
               <input type="email" required disabled={!formEditable} className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-gray-50 disabled:text-gray-600" value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                {formMode === 'add' ? t.password : `${t.newPassword} (${t.optional})`}
-              </label>
-              <input type="password" required={formMode === 'add'} disabled={!formEditable} className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-gray-50 disabled:text-gray-600" value={formData.password} onChange={e => setFormData({ ...formData, password: e.target.value })} placeholder={formMode === 'add' ? '' : t.optional} />
-            </div>
+            {formMode === 'add' ? (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{t.password}</label>
+                <input type="password" required disabled={!formEditable} className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-gray-50 disabled:text-gray-600" value={formData.password} onChange={e => setFormData({ ...formData, password: e.target.value })} />
+              </div>
+            ) : (
+              <div className="rounded-lg border border-gray-200 bg-gray-50/60 p-4 space-y-4">
+                <h4 className="font-semibold text-gray-800">{t.changePassword}</h4>
+                <p className="text-xs text-gray-500">{t.optional} — {t.newPassword.toLowerCase()}</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{t.newPassword}</label>
+                    <input
+                      type="password"
+                      disabled={!formEditable}
+                      className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-gray-50 disabled:text-gray-600"
+                      value={formData.password}
+                      onChange={e => setFormData({ ...formData, password: e.target.value })}
+                      placeholder={t.optional}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{t.confirmPassword}</label>
+                    <input
+                      type="password"
+                      disabled={!formEditable}
+                      className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-gray-50 disabled:text-gray-600"
+                      value={formData.confirmPassword}
+                      onChange={e => setFormData({ ...formData, confirmPassword: e.target.value })}
+                      placeholder={t.optional}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">{t.userRole}</label>
               <select disabled={!formEditable} className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-gray-50 disabled:text-gray-600" value={formData.role} onChange={e => setFormData({ ...formData, role: e.target.value as UserRole })}>

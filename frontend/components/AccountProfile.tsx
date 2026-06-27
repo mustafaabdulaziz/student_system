@@ -12,9 +12,13 @@ export const AccountProfile: React.FC<AccountProfileProps> = ({ currentUser, onP
   const [accountData, setAccountData] = useState({
     name: currentUser?.name || '',
     email: currentUser?.email || '',
-    password: '',
     phone: currentUser?.phone || '',
     countryCode: currentUser?.countryCode || ''
+  });
+  const [passwordData, setPasswordData] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: ''
   });
 
   useEffect(() => {
@@ -39,11 +43,10 @@ export const AccountProfile: React.FC<AccountProfileProps> = ({ currentUser, onP
       const payload: Record<string, string> = {
         user_id: currentUser.id,
         name: accountData.name.trim(),
-        email: accountData.email.trim()
+        email: accountData.email.trim(),
+        phone: accountData.phone,
+        countryCode: accountData.countryCode
       };
-      if (accountData.password) payload.password = accountData.password;
-      if (accountData.phone !== undefined) payload.phone = accountData.phone;
-      if (accountData.countryCode !== undefined) payload.countryCode = accountData.countryCode;
       const res = await fetch('/api/users/update-profile', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -55,59 +58,133 @@ export const AccountProfile: React.FC<AccountProfileProps> = ({ currentUser, onP
           onProfileUpdated(data.user);
         }
         alert(data.message || t.save);
-        setAccountData(prev => ({ ...prev, password: '' }));
       } else {
         alert(data.message || t.errorConnection);
       }
-    } catch (err) {
+    } catch {
+      alert(t.errorConnection);
+    }
+  };
+
+  const handlePasswordChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!passwordData.currentPassword) {
+      alert(t.currentPassword);
+      return;
+    }
+    if (!passwordData.newPassword) {
+      alert(t.newPassword);
+      return;
+    }
+    if (passwordData.newPassword !== passwordData.confirmPassword) {
+      alert(t.passwordMismatch);
+      return;
+    }
+    try {
+      const res = await fetch('/api/users/update-profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: currentUser.id,
+          currentPassword: passwordData.currentPassword,
+          password: passwordData.newPassword
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(data.message || t.changePassword);
+        setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      } else {
+        alert(data.message || t.errorConnection);
+      }
+    } catch {
       alert(t.errorConnection);
     }
   };
 
   return (
-    <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-      <h2 className="text-xl font-bold mb-4 text-gray-800">{t.account}</h2>
-      <form onSubmit={handleAccountSave} className="space-y-4 max-w-2xl">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div className="space-y-6">
+      <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+        <h2 className="text-xl font-bold mb-4 text-gray-800">{t.account}</h2>
+        <form onSubmit={handleAccountSave} className="space-y-4 max-w-2xl">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t.userName}</label>
+              <input
+                type="text"
+                required
+                value={accountData.name}
+                onChange={e => setAccountData(prev => ({ ...prev, name: e.target.value }))}
+                className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t.email}</label>
+              <input
+                type="email"
+                required
+                value={accountData.email}
+                onChange={e => setAccountData(prev => ({ ...prev, email: e.target.value }))}
+                className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="md:col-span-1">
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t.countryCode}</label>
+              <input type="text" placeholder="+90" value={accountData.countryCode} onChange={e => setAccountData({ ...accountData, countryCode: e.target.value })} className="w-full border border-gray-300 rounded-lg p-2" />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t.phone}</label>
+              <input type="text" placeholder="512345678" value={accountData.phone} onChange={e => setAccountData({ ...accountData, phone: e.target.value })} className="w-full border border-gray-300 rounded-lg p-2" />
+            </div>
+          </div>
+          <div className="flex justify-end pt-2">
+            <button type="submit" className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">{t.save}</button>
+          </div>
+        </form>
+      </div>
+
+      <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+        <h2 className="text-xl font-bold mb-4 text-gray-800">{t.changePassword}</h2>
+        <form onSubmit={handlePasswordChange} className="space-y-4 max-w-2xl">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t.userName}</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{t.currentPassword}</label>
             <input
-              type="text"
-              required
-              value={accountData.name}
-              onChange={e => setAccountData(prev => ({ ...prev, name: e.target.value }))}
+              type="password"
+              autoComplete="current-password"
+              value={passwordData.currentPassword}
+              onChange={e => setPasswordData(prev => ({ ...prev, currentPassword: e.target.value }))}
               className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none"
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t.email}</label>
-            <input
-              type="email"
-              required
-              value={accountData.email}
-              onChange={e => setAccountData(prev => ({ ...prev, email: e.target.value }))}
-              className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none"
-            />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t.newPassword}</label>
+              <input
+                type="password"
+                autoComplete="new-password"
+                value={passwordData.newPassword}
+                onChange={e => setPasswordData(prev => ({ ...prev, newPassword: e.target.value }))}
+                className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t.confirmPassword}</label>
+              <input
+                type="password"
+                autoComplete="new-password"
+                value={passwordData.confirmPassword}
+                onChange={e => setPasswordData(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+            </div>
           </div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="md:col-span-1">
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t.countryCode}</label>
-            <input type="text" placeholder="+966" value={accountData.countryCode} onChange={e => setAccountData({ ...accountData, countryCode: e.target.value })} className="w-full border border-gray-300 rounded-lg p-2" />
+          <div className="flex justify-end pt-2">
+            <button type="submit" className="px-6 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-900 transition-colors">{t.changePassword}</button>
           </div>
-          <div className="md:col-span-2">
-            <label className="block text-sm font-medium text-gray-700 mb-1">{t.phone}</label>
-            <input type="text" placeholder="512345678" value={accountData.phone} onChange={e => setAccountData({ ...accountData, phone: e.target.value })} className="w-full border border-gray-300 rounded-lg p-2" />
-          </div>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">{t.password} ({t.optional})</label>
-          <input type="password" value={accountData.password} onChange={e => setAccountData({ ...accountData, password: e.target.value })} className="w-full border border-gray-300 rounded-lg p-2" placeholder={t.optional} />
-        </div>
-        <div className="flex justify-end pt-2">
-          <button type="submit" className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">{t.save}</button>
-        </div>
-      </form>
+        </form>
+      </div>
     </div>
   );
 };

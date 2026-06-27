@@ -294,6 +294,7 @@ export interface Translations {
     hostAgent: string;
     user: string;
     changePassword: string;
+    currentPassword: string;
     newPassword: string;
     confirmPassword: string;
     active: string;
@@ -652,6 +653,7 @@ export const translations: Record<Language, Translations> = {
         hostAgent: 'الوكيل المضيف',
         user: 'مستخدم',
         changePassword: 'تغيير كلمة المرور',
+        currentPassword: 'كلمة المرور الحالية',
         newPassword: 'كلمة المرور الجديدة',
         confirmPassword: 'تأكيد كلمة المرور',
         active: 'نشط',
@@ -1009,6 +1011,7 @@ export const translations: Record<Language, Translations> = {
         hostAgent: 'Host Agent',
         user: 'User',
         changePassword: 'Change Password',
+        currentPassword: 'Current Password',
         newPassword: 'New Password',
         confirmPassword: 'Confirm Password',
         active: 'Active',
@@ -1366,6 +1369,7 @@ export const translations: Record<Language, Translations> = {
         hostAgent: 'Sorumlu Temsilci',
         user: 'Kullanıcı',
         changePassword: 'Şifre Değiştir',
+        currentPassword: 'Mevcut Şifre',
         newPassword: 'Yeni Şifre',
         confirmPassword: 'Şifreyi Onayla',
         active: 'Aktif',
