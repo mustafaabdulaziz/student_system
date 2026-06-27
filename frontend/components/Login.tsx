@@ -45,10 +45,18 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-8">
         <div className="text-center mb-8">
           <div className="text-3xl font-extrabold tracking-tight mb-1">
-            <span className="text-red-500">Nokta</span>
-            <span className="text-blue-500"> CRM</span>
+            {(() => {
+              const parts = (t.appName || '').split(/\s+/);
+              const first = parts[0] || '';
+              const rest = parts.slice(1).join(' ') || '';
+              return (
+                <>
+                  <span className="text-red-500">{first}</span>
+                  {rest && <span className="text-blue-500"> {rest}</span>}
+                </>
+              );
+            })()}
           </div>
-          <p className="text-gray-500 text-sm">{t.appName}</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -57,7 +65,7 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
             <input
               type="text"
               className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 outline-none"
-              placeholder="admin@admin.com"
+              placeholder={t.loginEmailPlaceholder}
               value={username}
               onChange={e => setUsername(e.target.value)}
             />
@@ -67,7 +75,7 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
             <input
               type="password"
               className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 outline-none"
-              placeholder="admin"
+              placeholder={t.loginPasswordPlaceholder}
               value={password}
               onChange={e => setPassword(e.target.value)}
             />

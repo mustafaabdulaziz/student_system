@@ -41,6 +41,8 @@ export interface Translations {
     password: string;
     loginButton: string;
     loginError: string;
+    loginEmailPlaceholder: string;
+    loginPasswordPlaceholder: string;
     accountDeactivated: string;
 
     // Dashboard
@@ -366,7 +368,7 @@ export interface Translations {
 export const translations: Record<Language, Translations> = {
     ar: {
         // Common
-        appName: 'NOKTA CRM',
+        appName: 'Takip Sistem',
         welcome: 'مرحباً',
         loading: 'جاري التحميل...',
         save: 'حفظ',
@@ -405,6 +407,8 @@ export const translations: Record<Language, Translations> = {
         password: 'كلمة المرور',
         loginButton: 'دخول',
         loginError: 'خطأ في البريد الإلكتروني أو كلمة المرور',
+        loginEmailPlaceholder: 'ornek@eposta.com',
+        loginPasswordPlaceholder: '••••••••',
         accountDeactivated: 'هذا الحساب غير مفعل',
 
         // Dashboard
@@ -724,7 +728,7 @@ export const translations: Record<Language, Translations> = {
 
     en: {
         // Common
-        appName: 'Nokta CRM',
+        appName: 'Takip Sistem',
         welcome: 'Welcome',
         loading: 'Loading...',
         save: 'Save',
@@ -763,6 +767,8 @@ export const translations: Record<Language, Translations> = {
         password: 'Password',
         loginButton: 'Sign In',
         loginError: 'Invalid email or password',
+        loginEmailPlaceholder: 'you@example.com',
+        loginPasswordPlaceholder: '••••••••',
         accountDeactivated: 'This account is deactivated',
 
         // Dashboard
@@ -1082,7 +1088,7 @@ export const translations: Record<Language, Translations> = {
 
     tr: {
         // Common
-        appName: 'Nokta CRM',
+        appName: 'Takip Sistem',
         welcome: 'Hoş Geldiniz',
         loading: 'Yükleniyor...',
         save: 'Kaydet',
@@ -1121,6 +1127,8 @@ export const translations: Record<Language, Translations> = {
         password: 'Şifre',
         loginButton: 'Giriş Yap',
         loginError: 'Geçersiz e-posta veya şifre',
+        loginEmailPlaceholder: 'ornek@eposta.com',
+        loginPasswordPlaceholder: '••••••••',
         accountDeactivated: 'Bu hesap devre dışı bırakıldı',
 
         // Dashboard
