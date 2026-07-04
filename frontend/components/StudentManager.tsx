@@ -168,6 +168,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
   const agentUsers = useMemo(() => users.filter(u => (u.role || '').toString().toLowerCase() === 'agent'), [users]);
   const isAdminOrUser = currentUser && ((currentUser.role || '').toString().toUpperCase() === 'ADMIN' || (currentUser.role || '').toString().toUpperCase() === 'USER');
   const isAdmin = currentUser && (currentUser.role || '').toString().toUpperCase() === 'ADMIN';
+  const isUser = currentUser && (currentUser.role || '').toString().toUpperCase() === 'USER';
   const isAgent = currentUser && (currentUser.role || '').toString().toLowerCase() === 'agent';
   const canEditStudent = !isAgent;
   const getAgentName = (student: Student) => (student.userId && users.find(u => u.id === student.userId)?.name) || '—';
@@ -370,6 +371,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
     }
     const student = students.find(s => s.id === quickAppStudentId);
     const agentId = student?.userId || currentUser?.id || '';
+    const responsibleId = isUser ? currentUser?.id : undefined;
     setQuickSaving(true);
     try {
       await onAddApplicationForStudent({
@@ -381,7 +383,8 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
         semester: 'Fall 2024',
         createdAt: new Date().toISOString().split('T')[0],
         files: [],
-        userId: agentId || undefined
+        userId: agentId || undefined,
+        responsibleId
       });
       closeQuickApplicationModal();
     } finally {
@@ -518,6 +521,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
           const newId = await onAddStudent({ ...payload, id: payload.id } as Student);
           if (newId) {
             const agentIdForApp = selectedAgentId || currentUser?.id || '';
+            const responsibleIdForApp = isUser ? currentUser?.id : undefined;
             let appId: string | null = null;
             if (addFinalProgram && onAddApplicationForStudent) {
               const createdAppId = await onAddApplicationForStudent({
@@ -529,7 +533,8 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                 semester: 'Fall 2024',
                 createdAt: new Date().toISOString().split('T')[0],
                 files: [],
-                userId: agentIdForApp || undefined
+                userId: agentIdForApp || undefined,
+                responsibleId: responsibleIdForApp
               });
               appId = createdAppId ?? null;
             }

@@ -226,7 +226,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
 }) => {
   const { t, translateStatus, translateDegree } = useTranslation();
   const isAdmin = currentUser?.role === UserRole.ADMIN;
-  const canSeeCountryChart = currentUser?.role === UserRole.ADMIN || currentUser?.role === UserRole.USER;
+  const isAdminOrUser = currentUser?.role === UserRole.ADMIN || currentUser?.role === UserRole.USER;
+  const canSeeCountryChart = isAdminOrUser;
   const defaultRange = getLast30DaysRange();
   const [fromDate, setFromDate] = useState(defaultRange.from);
   const [toDate, setToDate] = useState(defaultRange.to);
@@ -758,7 +759,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           onItemClick={(value) => handleDrilldown('status', value)}
           {...rankedCardLabels}
         />
-        {isAdmin && (
+        {isAdminOrUser && (
           <RankedStatsCard
             title={t.byAgency}
             stats={agencyStats}

@@ -176,7 +176,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const [kanbanPage, setKanbanPage] = useState(1);
   const [columnsOpen, setColumnsOpen] = useState(false);
   const columnsRef = useRef<HTMLDivElement>(null);
-  const applicationColumnKeys = useMemo(() => ['number', 'status', 'agent', 'responsible', 'student', 'program', 'createdAt', 'updatedAt'], []);
+  const applicationColumnKeys = useMemo(() => ['number', 'status', 'agent', 'responsible', 'student', 'program', 'university', 'createdAt', 'updatedAt'], []);
   const [visibleTreeColumns, setVisibleTreeColumns] = useState<string[]>(applicationColumnKeys);
 
   const [messages, setMessages] = React.useState<Array<{ id: string; sender: string; message: string; createdAt: string; senderName?: string | null }>>([]);
@@ -666,6 +666,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
         case 'responsible': va = getResponsibleLabel(a).toLowerCase(); vb = getResponsibleLabel(b).toLowerCase(); return dir * (va as string).localeCompare(vb as string);
         case 'student': va = `${sA?.firstName || ''} ${sA?.lastName || ''}`.trim().toLowerCase(); vb = `${sB?.firstName || ''} ${sB?.lastName || ''}`.trim().toLowerCase(); return dir * (va as string).localeCompare(vb as string);
         case 'program': va = (pA?.name || '').toLowerCase(); vb = (pB?.name || '').toLowerCase(); return dir * (va as string).localeCompare(vb as string);
+        case 'university': va = (pA ? getUni(pA.universityId)?.name || '' : '').toLowerCase(); vb = (pB ? getUni(pB.universityId)?.name || '' : '').toLowerCase(); return dir * (va as string).localeCompare(vb as string);
         case 'createdAt': va = new Date(a.createdAt || 0).getTime(); vb = new Date(b.createdAt || 0).getTime(); return dir * ((va as number) - (vb as number));
         case 'updatedAt': va = new Date(a.updatedAt || a.createdAt || 0).getTime(); vb = new Date(b.updatedAt || b.createdAt || 0).getTime(); return dir * ((va as number) - (vb as number));
         case 'status': va = (a.status || '').toLowerCase(); vb = (b.status || '').toLowerCase(); return dir * (va as string).localeCompare(vb as string);
@@ -864,6 +865,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     { key: 'responsible', label: t.responsible },
     { key: 'student', label: t.studentInfo },
     { key: 'program', label: t.program },
+    { key: 'university', label: t.universityName },
     { key: 'createdAt', label: t.createdAt },
     { key: 'updatedAt', label: t.lastUpdatedAt }
   ];
@@ -877,6 +879,9 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
       const parsed = JSON.parse(raw);
       if (!Array.isArray(parsed)) return;
       const valid = parsed.filter((k: string) => applicationColumnKeys.includes(k));
+      if (valid.includes('program') && !valid.includes('university')) {
+        valid.splice(valid.indexOf('program') + 1, 0, 'university');
+      }
       if (valid.length > 0) setVisibleTreeColumns(valid);
     } catch {
       // ignore corrupted localStorage values
@@ -2186,6 +2191,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                     )}
                     <SortTh colKey="number" label={t.number} />
                     <SortTh colKey="program" label={t.program} />
+                    <SortTh colKey="university" label={t.universityName} />
                     <SortTh colKey="student" label={t.studentInfo} />
                     {FINANCIAL_TREE_FIELDS.map((col) => (
                       <th key={col.key} className="px-4 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider whitespace-nowrap">
@@ -2198,6 +2204,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                   {pagedApplications.map((app) => {
                     const s = getStudent(app.studentId);
                     const p = getProgram(app.programId);
+                    const uni = p ? getUni(p.universityId) : null;
                     const hasUnreadNotifications = notificationIndex.unreadApplicationIds.has(app.id);
                     return (
                       <tr
@@ -2225,6 +2232,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                           </span>
                         </td>
                         <td className="px-4 py-3 font-bold text-gray-900 whitespace-nowrap">{p?.name || '—'}</td>
+                        <td className="px-4 py-3 text-gray-900 whitespace-nowrap">{uni?.name || '—'}</td>
                         <td className="px-4 py-3 font-bold text-gray-900 whitespace-nowrap">{s?.firstName} {s?.lastName}</td>
                         {FINANCIAL_TREE_FIELDS.map((col) => (
                           <td key={col.key} className="px-4 py-3 text-gray-900 tabular-nums whitespace-nowrap text-xs">
@@ -2260,6 +2268,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                     {isAdminOrUser && visibleTreeColumns.includes('responsible') && <SortTh colKey="responsible" label={t.responsible} />}
                     {visibleTreeColumns.includes('student') && <SortTh colKey="student" label={t.studentInfo} />}
                     {visibleTreeColumns.includes('program') && <SortTh colKey="program" label={t.program} />}
+                    {visibleTreeColumns.includes('university') && <SortTh colKey="university" label={t.universityName} />}
                     {visibleTreeColumns.includes('createdAt') && <SortTh colKey="createdAt" label={t.createdAt} />}
                     {!isAgent && visibleTreeColumns.includes('updatedAt') && <SortTh colKey="updatedAt" label={t.lastUpdatedAt} />}
                   </tr>
@@ -2280,6 +2289,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                       (isAdminOrUser && visibleTreeColumns.includes('responsible') ? 1 : 0) +
                       (visibleTreeColumns.includes('student') ? 1 : 0) +
                       (visibleTreeColumns.includes('program') ? 1 : 0) +
+                      (visibleTreeColumns.includes('university') ? 1 : 0) +
                       (visibleTreeColumns.includes('createdAt') ? 1 : 0) +
                       (!isAgent && visibleTreeColumns.includes('updatedAt') ? 1 : 0) +
                       1; // expand toggle column
@@ -2344,6 +2354,11 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                           {visibleTreeColumns.includes('program') && (
                             <td className="px-6 py-4">
                               <span className="font-bold text-gray-900">{p?.name || '—'}</span>
+                            </td>
+                          )}
+                          {visibleTreeColumns.includes('university') && (
+                            <td className="px-6 py-4 text-gray-900">
+                              {uni?.name || '—'}
                             </td>
                           )}
                           {visibleTreeColumns.includes('createdAt') && (

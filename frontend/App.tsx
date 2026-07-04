@@ -1037,7 +1037,9 @@ export default function App() {
           fetch('/api/agency-companies').then(r => r.json()),
           fetch('/api/payment-sources').then(r => r.json())
         ];
-        if (state.currentUser.role === UserRole.ADMIN) {
+        const canLoadUsers =
+          state.currentUser.role === UserRole.ADMIN || state.currentUser.role === UserRole.USER;
+        if (canLoadUsers) {
           sharedRequests.push(fetch('/api/users').then(r => r.json()));
         }
         const responses = await Promise.all(sharedRequests);
@@ -1050,7 +1052,7 @@ export default function App() {
           periods: responses[4] || [],
           agencyCompanies: responses[5] || [],
           paymentSources: responses[6] || [],
-          users: state.currentUser?.role === UserRole.ADMIN ? (responses[7] || []).map((u: any) => ({ ...u, active: u.active !== false })) : []
+          users: canLoadUsers ? (responses[7] || []).map((u: any) => ({ ...u, active: u.active !== false })) : []
         }));
       } catch (err) {
         console.error('Error fetching data:', err);
