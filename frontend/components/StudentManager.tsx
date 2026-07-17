@@ -1432,12 +1432,12 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                           <a href={f.url} target="_blank" rel="noreferrer" className="flex-1 flex items-center gap-3 min-w-0">
                             <FileText size={16} className="text-gray-400 shrink-0" />
                             <div className="min-w-0">
-                              <span className="text-xs font-medium text-gray-700 truncate block" dir="ltr">{f.name}</span>
                               {getStudentFileTypeLabel(f.fileType, t, f.description) && (
-                                <span className="text-[10px] text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded mt-0.5 inline-block">
+                                <span className="text-sm font-semibold text-purple-900 bg-purple-100 border border-purple-200 px-2.5 py-1 rounded-lg mb-1 inline-block">
                                   {getStudentFileTypeLabel(f.fileType, t, f.description)}
                                 </span>
                               )}
+                              <span className="text-xs font-medium text-gray-700 truncate block" dir="ltr">{f.name}</span>
                             </div>
                           </a>
                           <button

@@ -14,8 +14,19 @@ api_bp = Blueprint('api', __name__)
 UPLOADS_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'uploads'))
 
 OUTGOING_PAYMENT_REASONS = frozenset({'commission', 'debt', 'company_expense'})
-COMPANY_EXPENSE_TYPES = frozenset({'rateb', 'kira', 'terwij', 'ulasim', 'yemek', 'others'})
+COMPANY_EXPENSE_TYPES = frozenset({
+    'salaries', 'advertising', 'cekeyim', 'kira', 'cashback', 'deposit', 'support', 'other',
+    # legacy values kept for reading/editing older records
+    'deposit_support', 'rateb', 'terwij', 'ulasim', 'yemek', 'others',
+})
+NEW_COMPANY_EXPENSE_TYPES = frozenset({
+    'salaries', 'advertising', 'cekeyim', 'kira', 'cashback', 'deposit', 'support', 'other',
+})
+COMMISSION_SHAPES = frozenset({
+    'agency_commission', 'employee_commission', 'student_referral_commission',
+})
 STUDENT_FILE_TYPES = frozenset({'acceptance_letter', 'offer_letter', 'other'})
+INCOMING_PAYMENT_TYPES = frozenset({'Cash', 'Bank', 'Scholarship'})
 
 
 def _iso_timestamp():
@@ -894,6 +905,7 @@ def get_user_statement(user_id):
             'paymentType': p.payment_type,
             'paymentReason': p.payment_reason,
             'expenseType': getattr(p, 'expense_type', None),
+            'commissionShape': getattr(p, 'commission_shape', None),
             'description1': p.description_1
         })
 
@@ -2270,8 +2282,8 @@ def add_incoming_payment():
         payment_amount = float(payment_amount)
     except (TypeError, ValueError):
         return jsonify({'message': 'paymentAmount must be a number'}), 400
-    if not payment_date or payment_type not in ('Cash', 'Bank') or not payment_source:
-        return jsonify({'message': 'paymentDate, paymentType (Cash/Bank), paymentSource and paymentAmount are required'}), 400
+    if not payment_date or payment_type not in INCOMING_PAYMENT_TYPES or not payment_source:
+        return jsonify({'message': 'paymentDate, paymentType (Cash/Bank/Scholarship), paymentSource and paymentAmount are required'}), 400
     now = _iso_timestamp()
     record = IncomingPayment(
         id=str(uuid.uuid4()),
@@ -2323,8 +2335,8 @@ def update_incoming_payment(payment_id):
         record.payment_source = source_obj.name
     if 'paymentType' in data:
         value = (data.get('paymentType') or '').strip()
-        if value not in ('Cash', 'Bank'):
-            return jsonify({'message': 'paymentType must be Cash or Bank'}), 400
+        if value not in INCOMING_PAYMENT_TYPES:
+            return jsonify({'message': 'paymentType must be Cash, Bank or Scholarship'}), 400
         record.payment_type = value
     if 'paymentAmount' in data:
         try:
@@ -2429,6 +2441,7 @@ def get_outgoing_payments():
         'paymentType': r.payment_type,
         'paymentReason': r.payment_reason,
         'expenseType': getattr(r, 'expense_type', None),
+        'commissionShape': getattr(r, 'commission_shape', None),
         'description1': r.description_1,
         'receiptFiles': _files_info_list(_payment_receipt_files_raw(r)),
         'userId': getattr(r, 'user_id', None),
@@ -2458,10 +2471,15 @@ def add_outgoing_payment():
     if payment_reason not in OUTGOING_PAYMENT_REASONS:
         return jsonify({'message': 'paymentReason must be commission, debt or company_expense'}), 400
     expense_value = None
+    commission_shape_value = None
     if payment_reason == 'company_expense':
         expense_value = (data.get('expenseType') or '').strip()
-        if expense_value not in COMPANY_EXPENSE_TYPES:
-            return jsonify({'message': 'expenseType required for Firma masrafı: rateb, kira, terwij, ulasim, yemek, others'}), 400
+        if expense_value not in NEW_COMPANY_EXPENSE_TYPES:
+            return jsonify({'message': 'expenseType required for Firma masrafı: salaries, advertising, cekeyim, kira, cashback, deposit, support, other'}), 400
+    if payment_reason == 'commission':
+        commission_shape_value = (data.get('commissionShape') or '').strip()
+        if commission_shape_value not in COMMISSION_SHAPES:
+            return jsonify({'message': 'commissionShape required for Komisyon: agency_commission, employee_commission, student_referral_commission'}), 400
     try:
         payment_amount = float(payment_amount)
     except (TypeError, ValueError):
@@ -2482,6 +2500,7 @@ def add_outgoing_payment():
         payment_type=payment_type,
         payment_reason=payment_reason,
         expense_type=expense_value,
+        commission_shape=commission_shape_value,
         description_1=(data.get('description1') or '').strip() or None,
         user_id=user_value,
         created_at=now,
@@ -2543,11 +2562,26 @@ def update_outgoing_payment(payment_id):
         et = (record.expense_type or '').strip()
         if 'expenseType' in data:
             et = (data.get('expenseType') or '').strip()
-        if et not in COMPANY_EXPENSE_TYPES:
-            return jsonify({'message': 'expenseType required for company_expense: rateb, kira, terwij, ulasim, yemek, others'}), 400
+        if not et:
+            return jsonify({'message': 'expenseType required for company_expense'}), 400
+        if 'expenseType' in data and et not in NEW_COMPANY_EXPENSE_TYPES:
+            # Allow keeping an already-stored legacy value if the field was not changed
+            if et not in COMPANY_EXPENSE_TYPES:
+                return jsonify({'message': 'expenseType must be salaries, advertising, cekeyim, kira, cashback, deposit, support or other'}), 400
+        elif et not in COMPANY_EXPENSE_TYPES:
+            return jsonify({'message': 'expenseType required for company_expense'}), 400
         record.expense_type = et
     else:
         record.expense_type = None
+    if record.payment_reason == 'commission':
+        cs = (getattr(record, 'commission_shape', None) or '').strip()
+        if 'commissionShape' in data:
+            cs = (data.get('commissionShape') or '').strip()
+        if cs not in COMMISSION_SHAPES:
+            return jsonify({'message': 'commissionShape required for Komisyon: agency_commission, employee_commission, student_referral_commission'}), 400
+        record.commission_shape = cs
+    else:
+        record.commission_shape = None
     record.updated_at = _iso_timestamp()
     db.session.commit()
     return jsonify({'message': 'Outgoing payment updated'})

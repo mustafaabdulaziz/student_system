@@ -8,6 +8,7 @@ import {
   formatExpenseTypeDisplay,
   formatOutgoingPaymentDisplay
 } from '../constants/outgoingPayment';
+import { formatIncomingPaymentType } from '../constants/incomingPayment';
 import { CreatedAtRangeFilter } from './CreatedAtRangeFilter';
 import { getLast30DaysRange } from '../utils/datePresets';
 import { SearchableMultiSelect } from './SearchableMultiSelect';
@@ -19,7 +20,7 @@ interface IncomingPaymentRow {
   id: string;
   paymentDate: string;
   paymentAmount: number;
-  paymentType: 'Cash' | 'Bank';
+  paymentType: 'Cash' | 'Bank' | 'Scholarship';
   paymentSource: string;
   currency: CurrencyCode;
 }
@@ -45,9 +46,7 @@ function uniq(values: string[]): string[] {
 }
 
 function formatPaymentType(value: string): string {
-  if (value === 'Cash') return 'Nakit';
-  if (value === 'Bank') return 'Banka';
-  return value || '—';
+  return formatIncomingPaymentType(value);
 }
 
 const CHART_COLORS = ['#2563eb', '#16a34a', '#f59e0b', '#dc2626', '#7c3aed', '#0891b2'];
@@ -132,7 +131,7 @@ export const PaymentDashboard: React.FC<PaymentDashboardProps> = ({ currentUser 
     return {
       currencies: currencies.map((v) => ({ value: v, label: v })),
       paymentSources: paymentSources.map((v) => ({ value: v, label: v })),
-      paymentTypes: paymentTypes.map((v) => ({ value: v, label: v === 'Cash' ? 'Nakit' : 'Banka' }))
+      paymentTypes: paymentTypes.map((v) => ({ value: v, label: formatIncomingPaymentType(v) }))
     };
   }, [incomingRows]);
 

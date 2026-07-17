@@ -51,6 +51,10 @@ export interface Translations {
     totalApplications: string;
     totalPrograms: string;
     totalUniversities: string;
+    totalOfferLetterPipeline: string;
+    totalDepositPaidPipeline: string;
+    totalFinalRegistration: string;
+    totalAnnualPaymentCompleted: string;
     pendingApplications: string;
     approvedApplications: string;
     rejectedApplications: string;
@@ -186,6 +190,8 @@ export interface Translations {
     massEditValueRequired: string;
     selectField: string;
     massEditPartialResult: string;
+    selectAllMatching: string;
+    clearSelection: string;
     searchProgramNamePlaceholder: string;
     filterAll: string;
     clearFilters: string;
@@ -417,6 +423,10 @@ export const translations: Record<Language, Translations> = {
         totalApplications: 'إجمالي الطلبات',
         totalPrograms: 'إجمالي البرامج',
         totalUniversities: 'إجمالي الجامعات',
+        totalOfferLetterPipeline: 'إجمالي خطابات العرض',
+        totalDepositPaidPipeline: 'إجمالي دفع العربون',
+        totalFinalRegistration: 'إجمالي التسجيل النهائي',
+        totalAnnualPaymentCompleted: 'إجمالي إتمام الدفع السنوي',
         pendingApplications: 'طلبات قيد الانتظار',
         approvedApplications: 'طلبات مقبولة',
         rejectedApplications: 'طلبات مرفوضة',
@@ -547,6 +557,8 @@ export const translations: Record<Language, Translations> = {
         massEditValueRequired: 'أدخل قيمة',
         selectField: 'اختر حقلًا',
         massEditPartialResult: 'تم تحديث {ok}، فشل {fail}',
+        selectAllMatching: 'تحديد الكل ({count})',
+        clearSelection: 'إلغاء التحديد',
         searchProgramNamePlaceholder: 'بحث باسم البرنامج أو الاسم بالعربية...',
         filterAll: 'الكل',
         clearFilters: 'مسح الفلاتر',
@@ -777,6 +789,10 @@ export const translations: Record<Language, Translations> = {
         totalApplications: 'Total Applications',
         totalPrograms: 'Total Programs',
         totalUniversities: 'Total Universities',
+        totalOfferLetterPipeline: 'Total Offer Letters',
+        totalDepositPaidPipeline: 'Total Deposit Paid',
+        totalFinalRegistration: 'Total Final Registration',
+        totalAnnualPaymentCompleted: 'Total Annual Payment Completed',
         pendingApplications: 'Pending Applications',
         approvedApplications: 'Approved Applications',
         rejectedApplications: 'Rejected Applications',
@@ -907,6 +923,8 @@ export const translations: Record<Language, Translations> = {
         massEditValueRequired: 'Enter a value',
         selectField: 'Select field',
         massEditPartialResult: 'Updated {ok}, failed {fail}',
+        selectAllMatching: 'Select all ({count})',
+        clearSelection: 'Clear selection',
         searchProgramNamePlaceholder: 'Search by program or Arabic name...',
         filterAll: 'All',
         clearFilters: 'Clear filters',
@@ -1137,6 +1155,10 @@ export const translations: Record<Language, Translations> = {
         totalApplications: 'Toplam Başvuru',
         totalPrograms: 'Toplam Program',
         totalUniversities: 'Toplam Üniversite',
+        totalOfferLetterPipeline: 'Toplam Teklif Mektubu',
+        totalDepositPaidPipeline: 'Toplam Depozito Ödemesi',
+        totalFinalRegistration: 'Toplam Kesin Kayıt',
+        totalAnnualPaymentCompleted: 'Toplam Yıllık Ödeme Tamamlanan',
         pendingApplications: 'Bekleyen Başvurular',
         approvedApplications: 'Onaylanan Başvurular',
         rejectedApplications: 'Reddedilen Başvurular',
@@ -1267,6 +1289,8 @@ export const translations: Record<Language, Translations> = {
         massEditValueRequired: 'Bir değer girin',
         selectField: 'Alan seçin',
         massEditPartialResult: '{ok} güncellendi, {fail} başarısız',
+        selectAllMatching: 'Hepsini seç ({count})',
+        clearSelection: 'Seçimi temizle',
         searchProgramNamePlaceholder: 'Program adı veya Arapça ad ile ara...',
         filterAll: 'Tümü',
         clearFilters: 'Filtreleri temizle',

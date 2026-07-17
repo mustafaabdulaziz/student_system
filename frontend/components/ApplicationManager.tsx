@@ -18,8 +18,6 @@ import { CreatedAtRangeFilter } from './CreatedAtRangeFilter';
 import { StaffTypedFileUpload } from './StaffTypedFileUpload';
 import { getStudentFileTypeLabel, type StudentFileTypeCode } from '../constants/studentFileTypes';
 import { MassEditModal, type MassEditFieldDef } from './MassEditModal';
-
-const BULK_DELETE_MAX = 50;
 import { SearchableMultiSelect } from './SearchableMultiSelect';
 
 const FINANCIAL_TREE_FIELDS: { key: keyof Application; label: string }[] = [
@@ -709,6 +707,9 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const allOnPageSelected =
     pagedApplications.length > 0 && pagedApplications.every((a) => selectedApplicationIds.has(a.id));
   const someOnPageSelected = pagedApplications.some((a) => selectedApplicationIds.has(a.id));
+  const allMatchingSelected =
+    sortedApplications.length > 0 &&
+    sortedApplications.every((a) => selectedApplicationIds.has(a.id));
   const showBulkDelete = !!(isAdmin && onDeleteApplication && listViewMode === 'tree' && view === 'list');
   const showMassEdit = !!(isAdminOrUser && onUpdateApplication && listViewMode === 'tree' && view === 'list');
   const showBulkSelect = showBulkDelete || showMassEdit;
@@ -721,15 +722,8 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const toggleApplicationSelection = (id: string) => {
     setSelectedApplicationIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-        return next;
-      }
-      if (next.size >= BULK_DELETE_MAX) {
-        alert(t.bulkDeleteMaxRecords);
-        return prev;
-      }
-      next.add(id);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   };
@@ -745,15 +739,17 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     }
     setSelectedApplicationIds((prev) => {
       const next = new Set(prev);
-      for (const a of pagedApplications) {
-        if (next.size >= BULK_DELETE_MAX) break;
-        next.add(a.id);
-      }
-      if (next.size >= BULK_DELETE_MAX && pagedApplications.some((a) => !next.has(a.id))) {
-        alert(t.bulkDeleteMaxRecords);
-      }
+      pagedApplications.forEach((a) => next.add(a.id));
       return next;
     });
+  };
+
+  const selectAllMatchingApplications = () => {
+    setSelectedApplicationIds(new Set(sortedApplications.map((a) => a.id)));
+  };
+
+  const clearApplicationSelection = () => {
+    setSelectedApplicationIds(new Set());
   };
 
   const handleBulkDeleteConfirm = async () => {
@@ -1465,12 +1461,12 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                           <FileText size={16} />
                         </div>
                         <div className="flex-1 min-w-0 pr-2 text-right">
-                          <p className="text-[11px] font-bold text-gray-700 truncate" dir="ltr">{f.name}</p>
                           {getStudentFileTypeLabel(f.fileType, t, f.description) && (
-                            <span className="text-[9px] text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded mt-0.5 inline-block">
+                            <span className="text-sm font-semibold text-purple-900 bg-purple-100 border border-purple-200 px-2.5 py-1 rounded-lg mb-1 inline-block">
                               {getStudentFileTypeLabel(f.fileType, t, f.description)}
                             </span>
                           )}
+                          <p className="text-[11px] font-bold text-gray-700 truncate" dir="ltr">{f.name}</p>
                           <span className="text-[9px] text-gray-400 uppercase block mt-0.5">View File</span>
                         </div>
                       </a>
@@ -2123,6 +2119,27 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                     </button>
                   </div>
                 ) : null}
+                {showBulkSelect && (
+                  allMatchingSelected ? (
+                    <button
+                      type="button"
+                      onClick={clearApplicationSelection}
+                      disabled={sortedApplications.length === 0}
+                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-gray-700 hover:bg-gray-100 border border-transparent hover:border-gray-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed font-medium text-sm"
+                    >
+                      {t.clearSelection}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={selectAllMatchingApplications}
+                      disabled={sortedApplications.length === 0}
+                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-gray-700 hover:bg-gray-100 border border-transparent hover:border-gray-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed font-medium text-sm"
+                    >
+                      {t.selectAllMatching.replace('{count}', String(sortedApplications.length))}
+                    </button>
+                  )
+                )}
                 {showMassEdit && (
                   <button
                     type="button"

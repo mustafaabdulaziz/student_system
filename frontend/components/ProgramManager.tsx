@@ -9,8 +9,6 @@ import { useTranslation } from '../hooks/useTranslation';
 import { SearchableMultiSelect } from './SearchableMultiSelect';
 import { MassEditModal, type MassEditFieldDef } from './MassEditModal';
 
-const BULK_DELETE_MAX = 50;
-
 interface ProgramManagerProps {
   programs: Program[];
   universities: University[];
@@ -241,6 +239,9 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
   const allOnPageSelected =
     paginatedPrograms.length > 0 && paginatedPrograms.every((p) => selectedProgramIds.has(p.id));
   const someOnPageSelected = paginatedPrograms.some((p) => selectedProgramIds.has(p.id));
+  const allMatchingSelected =
+    sortedPrograms.length > 0 &&
+    sortedPrograms.every((p) => selectedProgramIds.has(p.id));
 
   useEffect(() => {
     const el = selectAllCheckboxRef.current;
@@ -250,15 +251,8 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
   const toggleProgramSelection = (id: string) => {
     setSelectedProgramIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-        return next;
-      }
-      if (next.size >= BULK_DELETE_MAX) {
-        alert(t.bulkDeleteMaxRecords);
-        return prev;
-      }
-      next.add(id);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   };
@@ -274,15 +268,17 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
     }
     setSelectedProgramIds((prev) => {
       const next = new Set(prev);
-      for (const p of paginatedPrograms) {
-        if (next.size >= BULK_DELETE_MAX) break;
-        next.add(p.id);
-      }
-      if (next.size >= BULK_DELETE_MAX && paginatedPrograms.some((p) => !next.has(p.id))) {
-        alert(t.bulkDeleteMaxRecords);
-      }
+      paginatedPrograms.forEach((p) => next.add(p.id));
       return next;
     });
+  };
+
+  const selectAllMatchingPrograms = () => {
+    setSelectedProgramIds(new Set(sortedPrograms.map((p) => p.id)));
+  };
+
+  const clearProgramSelection = () => {
+    setSelectedProgramIds(new Set());
   };
 
   const toggleSort = (key: string) => {
@@ -416,6 +412,27 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
   const programPaginationBar = sortedPrograms.length > 0 ? (
     <div className="px-4 py-3 border-gray-100 flex flex-wrap items-center justify-between gap-3 text-sm text-gray-600 bg-gray-50/80">
       <div className="flex items-center gap-3 flex-wrap">
+        {isAdmin && archiveView === 'active' && (
+          allMatchingSelected ? (
+            <button
+              type="button"
+              onClick={clearProgramSelection}
+              disabled={sortedPrograms.length === 0}
+              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-gray-700 hover:bg-gray-100 border border-transparent hover:border-gray-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed font-medium"
+            >
+              {t.clearSelection}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={selectAllMatchingPrograms}
+              disabled={sortedPrograms.length === 0}
+              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-gray-700 hover:bg-gray-100 border border-transparent hover:border-gray-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed font-medium"
+            >
+              {t.selectAllMatching.replace('{count}', String(sortedPrograms.length))}
+            </button>
+          )
+        )}
         {isAdmin && archiveView === 'active' && (
           <button
             type="button"

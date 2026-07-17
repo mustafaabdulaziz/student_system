@@ -290,6 +290,9 @@ if __name__ == '__main__':
                     if 'expense_type' not in outgoing_cols:
                         conn.execute(text('ALTER TABLE outgoing_payments ADD COLUMN expense_type VARCHAR'))
                         conn.commit()
+                    if 'commission_shape' not in outgoing_cols:
+                        conn.execute(text('ALTER TABLE outgoing_payments ADD COLUMN commission_shape VARCHAR'))
+                        conn.commit()
                     if 'receipt_files' not in outgoing_cols:
                         conn.execute(text('ALTER TABLE outgoing_payments ADD COLUMN receipt_files VARCHAR[]'))
                         conn.commit()

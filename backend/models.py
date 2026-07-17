@@ -178,7 +178,7 @@ class IncomingPayment(db.Model):
     id = db.Column(db.String, primary_key=True)
     sequence_number = db.Column(db.Integer, nullable=False, unique=True)
     payment_date = db.Column(db.String, nullable=False)
-    payment_type = db.Column(db.String, nullable=False, default='Cash')  # Cash / Bank
+    payment_type = db.Column(db.String, nullable=False, default='Cash')  # Cash / Bank / Scholarship
     payment_source = db.Column(db.String, nullable=False)
     payment_source_id = db.Column(db.String, db.ForeignKey('payment_sources.id'), nullable=True)
     payment_source_rel = db.relationship('PaymentSource', foreign_keys=[payment_source_id])
@@ -200,7 +200,8 @@ class OutgoingPayment(db.Model):
     currency = db.Column(db.String, nullable=False, default='USD')
     payment_type = db.Column(db.String, nullable=False)  # Cash / Bank
     payment_reason = db.Column(db.String, nullable=False)  # commission / debt / company_expense
-    expense_type = db.Column(db.String, nullable=True)  # when company_expense: rateb, kira, ...
+    expense_type = db.Column(db.String, nullable=True)  # when company_expense: salaries, advertising, ...
+    commission_shape = db.Column(db.String, nullable=True)  # when commission: agency / employee / student_referral
     description_1 = db.Column(db.String, nullable=True)
     receipt_files = db.Column(db.ARRAY(db.String))
     user_id = db.Column(db.String, db.ForeignKey('users.id'), nullable=True)

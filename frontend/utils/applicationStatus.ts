@@ -116,3 +116,46 @@ export function translateApplicationStatus(status: string, language: string): st
   }
   return String(canonical);
 }
+
+/** Canonical pipeline order for milestone counts (status and all later stages). */
+export const APPLICATION_STATUS_PIPELINE: ApplicationStatus[] = [
+  ApplicationStatus.NEW,
+  ApplicationStatus.TO_BE_APPLIED,
+  ApplicationStatus.APPLIED,
+  ApplicationStatus.REJECTED,
+  ApplicationStatus.REGISTERED_WITH_OTHER_AGENCY,
+  ApplicationStatus.MISSING_DOCS,
+  ApplicationStatus.QUOTA_FULL,
+  ApplicationStatus.OFFER_LETTER_WAITING,
+  ApplicationStatus.OFFER_LETTER_SEND_TO_COMPANY_WAITING,
+  ApplicationStatus.OFFER_LETTER_UPLOADED,
+  ApplicationStatus.DEPOSIT_PAID,
+  ApplicationStatus.PAYMENT_REJECTED,
+  ApplicationStatus.PAYMENT_REUPLOADED,
+  ApplicationStatus.ACCEPTANCE_LETTER_WAITING,
+  ApplicationStatus.ACCEPTANCE_LETTER_SEND_TO_COMPANY_WAITING,
+  ApplicationStatus.ACCEPTANCE_LETTER_UPLOADED,
+  ApplicationStatus.STUDENT_CARD_WAITING,
+  ApplicationStatus.ANNUAL_PAYMENT_RECEIPT_WAITING,
+  ApplicationStatus.ANNUAL_PAYMENT_RECEIVED_BY_SCHOOL,
+  ApplicationStatus.DEPOSIT_REFUND_APPLIED,
+  ApplicationStatus.DEPOSIT_REFUND_WAITING,
+  ApplicationStatus.SCHOOL_REGISTRATION_APPROVED,
+  ApplicationStatus.SCHOOL_PAYMENT_DONE,
+  ApplicationStatus.COMPLETED,
+];
+
+const PIPELINE_INDEX = new Map(
+  APPLICATION_STATUS_PIPELINE.map((status, index) => [status, index])
+);
+
+export function isApplicationStatusAtOrAfter(
+  status: string | undefined | null,
+  threshold: ApplicationStatus
+): boolean {
+  const canonical = normalizeApplicationStatus(status);
+  const idx = PIPELINE_INDEX.get(canonical as ApplicationStatus);
+  const thresholdIdx = PIPELINE_INDEX.get(threshold);
+  if (idx === undefined || thresholdIdx === undefined) return false;
+  return idx >= thresholdIdx;
+}
