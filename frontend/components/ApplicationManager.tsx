@@ -19,6 +19,7 @@ import { StaffTypedFileUpload } from './StaffTypedFileUpload';
 import { getStudentFileTypeLabel, type StudentFileTypeCode } from '../constants/studentFileTypes';
 import { MassEditModal, type MassEditFieldDef } from './MassEditModal';
 import { SearchableMultiSelect } from './SearchableMultiSelect';
+import { SearchableSelect } from './SearchableSelect';
 
 const FINANCIAL_TREE_FIELDS: { key: keyof Application; label: string }[] = [
   { key: 'annualPayment', label: 'Yıllık ödeme' },
@@ -30,6 +31,7 @@ const FINANCIAL_TREE_FIELDS: { key: keyof Application; label: string }[] = [
   { key: 'bonusMin', label: 'Bonus Min' },
   { key: 'agencyCommission', label: 'Acenta komisyon' },
   { key: 'agencyBonus', label: 'Acenta bonus' },
+  { key: 'depositSupport', label: 'Depozito desteği' },
   { key: 'agencyContractAmount', label: 'Acenta anlaşma' },
   { key: 'currency', label: 'Para birimi' },
   { key: 'remainingMin', label: 'Kalan Min' },
@@ -38,6 +40,38 @@ const FINANCIAL_TREE_FIELDS: { key: keyof Application; label: string }[] = [
   { key: 'paymentDate', label: 'Ödeme tarihi' },
   { key: 'paymentMonth', label: 'Ödeme ayı' }
 ];
+
+const FINANCIAL_TREE_BASE_COLUMN_KEYS = [
+  'number',
+  'status',
+  'agent',
+  'nationality',
+  'degree',
+  'program',
+  'university',
+  'student'
+] as const;
+
+const FINANCIAL_TREE_COLUMN_KEYS = [
+  ...FINANCIAL_TREE_BASE_COLUMN_KEYS,
+  ...FINANCIAL_TREE_FIELDS.map((field) => String(field.key))
+];
+
+const FINANCIAL_TREE_NUMERIC_KEYS = new Set<keyof Application>([
+  'annualPayment',
+  'educationVat',
+  'grossCommission',
+  'abroadVat',
+  'netCommission',
+  'bonusMax',
+  'bonusMin',
+  'agencyCommission',
+  'agencyBonus',
+  'depositSupport',
+  'agencyContractAmount',
+  'remainingMin',
+  'remainingMax'
+]);
 
 const formatApplicationFinanceValue = (app: Application, key: keyof Application): string => {
   const v = app[key];
@@ -103,6 +137,7 @@ interface ApplicationManagerProps {
     bonusMin?: number | null;
     agencyCommission?: number | null;
     agencyBonus?: number | null;
+    depositSupport?: number | null;
     agencyCompanyId?: string | null;
     currency?: string | null;
     paymentDeserved?: boolean;
@@ -174,14 +209,16 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const [kanbanPage, setKanbanPage] = useState(1);
   const [columnsOpen, setColumnsOpen] = useState(false);
   const columnsRef = useRef<HTMLDivElement>(null);
-  const applicationColumnKeys = useMemo(() => ['number', 'status', 'agent', 'responsible', 'student', 'program', 'university', 'createdAt', 'updatedAt'], []);
+  const applicationColumnKeys = useMemo(() => ['number', 'status', 'agent', 'responsible', 'student', 'nationality', 'program', 'university', 'degree', 'createdAt', 'updatedAt'], []);
   const [visibleTreeColumns, setVisibleTreeColumns] = useState<string[]>(applicationColumnKeys);
+  const [visibleFinancialColumns, setVisibleFinancialColumns] = useState<string[]>(FINANCIAL_TREE_COLUMN_KEYS);
 
   const [messages, setMessages] = React.useState<Array<{ id: string; sender: string; message: string; createdAt: string; senderName?: string | null }>>([]);
   const [newMessage, setNewMessage] = React.useState('');
   const chatMessagesRef = useRef<HTMLDivElement>(null);
   const [detailFiles, setDetailFiles] = React.useState<Array<{ url: string; name: string; filename?: string; fileType?: string; description?: string }>>([]);
   const [attachFiles, setAttachFiles] = React.useState<FileList | null>(null);
+  const [receiptUploading, setReceiptUploading] = useState(false);
 
   // Create Form State
   const [selectedStudent, setSelectedStudent] = useState('');
@@ -201,6 +238,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     bonusMin: '',
     agencyCommission: '',
     agencyBonus: '',
+    depositSupport: '',
     agencyContractAmount: '',
     currency: 'USD',
     remainingMin: '',
@@ -257,6 +295,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     bonusMin: app.bonusMin != null ? String(app.bonusMin) : '',
     agencyCommission: app.agencyCommission != null ? String(app.agencyCommission) : '',
     agencyBonus: app.agencyBonus != null ? String(app.agencyBonus) : '',
+    depositSupport: app.depositSupport != null ? String(app.depositSupport) : '',
     agencyContractAmount: app.agencyContractAmount != null ? String(app.agencyContractAmount) : '',
     currency: (app.currency && ['USD', 'TRY', 'EUR'].includes(app.currency)) ? app.currency : 'USD',
     remainingMin: app.remainingMin != null ? String(app.remainingMin) : '',
@@ -573,6 +612,15 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     }
   };
 
+  const uploadApplicationReceipt = async (file: File) => {
+    setReceiptUploading(true);
+    try {
+      return await uploadTypedApplicationFile(file, 'receipt', '');
+    } finally {
+      setReceiptUploading(false);
+    }
+  };
+
   const uniqueAgents = useMemo(() => {
     const names = new Set<string>();
     applications.forEach(app => {
@@ -663,8 +711,10 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
         case 'agent': va = getAgentName(a).toLowerCase(); vb = getAgentName(b).toLowerCase(); return dir * (va as string).localeCompare(vb as string);
         case 'responsible': va = getResponsibleLabel(a).toLowerCase(); vb = getResponsibleLabel(b).toLowerCase(); return dir * (va as string).localeCompare(vb as string);
         case 'student': va = `${sA?.firstName || ''} ${sA?.lastName || ''}`.trim().toLowerCase(); vb = `${sB?.firstName || ''} ${sB?.lastName || ''}`.trim().toLowerCase(); return dir * (va as string).localeCompare(vb as string);
+        case 'nationality': va = (sA?.nationality || '').toLowerCase(); vb = (sB?.nationality || '').toLowerCase(); return dir * (va as string).localeCompare(vb as string);
         case 'program': va = (pA?.name || '').toLowerCase(); vb = (pB?.name || '').toLowerCase(); return dir * (va as string).localeCompare(vb as string);
         case 'university': va = (pA ? getUni(pA.universityId)?.name || '' : '').toLowerCase(); vb = (pB ? getUni(pB.universityId)?.name || '' : '').toLowerCase(); return dir * (va as string).localeCompare(vb as string);
+        case 'degree': va = (pA?.degree || '').toLowerCase(); vb = (pB?.degree || '').toLowerCase(); return dir * (va as string).localeCompare(vb as string);
         case 'createdAt': va = new Date(a.createdAt || 0).getTime(); vb = new Date(b.createdAt || 0).getTime(); return dir * ((va as number) - (vb as number));
         case 'updatedAt': va = new Date(a.updatedAt || a.createdAt || 0).getTime(); vb = new Date(b.updatedAt || b.createdAt || 0).getTime(); return dir * ((va as number) - (vb as number));
         case 'status': va = (a.status || '').toLowerCase(); vb = (b.status || '').toLowerCase(); return dir * (va as string).localeCompare(vb as string);
@@ -673,6 +723,23 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     });
     return list;
   }, [filteredApplications, sortBy, sortDir, users]);
+
+  const financialTreeTotals = useMemo(() => {
+    const totals: Partial<Record<keyof Application, number>> = {};
+    FINANCIAL_TREE_NUMERIC_KEYS.forEach((key) => {
+      totals[key] = sortedApplications.reduce((sum, application) => {
+        const value = Number(application[key]);
+        return sum + (Number.isFinite(value) ? value : 0);
+      }, 0);
+    });
+    return totals;
+  }, [sortedApplications]);
+  const visibleFinancialFields = FINANCIAL_TREE_FIELDS.filter((field) =>
+    visibleFinancialColumns.includes(String(field.key))
+  );
+  const visibleFinancialBaseCount = FINANCIAL_TREE_BASE_COLUMN_KEYS.filter((key) =>
+    visibleFinancialColumns.includes(key)
+  ).length;
 
   const TREE_PAGE_SIZE = 80;
   const totalTreePages = Math.max(1, Math.ceil(sortedApplications.length / TREE_PAGE_SIZE));
@@ -793,7 +860,8 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
       { key: 'bonusMax', label: fin('bonusMax'), type: 'number', nullable: true },
       { key: 'bonusMin', label: fin('bonusMin'), type: 'number', nullable: true },
       { key: 'agencyCommission', label: fin('agencyCommission'), type: 'number', nullable: true },
-      { key: 'agencyBonus', label: fin('agencyBonus'), type: 'number', nullable: true }
+      { key: 'agencyBonus', label: fin('agencyBonus'), type: 'number', nullable: true },
+      { key: 'depositSupport', label: fin('depositSupport'), type: 'number', nullable: true }
     ];
     if (agentUsers.length > 0) {
       fields.splice(1, 0, {
@@ -860,34 +928,87 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     { key: 'agent', label: t.agent },
     { key: 'responsible', label: t.responsible },
     { key: 'student', label: t.studentInfo },
+    { key: 'nationality', label: t.nationality },
     { key: 'program', label: t.program },
     { key: 'university', label: t.universityName },
+    { key: 'degree', label: t.programDegree },
     { key: 'createdAt', label: t.createdAt },
     { key: 'updatedAt', label: t.lastUpdatedAt }
   ];
+  const financialColumnOptions = [
+    { key: 'number', label: t.number },
+    { key: 'status', label: t.applicationStatus },
+    { key: 'agent', label: t.agent },
+    { key: 'nationality', label: t.nationality },
+    { key: 'degree', label: t.programDegree },
+    { key: 'program', label: t.program },
+    { key: 'university', label: t.universityName },
+    { key: 'student', label: t.studentInfo },
+    ...FINANCIAL_TREE_FIELDS.map((field) => ({ key: String(field.key), label: field.label }))
+  ];
   const storageKey = `tree-columns:applications:${currentUser?.id || 'guest'}`;
+  const financialStorageKey = `tree-columns:applications-financial:${currentUser?.id || 'guest'}`;
+  const newColumnsMigrationKey = `${storageKey}:degree-nationality-v1`;
+  const depositSupportMigrationKey = `${financialStorageKey}:deposit-support-v1`;
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
       const raw = window.localStorage.getItem(storageKey);
-      if (!raw) return;
+      if (!raw) {
+        window.localStorage.setItem(newColumnsMigrationKey, '1');
+        return;
+      }
       const parsed = JSON.parse(raw);
       if (!Array.isArray(parsed)) return;
       const valid = parsed.filter((k: string) => applicationColumnKeys.includes(k));
       if (valid.includes('program') && !valid.includes('university')) {
         valid.splice(valid.indexOf('program') + 1, 0, 'university');
       }
+      if (!window.localStorage.getItem(newColumnsMigrationKey)) {
+        if (!valid.includes('nationality')) {
+          const studentIndex = valid.indexOf('student');
+          valid.splice(studentIndex >= 0 ? studentIndex + 1 : valid.length, 0, 'nationality');
+        }
+        if (!valid.includes('degree')) {
+          const universityIndex = valid.indexOf('university');
+          valid.splice(universityIndex >= 0 ? universityIndex + 1 : valid.length, 0, 'degree');
+        }
+        window.localStorage.setItem(newColumnsMigrationKey, '1');
+      }
       if (valid.length > 0) setVisibleTreeColumns(valid);
     } catch {
       // ignore corrupted localStorage values
     }
-  }, [storageKey, applicationColumnKeys]);
+  }, [storageKey, newColumnsMigrationKey, applicationColumnKeys]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
     window.localStorage.setItem(storageKey, JSON.stringify(visibleTreeColumns));
   }, [storageKey, visibleTreeColumns]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = window.localStorage.getItem(financialStorageKey);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return;
+      const valid = parsed.filter((key: string) => FINANCIAL_TREE_COLUMN_KEYS.includes(key));
+      if (!window.localStorage.getItem(depositSupportMigrationKey)) {
+        if (!valid.includes('depositSupport')) valid.push('depositSupport');
+        window.localStorage.setItem(depositSupportMigrationKey, '1');
+      }
+      if (valid.length > 0) setVisibleFinancialColumns(valid);
+    } catch {
+      // ignore corrupted localStorage values
+    }
+  }, [financialStorageKey, depositSupportMigrationKey]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(financialStorageKey, JSON.stringify(visibleFinancialColumns));
+  }, [financialStorageKey, visibleFinancialColumns]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -915,6 +1036,16 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
         return prev.filter(k => k !== key);
       }
       return [...prev, key];
+    });
+  };
+
+  const toggleFinancialColumn = (key: string) => {
+    setVisibleFinancialColumns((current) => {
+      if (current.includes(key)) {
+        if (current.length === 1) return current;
+        return current.filter((column) => column !== key);
+      }
+      return [...current, key];
     });
   };
 
@@ -1075,16 +1206,15 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
             </div>
             <div className="space-y-1">
               <label className="text-xs font-bold text-blue-400 uppercase tracking-wider px-1">{t.universities}</label>
-              <select
-                className="w-full p-2.5 border border-blue-100 rounded-lg bg-white focus:ring-2 focus:ring-blue-400 outline-none disabled:opacity-50"
+              <SearchableSelect
                 value={filterUni}
-                onChange={e => { setFilterUni(e.target.value); setFilterDegree(''); setFilterLang(''); setFilterName(''); }}
+                onChange={(value) => { setFilterUni(value); setFilterDegree(''); setFilterLang(''); setFilterName(''); }}
+                options={createAvailableUnis.map((university) => ({ value: university.id, label: university.name }))}
+                placeholder={t.selectUniversity}
+                searchPlaceholder={t.search}
+                noResultsText={t.searchNoResults}
                 disabled={!filterPeriod}
-                required
-              >
-                <option value="">{t.selectUniversity}</option>
-                {createAvailableUnis.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-              </select>
+              />
             </div>
             <div className="space-y-1">
               <label className="text-xs font-bold text-blue-400 uppercase tracking-wider px-1">{t.programDegree}</label>
@@ -1114,16 +1244,15 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
             </div>
             <div className="space-y-1">
               <label className="text-xs font-bold text-blue-400 uppercase tracking-wider px-1">{t.programName}</label>
-              <select
-                className="w-full p-2.5 border border-blue-100 rounded-lg bg-white focus:ring-2 focus:ring-blue-400 outline-none disabled:opacity-50"
+              <SearchableSelect
                 value={filterName}
-                onChange={e => setFilterName(e.target.value)}
+                onChange={setFilterName}
+                options={createAvailableProgramNames.map((name) => ({ value: name, label: name }))}
+                placeholder={t.selectProgram}
+                searchPlaceholder={t.search}
+                noResultsText={t.searchNoResults}
                 disabled={!filterLang}
-                required
-              >
-                <option value="">{t.selectProgram}</option>
-                {createAvailableProgramNames.map(n => <option key={n} value={n}>{n}</option>)}
-              </select>
+              />
             </div>
           </div>
         </div>
@@ -1255,6 +1384,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                         bonusMin: num(detailFinance.bonusMin),
                         agencyCommission: num(detailFinance.agencyCommission),
                         agencyBonus: num(detailFinance.agencyBonus),
+                        depositSupport: num(detailFinance.depositSupport),
                         currency: ['USD', 'TRY', 'EUR'].includes(detailFinance.currency) ? detailFinance.currency : 'USD',
                         paymentDeserved: detailFinance.paymentDeserved
                       });
@@ -1517,24 +1647,50 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
               )}
 
               <div className="space-y-2">
-                <input
-                  type="file" id="attach-files-det" multiple accept=".pdf,.jpg,.jpeg,.png"
-                  className="hidden" onChange={e => setAttachFiles(e.target.files)}
-                />
-                <label
-                  htmlFor="attach-files-det"
-                  className="flex flex-col items-center justify-center border border-dashed border-gray-200 rounded-xl p-3 cursor-pointer hover:border-blue-300 hover:bg-blue-50/20 transition-all"
-                >
-                  <span className="text-[11px] font-bold text-blue-600">
-                    {attachFiles && attachFiles.length > 0
-                      ? `${attachFiles.length} ${t.filesSelected}`
-                      : t.attachAdditionalFiles
-                    }
-                  </span>
-                </label>
-                {isAdminOrUser && (
-                  <StaffTypedFileUpload onUpload={uploadTypedApplicationFile} />
-                )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <input
+                    type="file" id="attach-files-det" multiple accept=".pdf,.jpg,.jpeg,.png"
+                    className="hidden" onChange={e => setAttachFiles(e.target.files)}
+                  />
+                  <label
+                    htmlFor="attach-files-det"
+                    className="flex flex-col items-center justify-center border border-dashed border-gray-200 rounded-xl p-3 cursor-pointer hover:border-blue-300 hover:bg-blue-50/20 transition-all"
+                  >
+                    <span className="text-[11px] font-bold text-blue-600">
+                      {attachFiles && attachFiles.length > 0
+                        ? `${attachFiles.length} ${t.filesSelected}`
+                        : t.attachAdditionalFiles
+                      }
+                    </span>
+                  </label>
+
+                  <input
+                    type="file"
+                    id="attach-receipt-det"
+                    accept=".pdf,.jpg,.jpeg,.png"
+                    className="hidden"
+                    disabled={receiptUploading}
+                    onChange={async (event) => {
+                      const input = event.currentTarget;
+                      const file = input.files?.[0];
+                      if (file) await uploadApplicationReceipt(file);
+                      input.value = '';
+                    }}
+                  />
+                  <label
+                    htmlFor="attach-receipt-det"
+                    className={`flex items-center justify-center gap-2 border border-dashed border-emerald-300 rounded-xl p-3 transition-all ${
+                      receiptUploading
+                        ? 'cursor-wait opacity-50'
+                        : 'cursor-pointer hover:border-emerald-500 hover:bg-emerald-50'
+                    }`}
+                  >
+                    <Upload size={14} className="text-emerald-600" />
+                    <span className="text-[11px] font-bold text-emerald-700">
+                      {receiptUploading ? t.loading : t.uploadReceipt}
+                    </span>
+                  </label>
+                </div>
                 <button
                   onClick={async () => {
                     if (!attachFiles || !selectedAppId) return;
@@ -1577,6 +1733,9 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                 >
                   <span className="flex items-center justify-center gap-2"><Upload size={14} /> {t.uploadNow}</span>
                 </button>
+                {isAdminOrUser && (
+                  <StaffTypedFileUpload onUpload={uploadTypedApplicationFile} />
+                )}
               </div>
             </div>
 
@@ -1749,6 +1908,10 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                     <input type="number" step="any" value={detailFinance.agencyBonus} onChange={(e) => setDetailFinance(prev => ({ ...prev, agencyBonus: e.target.value }))} className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
                   </div>
                   <div className="min-w-0 flex flex-col gap-1">
+                    <label className="text-gray-500 text-xs font-medium">Depozito Desteği</label>
+                    <input type="number" min="0" step="any" value={detailFinance.depositSupport} onChange={(e) => setDetailFinance(prev => ({ ...prev, depositSupport: e.target.value }))} className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                  </div>
+                  <div className="min-w-0 flex flex-col gap-1">
                     <label className="text-gray-500 text-xs font-medium">Acenta Anlaşma Miktarı</label>
                     <input type="number" step="any" value={computedAgencyContractAmount} readOnly className="w-full min-w-0 p-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-600 cursor-not-allowed outline-none" />
                   </div>
@@ -1849,6 +2012,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                   <div className="min-w-0 py-1"><p className="text-gray-500 text-xs font-medium">Bonus Min</p><p className="font-medium text-gray-900 mt-0.5">{app.bonusMin != null ? Number(app.bonusMin) : '—'}</p></div>
                   <div className="min-w-0 py-1"><p className="text-gray-500 text-xs font-medium">Acenta Komisyon</p><p className="font-medium text-gray-900 mt-0.5">{app.agencyCommission != null ? Number(app.agencyCommission) : '—'}</p></div>
                   <div className="min-w-0 py-1"><p className="text-gray-500 text-xs font-medium">Acenta Bonus</p><p className="font-medium text-gray-900 mt-0.5">{app.agencyBonus != null ? Number(app.agencyBonus) : '—'}</p></div>
+                  <div className="min-w-0 py-1"><p className="text-gray-500 text-xs font-medium">Depozito Desteği</p><p className="font-medium text-gray-900 mt-0.5">{app.depositSupport != null ? Number(app.depositSupport) : '—'}</p></div>
                   <div className="min-w-0 py-1"><p className="text-gray-500 text-xs font-medium">Acenta Anlaşma Miktarı</p><p className="font-medium text-gray-900 mt-0.5">{app.agencyContractAmount != null ? Number(app.agencyContractAmount) : '—'}</p></div>
                   <div className="min-w-0 py-1"><p className="text-gray-500 text-xs font-medium">Currency</p><p className="font-medium text-gray-900 mt-0.5">{app.currency || 'USD'}</p></div>
                   <div className="min-w-0 py-1"><p className="text-gray-500 text-xs font-medium">Kalan Min</p><p className="font-medium text-gray-900 mt-0.5">{app.remainingMin != null ? Number(app.remainingMin) : '—'}</p></div>
@@ -1943,24 +2107,26 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                   <button
                     type="button"
                     onClick={() => setColumnsOpen(prev => !prev)}
-                    disabled={showFinancialTree}
-                    className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors rounded-md text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors rounded-md text-gray-600 hover:bg-gray-100"
                   >
                     <Filter size={16} />
                     <span className="hidden sm:inline">{t.columns}</span>
                   </button>
                   {columnsOpen && (
-                    <div className="absolute right-0 mt-2 w-56 bg-white border border-gray-200 rounded-xl shadow-lg p-2 z-30">
-                      {applicationColumnOptions.filter(col => {
-                        if (!canSeeAgentColumn && (col.key === 'agent' || col.key === 'responsible')) return false;
-                        if (isAgent && col.key === 'updatedAt') return false;
-                        return true;
-                      }).map(col => (
+                    <div className="absolute right-0 mt-2 w-64 max-h-80 overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-lg p-2 z-30">
+                      {(showFinancialTree
+                        ? financialColumnOptions
+                        : applicationColumnOptions.filter(col => {
+                            if (!canSeeAgentColumn && (col.key === 'agent' || col.key === 'responsible')) return false;
+                            if (isAgent && col.key === 'updatedAt') return false;
+                            return true;
+                          })
+                      ).map(col => (
                         <label key={col.key} className="flex items-center gap-2 px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-50 rounded-md cursor-pointer">
                           <input
                             type="checkbox"
-                            checked={visibleTreeColumns.includes(col.key)}
-                            onChange={() => toggleTreeColumn(col.key)}
+                            checked={(showFinancialTree ? visibleFinancialColumns : visibleTreeColumns).includes(col.key)}
+                            onChange={() => showFinancialTree ? toggleFinancialColumn(col.key) : toggleTreeColumn(col.key)}
                             className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                           />
                           <span>{col.label}</span>
@@ -2190,7 +2356,11 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                 </div>
               </div>
               {showFinancialTree ? (
-              <table className="w-full text-right text-sm min-w-[1200px]">
+              <table
+                dir={language === 'ar' ? 'rtl' : 'ltr'}
+                style={{ minWidth: `${Math.max(700, visibleFinancialColumns.length * 140)}px` }}
+                className={`w-full text-sm ${language === 'ar' ? 'text-right' : 'text-left'}`}
+              >
                 <thead style={{ fontWeight: 700 }} className="bg-gray-50/50 text-gray-900 border-b border-gray-100">
                   <tr>
                     {showBulkSelect && (
@@ -2206,11 +2376,15 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                         />
                       </th>
                     )}
-                    <SortTh colKey="number" label={t.number} />
-                    <SortTh colKey="program" label={t.program} />
-                    <SortTh colKey="university" label={t.universityName} />
-                    <SortTh colKey="student" label={t.studentInfo} />
-                    {FINANCIAL_TREE_FIELDS.map((col) => (
+                    {visibleFinancialColumns.includes('number') && <SortTh colKey="number" label={t.number} />}
+                    {visibleFinancialColumns.includes('status') && <SortTh colKey="status" label={t.applicationStatus} className="text-center w-[170px] max-w-[170px]" />}
+                    {visibleFinancialColumns.includes('agent') && <SortTh colKey="agent" label={t.agent} />}
+                    {visibleFinancialColumns.includes('nationality') && <SortTh colKey="nationality" label={t.nationality} />}
+                    {visibleFinancialColumns.includes('degree') && <SortTh colKey="degree" label={t.programDegree} />}
+                    {visibleFinancialColumns.includes('program') && <SortTh colKey="program" label={t.program} />}
+                    {visibleFinancialColumns.includes('university') && <SortTh colKey="university" label={t.universityName} />}
+                    {visibleFinancialColumns.includes('student') && <SortTh colKey="student" label={t.studentInfo} />}
+                    {visibleFinancialFields.map((col) => (
                       <th key={col.key} className="px-4 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider whitespace-nowrap">
                         {col.label}
                       </th>
@@ -2240,18 +2414,28 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                             />
                           </td>
                         )}
-                        <td className="px-4 py-3 whitespace-nowrap">
+                        {visibleFinancialColumns.includes('number') && <td className="px-4 py-3 whitespace-nowrap">
                           <span className="inline-flex items-center gap-2 font-mono font-bold text-gray-900 group-hover:text-blue-600 transition-colors text-xs">
                             #{app.id}
                             {hasUnreadNotifications && (
                               <NotificationUnreadDot title={t.unreadNotifications} />
                             )}
                           </span>
-                        </td>
-                        <td className="px-4 py-3 font-bold text-gray-900 whitespace-nowrap">{p?.name || '—'}</td>
-                        <td className="px-4 py-3 text-gray-900 whitespace-nowrap">{uni?.name || '—'}</td>
-                        <td className="px-4 py-3 font-bold text-gray-900 whitespace-nowrap">{s?.firstName} {s?.lastName}</td>
-                        {FINANCIAL_TREE_FIELDS.map((col) => (
+                        </td>}
+                        {visibleFinancialColumns.includes('status') && <td className="px-2 py-3 text-center w-[170px] max-w-[170px]">
+                          <span className={`${getApplicationStatusBadgeClass(app.status, 'compact')} inline-block max-w-[160px] whitespace-normal break-words leading-tight`}>
+                            {translateStatus(app.status)}
+                          </span>
+                        </td>}
+                        {visibleFinancialColumns.includes('agent') && <td className="px-4 py-3 text-gray-900 whitespace-nowrap">{getAgentName(app)}</td>}
+                        {visibleFinancialColumns.includes('nationality') && <td className="px-4 py-3 text-gray-900 whitespace-nowrap">{s?.nationality || '—'}</td>}
+                        {visibleFinancialColumns.includes('degree') && <td className="px-4 py-3 text-gray-900 whitespace-nowrap">
+                          {p?.degree ? translateDegree(p.degree) : '—'}
+                        </td>}
+                        {visibleFinancialColumns.includes('program') && <td className="px-4 py-3 font-bold text-gray-900 whitespace-nowrap">{p?.name || '—'}</td>}
+                        {visibleFinancialColumns.includes('university') && <td className="px-4 py-3 text-gray-900 whitespace-nowrap">{uni?.name || '—'}</td>}
+                        {visibleFinancialColumns.includes('student') && <td className="px-4 py-3 font-bold text-gray-900 whitespace-nowrap">{s?.firstName} {s?.lastName}</td>}
+                        {visibleFinancialFields.map((col) => (
                           <td key={col.key} className="px-4 py-3 text-gray-900 tabular-nums whitespace-nowrap text-xs">
                             {formatApplicationFinanceValue(app, col.key)}
                           </td>
@@ -2260,9 +2444,34 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                     );
                   })}
                 </tbody>
+                <tfoot className="border-t-2 border-blue-200 bg-blue-50/70">
+                  <tr>
+                    {(showBulkSelect || visibleFinancialBaseCount > 0) && (
+                      <td
+                        colSpan={(showBulkSelect ? 1 : 0) + visibleFinancialBaseCount}
+                        className="px-4 py-4 font-bold text-blue-900 whitespace-nowrap"
+                      >
+                        {t.totals}
+                      </td>
+                    )}
+                    {visibleFinancialFields.map((col) => (
+                      <td
+                        key={col.key}
+                        className="px-4 py-4 font-bold text-blue-900 tabular-nums whitespace-nowrap text-xs"
+                      >
+                        {FINANCIAL_TREE_NUMERIC_KEYS.has(col.key)
+                          ? (financialTreeTotals[col.key] || 0).toLocaleString()
+                          : '—'}
+                      </td>
+                    ))}
+                  </tr>
+                </tfoot>
               </table>
               ) : (
-              <table className="w-full text-right text-sm">
+              <table
+                dir={language === 'ar' ? 'rtl' : 'ltr'}
+                className={`w-full text-sm ${language === 'ar' ? 'text-right' : 'text-left'}`}
+              >
                 <thead style={{ fontWeight: 700 }} className="bg-gray-50/50 text-gray-900 border-b border-gray-100">
                   <tr>
                     {showBulkSelect && (
@@ -2280,12 +2489,14 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                     )}
                     <th className="px-6 py-5"></th>
                     {visibleTreeColumns.includes('number') && <SortTh colKey="number" label={t.number} />}
-                    {visibleTreeColumns.includes('status') && <SortTh colKey="status" label={t.applicationStatus} className="text-center" />}
+                    {visibleTreeColumns.includes('status') && <SortTh colKey="status" label={t.applicationStatus} className="text-center w-[170px] max-w-[170px]" />}
                     {canSeeAgentColumn && visibleTreeColumns.includes('agent') && <SortTh colKey="agent" label={t.agent} />}
                     {isAdminOrUser && visibleTreeColumns.includes('responsible') && <SortTh colKey="responsible" label={t.responsible} />}
                     {visibleTreeColumns.includes('student') && <SortTh colKey="student" label={t.studentInfo} />}
+                    {visibleTreeColumns.includes('nationality') && <SortTh colKey="nationality" label={t.nationality} />}
                     {visibleTreeColumns.includes('program') && <SortTh colKey="program" label={t.program} />}
                     {visibleTreeColumns.includes('university') && <SortTh colKey="university" label={t.universityName} />}
+                    {visibleTreeColumns.includes('degree') && <SortTh colKey="degree" label={t.programDegree} />}
                     {visibleTreeColumns.includes('createdAt') && <SortTh colKey="createdAt" label={t.createdAt} />}
                     {!isAgent && visibleTreeColumns.includes('updatedAt') && <SortTh colKey="updatedAt" label={t.lastUpdatedAt} />}
                   </tr>
@@ -2305,8 +2516,10 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                       (canSeeAgentColumn && visibleTreeColumns.includes('agent') ? 1 : 0) +
                       (isAdminOrUser && visibleTreeColumns.includes('responsible') ? 1 : 0) +
                       (visibleTreeColumns.includes('student') ? 1 : 0) +
+                      (visibleTreeColumns.includes('nationality') ? 1 : 0) +
                       (visibleTreeColumns.includes('program') ? 1 : 0) +
                       (visibleTreeColumns.includes('university') ? 1 : 0) +
+                      (visibleTreeColumns.includes('degree') ? 1 : 0) +
                       (visibleTreeColumns.includes('createdAt') ? 1 : 0) +
                       (!isAgent && visibleTreeColumns.includes('updatedAt') ? 1 : 0) +
                       1; // expand toggle column
@@ -2355,9 +2568,9 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                             </td>
                           )}
                           {visibleTreeColumns.includes('status') && (
-                            <td className="px-6 py-4">
+                            <td className="px-2 py-4 text-center w-[170px] max-w-[170px]">
                               <div className="flex justify-center">
-                                <span className={getApplicationStatusBadgeClass(app.status, 'default')}>
+                                <span className={`${getApplicationStatusBadgeClass(app.status, 'compact')} inline-block max-w-[160px] whitespace-normal break-words leading-tight text-center`}>
                                   {translateStatus(app.status)}
                                 </span>
                               </div>
@@ -2368,6 +2581,9 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                             <td className="px-6 py-4 text-gray-900">{getResponsibleLabel(app)}</td>
                           )}
                           {visibleTreeColumns.includes('student') && <td className="px-6 py-4 font-bold text-gray-900">{s?.firstName} {s?.lastName}</td>}
+                          {visibleTreeColumns.includes('nationality') && (
+                            <td className="px-6 py-4 text-gray-900">{s?.nationality || '—'}</td>
+                          )}
                           {visibleTreeColumns.includes('program') && (
                             <td className="px-6 py-4">
                               <span className="font-bold text-gray-900">{p?.name || '—'}</span>
@@ -2377,6 +2593,9 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                             <td className="px-6 py-4 text-gray-900">
                               {uni?.name || '—'}
                             </td>
+                          )}
+                          {visibleTreeColumns.includes('degree') && (
+                            <td className="px-6 py-4 text-gray-900">{p?.degree ? translateDegree(p.degree) : '—'}</td>
                           )}
                           {visibleTreeColumns.includes('createdAt') && (
                             <td className="px-6 py-4 text-gray-900 font-medium">

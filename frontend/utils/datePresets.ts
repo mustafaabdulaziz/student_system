@@ -1,10 +1,16 @@
+function formatLocalDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 export function getLast30DaysRange(): { from: string; to: string } {
   const end = new Date();
   end.setHours(0, 0, 0, 0);
   const start = new Date(end);
   start.setDate(start.getDate() - 29);
-  const fmt = (d: Date) => d.toISOString().slice(0, 10);
-  return { from: fmt(start), to: fmt(end) };
+  return { from: formatLocalDate(start), to: formatLocalDate(end) };
 }
 
 export function getMonthStartEnd(): { from: string; to: string } {
@@ -20,21 +26,20 @@ export function getMonthStartEnd(): { from: string; to: string } {
 export function getDatePreset(preset: string): { from: string; to: string } {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const format = (d: Date) => d.toISOString().slice(0, 10);
 
   switch (preset) {
     case 'today':
-      return { from: format(today), to: format(today) };
+      return { from: formatLocalDate(today), to: formatLocalDate(today) };
     case 'yesterday': {
       const y = new Date(today);
       y.setDate(y.getDate() - 1);
-      return { from: format(y), to: format(y) };
+      return { from: formatLocalDate(y), to: formatLocalDate(y) };
     }
     case 'last7': {
       const end = new Date(today);
       const start = new Date(today);
       start.setDate(start.getDate() - 6);
-      return { from: format(start), to: format(end) };
+      return { from: formatLocalDate(start), to: formatLocalDate(end) };
     }
     case 'last30': {
       return getLast30DaysRange();
@@ -44,7 +49,7 @@ export function getDatePreset(preset: string): { from: string; to: string } {
       const diff = dow === 0 ? -6 : 1 - dow;
       const start = new Date(today);
       start.setDate(start.getDate() + diff);
-      return { from: format(start), to: format(today) };
+      return { from: formatLocalDate(start), to: formatLocalDate(today) };
     }
     case 'lastWeek': {
       const dow = today.getDay();
@@ -53,7 +58,7 @@ export function getDatePreset(preset: string): { from: string; to: string } {
       end.setDate(end.getDate() + diff - 1);
       const start = new Date(end);
       start.setDate(start.getDate() - 6);
-      return { from: format(start), to: format(end) };
+      return { from: formatLocalDate(start), to: formatLocalDate(end) };
     }
     case 'thisMonth':
       return getMonthStartEnd();
@@ -66,7 +71,7 @@ export function getDatePreset(preset: string): { from: string; to: string } {
     }
     case 'thisYear': {
       const y = today.getFullYear();
-      return { from: `${y}-01-01`, to: format(today) };
+      return { from: `${y}-01-01`, to: formatLocalDate(today) };
     }
     default:
       return getLast30DaysRange();

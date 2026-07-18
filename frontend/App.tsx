@@ -614,6 +614,7 @@ export default function App() {
     bonusMin?: number | null;
     agencyCommission?: number | null;
     agencyBonus?: number | null;
+    depositSupport?: number | null;
     agencyCompanyId?: string | null;
     currency?: string | null;
     paymentDeserved?: boolean;
@@ -650,6 +651,7 @@ export default function App() {
             ...(payload.bonusMin !== undefined && { bonusMin: payload.bonusMin ?? undefined }),
             ...(payload.agencyCommission !== undefined && { agencyCommission: payload.agencyCommission ?? undefined }),
             ...(payload.agencyBonus !== undefined && { agencyBonus: payload.agencyBonus ?? undefined }),
+            ...(payload.depositSupport !== undefined && { depositSupport: payload.depositSupport ?? undefined }),
             ...(payload.currency !== undefined && { currency: payload.currency ?? undefined }),
             ...(payload.paymentDeserved !== undefined && { paymentDeserved: payload.paymentDeserved }),
             ...(data.annualPayment !== undefined && { annualPayment: data.annualPayment ?? undefined }),
@@ -658,6 +660,7 @@ export default function App() {
             ...(data.abroadVatRate !== undefined && { abroadVatRate: data.abroadVatRate ?? undefined }),
             ...(data.abroadVat !== undefined && { abroadVat: data.abroadVat ?? undefined }),
             ...(data.netCommission !== undefined && { netCommission: data.netCommission ?? undefined }),
+            ...(data.depositSupport !== undefined && { depositSupport: data.depositSupport ?? undefined }),
             ...(data.agencyContractAmount !== undefined && { agencyContractAmount: data.agencyContractAmount ?? undefined }),
             ...(data.remainingMin !== undefined && { remainingMin: data.remainingMin ?? undefined }),
             ...(data.remainingMax !== undefined && { remainingMax: data.remainingMax ?? undefined }),

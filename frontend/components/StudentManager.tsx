@@ -11,6 +11,7 @@ import { buildNotificationEntityIndex } from '../utils/notifications';
 import { NotificationUnreadDot } from './NotificationUnreadDot';
 import { CreatedAtRangeFilter } from './CreatedAtRangeFilter';
 import { SearchableMultiSelect } from './SearchableMultiSelect';
+import { SearchableSelect } from './SearchableSelect';
 import { StaffTypedFileUpload } from './StaffTypedFileUpload';
 import { getStudentFileTypeLabel, type StudentFileTypeCode } from '../constants/studentFileTypes';
 
@@ -161,7 +162,6 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
 
   const openEmbeddedApplication = (applicationId: string) => {
     setEmbeddedApplicationId(applicationId);
-    setSelectedStudentForDetails(null);
     scrollContentTop();
   };
 
@@ -1216,10 +1216,16 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                     </div>
                     <div>
                       <label className="text-xs font-bold text-blue-600 uppercase tracking-wider px-1">{t.universities}</label>
-                      <select className="w-full mt-1 p-2.5 border border-blue-100 rounded-xl bg-white focus:ring-2 focus:ring-blue-400 outline-none disabled:opacity-50" value={addFilterUni} onChange={e => { setAddFilterUni(e.target.value); setAddFilterDegree(''); setAddFilterLang(''); setAddFilterProgramName(''); }} disabled={!addFilterPeriod}>
-                        <option value="">{t.selectUniversity}</option>
-                        {addAvailableUnis.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                      </select>
+                      <SearchableSelect
+                        className="mt-1"
+                        value={addFilterUni}
+                        onChange={(value) => { setAddFilterUni(value); setAddFilterDegree(''); setAddFilterLang(''); setAddFilterProgramName(''); }}
+                        options={addAvailableUnis.map((university) => ({ value: university.id, label: university.name }))}
+                        placeholder={t.selectUniversity}
+                        searchPlaceholder={t.search}
+                        noResultsText={t.searchNoResults}
+                        disabled={!addFilterPeriod}
+                      />
                     </div>
                     <div>
                       <label className="text-xs font-bold text-blue-600 uppercase tracking-wider px-1">{t.programDegree}</label>
@@ -1237,10 +1243,16 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                     </div>
                     <div>
                       <label className="text-xs font-bold text-blue-600 uppercase tracking-wider px-1">{t.programName}</label>
-                      <select className="w-full mt-1 p-2.5 border border-blue-100 rounded-xl bg-white focus:ring-2 focus:ring-blue-400 outline-none disabled:opacity-50" value={addFilterProgramName} onChange={e => setAddFilterProgramName(e.target.value)} disabled={!addFilterLang}>
-                        <option value="">{t.selectProgram}</option>
-                        {addAvailableProgramNames.map(n => <option key={n} value={n}>{n}</option>)}
-                      </select>
+                      <SearchableSelect
+                        className="mt-1"
+                        value={addFilterProgramName}
+                        onChange={setAddFilterProgramName}
+                        options={addAvailableProgramNames.map((name) => ({ value: name, label: name }))}
+                        placeholder={t.selectProgram}
+                        searchPlaceholder={t.search}
+                        noResultsText={t.searchNoResults}
+                        disabled={!addFilterLang}
+                      />
                     </div>
                     {addFinalProgram && (
                       <div className="rounded-xl bg-white border border-blue-200 p-3 text-sm text-gray-700">
@@ -1533,7 +1545,24 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                           >
                             <div className="flex justify-between items-start mb-2">
                               <div className="font-bold text-gray-800 group-hover:text-blue-600 transition-colors">{info.universityName}</div>
-                              {getStatusBadge(app.status)}
+                              <div className="flex items-center gap-2">
+                                {getStatusBadge(app.status)}
+                                {isAdmin && onDeleteApplication && (
+                                  <button
+                                    type="button"
+                                    title={t.delete}
+                                    aria-label={t.delete}
+                                    onClick={async (event) => {
+                                      event.stopPropagation();
+                                      if (!window.confirm(t.confirmDelete)) return;
+                                      await onDeleteApplication(app.id);
+                                    }}
+                                    className="p-1.5 rounded-lg text-red-500 hover:text-red-700 hover:bg-red-50 transition-colors"
+                                  >
+                                    <Trash2 size={16} />
+                                  </button>
+                                )}
+                              </div>
                             </div>
                             <div className="text-sm text-gray-600 mb-1">{info.programName} - <span className="text-xs bg-gray-200 px-2 py-0.5 rounded">{info.degree}</span></div>
                             <div className="text-xs text-gray-400 mt-2">
@@ -1987,15 +2016,15 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <label className="text-xs font-bold text-blue-500 uppercase tracking-wider px-1">{t.universities}</label>
-                    <select
-                      className="w-full p-2.5 border border-blue-100 rounded-lg bg-white focus:ring-2 focus:ring-blue-400 outline-none disabled:opacity-50"
+                    <SearchableSelect
                       value={quickFilterUni}
-                      onChange={e => { setQuickFilterUni(e.target.value); setQuickFilterDegree(''); setQuickFilterLang(''); setQuickFilterProgramName(''); }}
+                      onChange={(value) => { setQuickFilterUni(value); setQuickFilterDegree(''); setQuickFilterLang(''); setQuickFilterProgramName(''); }}
+                      options={quickAvailableUnis.map((university) => ({ value: university.id, label: university.name }))}
+                      placeholder={t.selectUniversity}
+                      searchPlaceholder={t.search}
+                      noResultsText={t.searchNoResults}
                       disabled={!quickFilterPeriod}
-                    >
-                      <option value="">{t.selectUniversity}</option>
-                      {quickAvailableUnis.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                    </select>
+                    />
                   </div>
                   <div className="space-y-1">
                     <label className="text-xs font-bold text-blue-500 uppercase tracking-wider px-1">{t.programDegree}</label>
@@ -2023,15 +2052,15 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                   </div>
                   <div className="space-y-1">
                     <label className="text-xs font-bold text-blue-500 uppercase tracking-wider px-1">{t.programName}</label>
-                    <select
-                      className="w-full p-2.5 border border-blue-100 rounded-lg bg-white focus:ring-2 focus:ring-blue-400 outline-none disabled:opacity-50"
+                    <SearchableSelect
                       value={quickFilterProgramName}
-                      onChange={e => setQuickFilterProgramName(e.target.value)}
+                      onChange={setQuickFilterProgramName}
+                      options={quickAvailableProgramNames.map((name) => ({ value: name, label: name }))}
+                      placeholder={t.selectProgram}
+                      searchPlaceholder={t.search}
+                      noResultsText={t.searchNoResults}
                       disabled={!quickFilterLang}
-                    >
-                      <option value="">{t.selectProgram}</option>
-                      {quickAvailableProgramNames.map(n => <option key={n} value={n}>{n}</option>)}
-                    </select>
+                    />
                   </div>
                 </div>
               </div>

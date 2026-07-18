@@ -25,7 +25,7 @@ NEW_COMPANY_EXPENSE_TYPES = frozenset({
 COMMISSION_SHAPES = frozenset({
     'agency_commission', 'employee_commission', 'student_referral_commission',
 })
-STUDENT_FILE_TYPES = frozenset({'acceptance_letter', 'offer_letter', 'other'})
+STUDENT_FILE_TYPES = frozenset({'acceptance_letter', 'offer_letter', 'receipt', 'other'})
 INCOMING_PAYMENT_TYPES = frozenset({'Cash', 'Bank', 'Scholarship'})
 
 
@@ -140,6 +140,7 @@ def _file_type_label(file_type, description=None):
     labels = {
         'acceptance_letter': 'Acceptance letter',
         'offer_letter': 'Offer letter',
+        'receipt': 'Receipt',
         'other': 'Other document'
     }
     label = labels.get(file_type, file_type or 'file')
@@ -295,6 +296,53 @@ def _notify_staff_agent_file_upload(uploader, title, message, link, extra_user_i
             type='FILE_UPLOAD'
         ))
     db.session.commit()
+
+
+def _notify_application_receipt_upload(application, uploader, link):
+    """Notify admins and the application's responsible user about a receipt."""
+    if not application:
+        return
+    notify_ids = {
+        user.id for user in User.query.all()
+        if (user.role or '').strip().upper() == 'ADMIN'
+    }
+    responsible_id = getattr(application, 'responsible_id', None)
+    if responsible_id:
+        notify_ids.add(responsible_id)
+    if uploader:
+        notify_ids.discard(uploader.id)
+    if not notify_ids:
+        return
+
+    uploader_name = uploader.name if uploader and uploader.name else 'Bir kullanıcı'
+    now = datetime.utcnow().isoformat()
+    for user_id in notify_ids:
+        db.session.add(Notification(
+            id=str(uuid.uuid4()),
+            user_id=user_id,
+            title='Başvuru dekontu yüklendi',
+            message=f"{uploader_name}, #{application.id} numaralı başvuruya dekont yükledi.",
+            link=link,
+            created_at=now,
+            type='FILE_UPLOAD'
+        ))
+    db.session.commit()
+
+
+def _add_application_agent_status_notification(application, new_status):
+    """Queue a status-change notification for the application's agent."""
+    agent_id = getattr(application, 'user_id', None)
+    if not agent_id:
+        return
+    db.session.add(Notification(
+        id=str(uuid.uuid4()),
+        user_id=agent_id,
+        title='Başvuru durumu güncellendi',
+        message=f"#{application.id} numaralı başvurunun durumu {new_status} olarak güncellendi.",
+        link=f"/applications/{application.id}",
+        created_at=datetime.utcnow().isoformat(),
+        type='STATUS'
+    ))
 
 
 def _notify_agent_owner_file_upload(student, application, uploader, link, file_type=None, file_description=None):
@@ -480,6 +528,7 @@ def _serialize_application(a, program_by_id, student_by_id=None):
         'bonusMin': getattr(a, 'bonus_min', None),
         'agencyCommission': getattr(a, 'agency_commission', None),
         'agencyBonus': getattr(a, 'agency_bonus', None),
+        'depositSupport': getattr(a, 'deposit_support', None),
         'agencyContractAmount': getattr(a, 'agency_contract_amount', None),
         'currency': getattr(a, 'currency', None) or 'USD',
         'remainingMin': getattr(a, 'remaining_min', None),
@@ -559,10 +608,17 @@ def _normalize_agent_commissions(rows):
             commission_value = float(row.get('commissionValue'))
         except (TypeError, ValueError):
             continue
+        deposit_support = None
+        if row.get('depositSupport') not in (None, ''):
+            try:
+                deposit_support = float(row.get('depositSupport'))
+            except (TypeError, ValueError):
+                continue
         out.append({
             'universityId': university_id,
             'commissionKind': commission_kind,
-            'commissionValue': commission_value
+            'commissionValue': commission_value,
+            'depositSupport': deposit_support
         })
     return out
 
@@ -575,7 +631,8 @@ def _replace_user_agent_commissions(user_id, rows):
             user_id=user_id,
             university_id=row['universityId'],
             commission_kind=row['commissionKind'],
-            commission_value=row['commissionValue']
+            commission_value=row['commissionValue'],
+            deposit_support=row.get('depositSupport')
         ))
 
 
@@ -587,11 +644,16 @@ def _agent_commission_for_user_university(user_id, university_id):
         return None
     return {
         'kind': row.commission_kind,
-        'value': float(row.commission_value)
+        'value': float(row.commission_value),
+        'depositSupport': float(row.deposit_support) if row.deposit_support is not None else None
     }
 
 
-def _compute_application_finance(application, prefer_user_agency_commission=False):
+def _compute_application_finance(
+    application,
+    prefer_user_agency_commission=False,
+    prefer_user_deposit_support=False
+):
     program = Program.query.get(application.program_id) if application.program_id else None
     university = University.query.get(program.university_id) if program and program.university_id else None
 
@@ -646,14 +708,27 @@ def _compute_application_finance(application, prefer_user_agency_commission=Fals
 
     net = float(application.net_commission) if application.net_commission is not None else None
 
+    should_default_agency_commission = (
+        prefer_user_agency_commission or application.agency_commission is None
+    )
+    agent_cfg = None
+    if should_default_agency_commission or prefer_user_deposit_support:
+        agent_cfg = _agent_commission_for_user_university(
+            application.user_id,
+            program.university_id if program else None
+        )
+
     # acente komisyonu: kullanıcı/universite eşleşmesine göre default
-    if prefer_user_agency_commission or application.agency_commission is None:
-        agent_cfg = _agent_commission_for_user_university(application.user_id, program.university_id if program else None)
+    if should_default_agency_commission:
         if agent_cfg and net is not None:
             if agent_cfg['kind'] == 'rate':
                 application.agency_commission = net * float(agent_cfg['value']) / 100.0
             elif agent_cfg['kind'] == 'amount':
                 application.agency_commission = float(agent_cfg['value'])
+
+    # depozito desteği: kullanıcı/universite eşleşmesindeki sabit tutar
+    if prefer_user_deposit_support and agent_cfg and agent_cfg['depositSupport'] is not None:
+        application.deposit_support = agent_cfg['depositSupport']
 
     agency_bonus = float(application.agency_bonus) if application.agency_bonus is not None else 0.0
     agency_comm = float(application.agency_commission) if application.agency_commission is not None else 0.0
@@ -752,7 +827,8 @@ def get_users():
         commissions_by_user.setdefault(r.user_id, []).append({
             'universityId': r.university_id,
             'commissionKind': r.commission_kind,
-            'commissionValue': r.commission_value
+            'commissionValue': r.commission_value,
+            'depositSupport': r.deposit_support
         })
     return jsonify([{
         'id': u.id,
@@ -1623,7 +1699,11 @@ def add_application():
         responsible_id=responsible_id,
         agency_company_id=agency_company_id
     )
-    _compute_application_finance(application, prefer_user_agency_commission=True)
+    _compute_application_finance(
+        application,
+        prefer_user_agency_commission=True,
+        prefer_user_deposit_support=True
+    )
     db.session.add(application)
     stu = Student.query.get(student_id)
     if stu:
@@ -1709,7 +1789,11 @@ def add_application_v2():
         updated_at=created_at,
         files=[]
     )
-    _compute_application_finance(application, prefer_user_agency_commission=True)
+    _compute_application_finance(
+        application,
+        prefer_user_agency_commission=True,
+        prefer_user_deposit_support=True
+    )
     db.session.add(application)
     stu = Student.query.get(student_id)
     if stu:
@@ -2011,7 +2095,9 @@ def application_files(app_id):
 
     uploader = User.query.get(uploader_id) if uploader_id else None
     link = f"/applications/{application.id}"
-    if _is_agent_user(uploader):
+    if file_type == 'receipt':
+        _notify_application_receipt_upload(application, uploader, link)
+    elif _is_agent_user(uploader):
         extra = [application.responsible_id] if getattr(application, 'responsible_id', None) else None
         _notify_staff_agent_file_upload(
             uploader,
@@ -2080,23 +2166,14 @@ def update_application_status(app_id):
     application = Application.query.get(app_id)
     if not application:
         return jsonify({'message': 'Application not found'}), 404
-        
+    previous_status = application.status
     application.status = new_status
     _apply_acceptance_payment_markers(application)
     _touch_application_and_student(application)
 
-    # 5. Notify agent (application owner) when status changes
-    if application.user_id:
-        notification = Notification(
-            id=str(uuid.uuid4()),
-            user_id=application.user_id,
-            title="Application Status Update",
-            message=f"Your application #{application.id} status changed to {new_status}",
-            link=f"/applications/{application.id}",
-            created_at=datetime.utcnow().isoformat(),
-            type="STATUS"
-        )
-        db.session.add(notification)
+    # Notify the assigned agent only for an actual status change.
+    if previous_status != new_status:
+        _add_application_agent_status_notification(application, new_status)
     
     # 6. Notify admin(s) when application is sent to review (e.g. by agent)
     if new_status in (
@@ -2140,6 +2217,7 @@ def update_application(app_id):
     if not application:
         return jsonify({'message': 'Application not found'}), 404
     data = request.get_json() or {}
+    previous_status = application.status
     if 'status' in data and data['status']:
         application.status = data['status']
         _apply_acceptance_payment_markers(application)
@@ -2158,6 +2236,7 @@ def update_application(app_id):
         'bonusMin': 'bonus_min',
         'agencyCommission': 'agency_commission',
         'agencyBonus': 'agency_bonus',
+        'depositSupport': 'deposit_support',
         'agencyContractAmount': 'agency_contract_amount',
         'remainingMin': 'remaining_min',
         'remainingMax': 'remaining_max'
@@ -2177,6 +2256,8 @@ def update_application(app_id):
             application.currency = value
     if 'paymentDeserved' in data:
         application.payment_deserved = bool(data.get('paymentDeserved'))
+    if application.status != previous_status:
+        _add_application_agent_status_notification(application, application.status)
     _touch_application_and_student(application)
     db.session.commit()
     stu = Student.query.get(application.student_id)
@@ -2199,6 +2280,7 @@ def update_application(app_id):
         'bonusMin': application.bonus_min,
         'agencyCommission': application.agency_commission,
         'agencyBonus': application.agency_bonus,
+        'depositSupport': application.deposit_support,
         'agencyContractAmount': application.agency_contract_amount,
         'currency': application.currency or 'USD',
         'remainingMin': application.remaining_min,

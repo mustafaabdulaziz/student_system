@@ -5,7 +5,7 @@ import { useTranslation } from '../hooks/useTranslation';
 import { ApplicationStatus } from '../types';
 import { normalizeApplicationStatus, isApplicationStatusAtOrAfter } from '../utils/applicationStatus';
 import { ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis } from 'recharts';
-import { DATE_PRESETS, getDatePreset, getLast30DaysRange } from '../utils/datePresets';
+import { DATE_PRESETS, getDatePreset } from '../utils/datePresets';
 import { SearchableMultiSelect } from './SearchableMultiSelect';
 
 interface DashboardProps {
@@ -228,7 +228,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const isAdmin = currentUser?.role === UserRole.ADMIN;
   const isAdminOrUser = currentUser?.role === UserRole.ADMIN || currentUser?.role === UserRole.USER;
   const canSeeCountryChart = isAdminOrUser;
-  const defaultRange = getLast30DaysRange();
+  const defaultRange = getDatePreset('thisYear');
   const [fromDate, setFromDate] = useState(defaultRange.from);
   const [toDate, setToDate] = useState(defaultRange.to);
   const [filterActive, setFilterActive] = useState(true);
@@ -309,7 +309,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     setFilterActive(true);
   };
   const handleClearFilter = () => {
-    const range = getLast30DaysRange();
+    const range = getDatePreset('thisYear');
     setFromDate(range.from);
     setToDate(range.to);
     setFilterActive(true);
@@ -448,6 +448,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       bonusMin = 0,
       agencyCommission = 0,
       agencyBonus = 0,
+      depositSupport = 0,
       agencyContractAmount = 0,
       remainingMin = 0,
       remainingMax = 0;
@@ -461,6 +462,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       bonusMin += Number(app.bonusMin) || 0;
       agencyCommission += Number(app.agencyCommission) || 0;
       agencyBonus += Number(app.agencyBonus) || 0;
+      depositSupport += Number(app.depositSupport) || 0;
       agencyContractAmount += Number(app.agencyContractAmount) || 0;
       remainingMin += Number(app.remainingMin) || 0;
       remainingMax += Number(app.remainingMax) || 0;
@@ -475,6 +477,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       bonusMin,
       agencyCommission,
       agencyBonus,
+      depositSupport,
       agencyContractAmount,
       remainingMin,
       remainingMax
@@ -491,6 +494,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     { label: 'Bonus Min', value: totals.bonusMin, bg: 'bg-amber-50', text: 'text-amber-600', border: 'border-amber-100' },
     { label: 'Acenta komisyon', value: totals.agencyCommission, bg: 'bg-cyan-50', text: 'text-cyan-700', border: 'border-cyan-100' },
     { label: 'Acenta Bonus', value: totals.agencyBonus, bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-100' },
+    { label: 'Depozito desteği', value: totals.depositSupport, bg: 'bg-teal-50', text: 'text-teal-700', border: 'border-teal-100' },
     { label: 'Acenta anlaşma miktarı', value: totals.agencyContractAmount, bg: 'bg-fuchsia-50', text: 'text-fuchsia-700', border: 'border-fuchsia-100' },
     { label: 'Kalan Min', value: totals.remainingMin, bg: 'bg-lime-50', text: 'text-lime-700', border: 'border-lime-100' },
     { label: 'Kalan Max', value: totals.remainingMax, bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-100' }

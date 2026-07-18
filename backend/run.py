@@ -145,9 +145,15 @@ if __name__ == '__main__':
                         'user_id VARCHAR NOT NULL, '
                         'university_id VARCHAR NOT NULL, '
                         'commission_kind VARCHAR NOT NULL, '
-                        'commission_value FLOAT NOT NULL)'
+                        'commission_value FLOAT NOT NULL, '
+                        'deposit_support FLOAT)'
                     ))
                     conn.commit()
+                else:
+                    commission_cols = [c['name'] for c in inspector.get_columns('user_university_commissions')]
+                    if 'deposit_support' not in commission_cols:
+                        conn.execute(text('ALTER TABLE user_university_commissions ADD COLUMN deposit_support FLOAT'))
+                        conn.commit()
             except Exception as e:
                 print('User university commissions table check:', e)
             # Ensure applications table has period_id column
@@ -183,6 +189,7 @@ if __name__ == '__main__':
                         ('bonus_min', 'FLOAT'),
                         ('agency_commission', 'FLOAT'),
                         ('agency_bonus', 'FLOAT'),
+                        ('deposit_support', 'FLOAT'),
                         ('agency_contract_amount', 'FLOAT'),
                         ('agency_paid_contract_amount', 'FLOAT'),
                         ('agency_paid_contract_description', 'VARCHAR'),

@@ -91,6 +91,7 @@ class UserUniversityCommission(db.Model):
     university_id = db.Column(db.String, db.ForeignKey('universities.id'), nullable=False)
     commission_kind = db.Column(db.String, nullable=False)  # 'rate' | 'amount'
     commission_value = db.Column(db.Float, nullable=False)
+    deposit_support = db.Column(db.Float, nullable=True)
 
 
 class Application(db.Model):
@@ -121,6 +122,7 @@ class Application(db.Model):
     bonus_min = db.Column(db.Float, nullable=True)
     agency_commission = db.Column(db.Float, nullable=True)
     agency_bonus = db.Column(db.Float, nullable=True)
+    deposit_support = db.Column(db.Float, nullable=True)
     agency_contract_amount = db.Column(db.Float, nullable=True)
     agency_paid_contract_amount = db.Column(db.Float, nullable=True)
     agency_paid_contract_description = db.Column(db.String, nullable=True)

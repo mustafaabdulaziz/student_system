@@ -27,7 +27,8 @@ const EMPTY_FORM = {
 const EMPTY_COMMISSION_ROW: AgentCommission = {
   universityId: '',
   commissionKind: 'rate',
-  commissionValue: 0
+  commissionValue: 0,
+  depositSupport: null
 };
 
 type StatementDebt = {
@@ -357,6 +358,7 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
                         <th className="px-3 py-2 text-left font-semibold text-gray-700">Üniversite</th>
                         <th className="px-3 py-2 text-left font-semibold text-gray-700">Komisyon Tipi</th>
                         <th className="px-3 py-2 text-left font-semibold text-gray-700">Tutar / Oran</th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-700">Depozito Desteği</th>
                         <th className="px-3 py-2 w-12"></th>
                       </tr>
                     </thead>
@@ -398,6 +400,20 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
                             />
                           </td>
                           <td className="px-3 py-2">
+                            <input
+                              type="number"
+                              min="0"
+                              step="any"
+                              value={row.depositSupport ?? ''}
+                              onChange={(e) => setAgentCommissions(prev => prev.map((r, i) => i === idx
+                                ? { ...r, depositSupport: e.target.value === '' ? null : Number(e.target.value) }
+                                : r))}
+                              disabled={!formEditable}
+                              placeholder="Sabit tutar"
+                              className="w-full border border-gray-300 rounded-lg p-2 disabled:bg-gray-50 disabled:text-gray-600"
+                            />
+                          </td>
+                          <td className="px-3 py-2">
                             <button
                               type="button"
                               onClick={() => setAgentCommissions(prev => prev.filter((_, i) => i !== idx))}
@@ -412,7 +428,7 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
                       ))}
                       {agentCommissions.length === 0 && (
                         <tr>
-                          <td colSpan={4} className="px-3 py-4 text-center text-gray-500">Komisyon satırı ekleyin.</td>
+                          <td colSpan={5} className="px-3 py-4 text-center text-gray-500">Komisyon satırı ekleyin.</td>
                         </tr>
                       )}
                     </tbody>

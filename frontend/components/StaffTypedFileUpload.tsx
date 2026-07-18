@@ -66,6 +66,8 @@ export const StaffTypedFileUpload: React.FC<StaffTypedFileUploadProps> = ({ onUp
                 ? t.fileTypeAcceptanceLetter
                 : code === 'offer_letter'
                   ? t.fileTypeOfferLetter
+                  : code === 'receipt'
+                    ? t.fileTypeReceipt
                   : t.fileTypeOther}
             </option>
           ))}

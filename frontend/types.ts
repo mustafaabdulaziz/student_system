@@ -20,6 +20,7 @@ export interface AgentCommission {
   universityId: string;
   commissionKind: 'rate' | 'amount';
   commissionValue: number;
+  depositSupport?: number | null;
 }
 
 export interface University {
@@ -140,6 +141,7 @@ export interface Application {
   bonusMin?: number;
   agencyCommission?: number;
   agencyBonus?: number;
+  depositSupport?: number;
   agencyContractAmount?: number;
   currency?: string;
   remainingMin?: number;

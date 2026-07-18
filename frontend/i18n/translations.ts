@@ -91,6 +91,7 @@ export interface Translations {
     chartTop20Note: string;
     chartShare: string;
     totalsByFilter: string;
+    totals: string;
     totalCost: string;
 
     // News and Updates
@@ -246,10 +247,12 @@ export interface Translations {
     selectDocumentFile: string;
     fileTypeAcceptanceLetter: string;
     fileTypeOfferLetter: string;
+    fileTypeReceipt: string;
     fileTypeOther: string;
     fileTypeDescription: string;
     fileTypeDescriptionRequired: string;
     uploadNow: string;
+    uploadReceipt: string;
     uploadToWhatsApp: string;
     filesSelected: string;
     uploadFailed: string;
@@ -462,6 +465,7 @@ export const translations: Record<Language, Translations> = {
         chartTop20Note: 'أعلى 20 (+ أخرى)',
         chartShare: 'النسبة',
         totalsByFilter: 'المجاميع حسب الفلتر',
+        totals: 'المجاميع',
         totalCost: 'إجمالي التكلفة',
         newsAndUpdates: 'الأخبار والتحديثات',
         newsAndUpdatesSubtitle: 'آخر الأخبار والإعلانات من الإدارة',
@@ -612,10 +616,12 @@ export const translations: Record<Language, Translations> = {
         selectDocumentFile: 'اختر ملف المستند',
         fileTypeAcceptanceLetter: 'خطاب القبول',
         fileTypeOfferLetter: 'خطاب العرض',
+        fileTypeReceipt: 'إيصال الدفع',
         fileTypeOther: 'أخرى',
         fileTypeDescription: 'الوصف',
         fileTypeDescriptionRequired: 'الوصف مطلوب عند اختيار أخرى',
         uploadNow: 'رفع الآن',
+        uploadReceipt: 'رفع إيصال',
         uploadToWhatsApp: 'رفع للواتساب',
         filesSelected: 'ملفات تم اختيارها',
         uploadFailed: 'فشل الرفع',
@@ -828,6 +834,7 @@ export const translations: Record<Language, Translations> = {
         chartTop20Note: 'Top 20 (+ Others)',
         chartShare: 'Share',
         totalsByFilter: 'Totals (filtered)',
+        totals: 'Totals',
         totalCost: 'Total cost',
         newsAndUpdates: 'News and Updates',
         newsAndUpdatesSubtitle: 'Latest news and announcements from the administration',
@@ -978,10 +985,12 @@ export const translations: Record<Language, Translations> = {
         selectDocumentFile: 'Select document file',
         fileTypeAcceptanceLetter: 'Acceptance letter',
         fileTypeOfferLetter: 'Offer letter',
+        fileTypeReceipt: 'Receipt',
         fileTypeOther: 'Other',
         fileTypeDescription: 'Description',
         fileTypeDescriptionRequired: 'Description is required when type is Other',
         uploadNow: 'Upload now',
+        uploadReceipt: 'Upload receipt',
         uploadToWhatsApp: 'Upload to WhatsApp',
         filesSelected: 'Files selected',
         uploadFailed: 'Upload failed',
@@ -1194,6 +1203,7 @@ export const translations: Record<Language, Translations> = {
         chartTop20Note: 'En çok başvurulan ilk 20 (+ Diğerleri)',
         chartShare: 'Oran',
         totalsByFilter: 'Toplamlar (filtreye göre)',
+        totals: 'Toplamlar',
         totalCost: 'Toplam maliyet',
         newsAndUpdates: 'Haberler ve Güncellemeler',
         newsAndUpdatesSubtitle: 'Yönetimden son haberler ve duyurular',
@@ -1344,10 +1354,12 @@ export const translations: Record<Language, Translations> = {
         selectDocumentFile: 'Belge dosyası seç',
         fileTypeAcceptanceLetter: 'Kabul mektubu',
         fileTypeOfferLetter: 'Teklif mektubu',
+        fileTypeReceipt: 'Dekont',
         fileTypeOther: 'Diğer',
         fileTypeDescription: 'Açıklama',
         fileTypeDescriptionRequired: 'Diğer seçildiğinde açıklama zorunludur',
         uploadNow: 'Şimdi yükle',
+        uploadReceipt: 'Dekont yükle',
         uploadToWhatsApp: "WhatsApp'a yükle",
         filesSelected: 'Dosyalar seçildi',
         uploadFailed: 'Yükleme başarısız',
