@@ -365,6 +365,7 @@ export interface Translations {
     errorUpdate: string;
     errorDelete: string;
     errorConnection: string;
+    passportAlreadyExists: string;
     confirmDelete: string;
     archive: string;
     unarchive: string;
@@ -747,6 +748,7 @@ export const translations: Record<Language, Translations> = {
         errorUpdate: 'فشل التحديث',
         errorDelete: 'فشل الحذف',
         errorConnection: 'خطأ في الاتصال بالخادم',
+        passportAlreadyExists: 'رقم جواز السفر مسجل مسبقاً لطالب آخر',
         confirmDelete: 'هل أنت متأكد من الحذف؟',
         archive: 'أرشفة',
         unarchive: 'إلغاء الأرشفة',
@@ -1128,6 +1130,7 @@ export const translations: Record<Language, Translations> = {
         errorUpdate: 'Failed to update',
         errorDelete: 'Failed to delete',
         errorConnection: 'Server connection error',
+        passportAlreadyExists: 'This passport number is already registered for another student',
         confirmDelete: 'Are you sure you want to delete?',
         archive: 'Archive',
         unarchive: 'Unarchive',
@@ -1509,6 +1512,7 @@ export const translations: Record<Language, Translations> = {
         errorUpdate: 'Güncelleme başarısız',
         errorDelete: 'Silme başarısız',
         errorConnection: 'Sunucu bağlantı hatası',
+        passportAlreadyExists: 'Bu pasaport numarası başka bir öğrenci için zaten kayıtlı',
         confirmDelete: 'Silmek istediğinizden emin misiniz?',
         archive: 'Arşivle',
         unarchive: 'Arşivden çıkar',

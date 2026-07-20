@@ -356,14 +356,41 @@ export const Dashboard: React.FC<DashboardProps> = ({
   }, [scopedApplications, filterActive, fromDate, toDate, programs, universityFilter, programFilter, degreeFilter, agentFilter, responsibleFilter, nationalityFilter, currencyFilter, studentById, users]);
 
   const filteredStudents = useMemo(() => {
-    const from = fromDate;
-    const to = toDate;
+    const hasAppFilters =
+      statusFilter.length > 0 ||
+      universityFilter.length > 0 ||
+      programFilter.length > 0 ||
+      degreeFilter.length > 0 ||
+      agentFilter.length > 0 ||
+      responsibleFilter.length > 0 ||
+      nationalityFilter.length > 0 ||
+      currencyFilter.length > 0;
+
+    if (hasAppFilters) {
+      const studentIds = new Set(filteredApplications.map((app) => app.studentId));
+      return scopedStudents.filter((student) => studentIds.has(student.id));
+    }
+
     return scopedStudents.filter((s) => {
       if (!filterActive || !fromDate || !toDate) return true;
       const d = dateOnly(s.createdAt);
-      return d && d >= from && d <= to;
+      return !!(d && d >= fromDate && d <= toDate);
     });
-  }, [scopedStudents, filterActive, fromDate, toDate]);
+  }, [
+    scopedStudents,
+    filteredApplications,
+    filterActive,
+    fromDate,
+    toDate,
+    statusFilter,
+    universityFilter,
+    programFilter,
+    degreeFilter,
+    agentFilter,
+    responsibleFilter,
+    nationalityFilter,
+    currencyFilter
+  ]);
 
   const handleApply = () => {
     if (fromDate && toDate) setFilterActive(true);

@@ -7,6 +7,7 @@ from datetime import datetime
 from werkzeug.utils import secure_filename
 from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy import inspect, text
+from sqlalchemy.exc import IntegrityError
 
 api_bp = Blueprint('api', __name__)
 
@@ -1105,19 +1106,27 @@ def get_students():
 
 @api_bp.route('/students', methods=['POST'])
 def add_student():
-    data = request.json
+    data = request.json or {}
     user_role = data.get('role')
     user_id = data.get('user_id')
     if user_role == 'agent' and not user_id:
         return jsonify({'message': 'Agent user_id required'}), 400
+    passport_number = str(data.get('passportNumber') or '').strip()
+    if not passport_number:
+        return jsonify({'message': 'Passport number is required', 'code': 'passport_required'}), 400
+    if Student.query.filter_by(passport_number=passport_number).first():
+        return jsonify({
+            'message': 'A student with this passport number already exists',
+            'code': 'passport_exists'
+        }), 409
     created_at = _iso_timestamp()
     student = Student(
         id=str(uuid.uuid4()),
         first_name=data['firstName'],
         last_name=data['lastName'],
-        passport_number=data['passportNumber'],
-        father_name=data['fatherName'],
-        mother_name=data['motherName'],
+        passport_number=passport_number,
+        father_name=data.get('fatherName') or '',
+        mother_name=data.get('motherName') or '',
         gender=data['gender'],
         phone=data.get('phone') or '',
         email=data.get('email') or '',
@@ -1130,7 +1139,14 @@ def add_student():
         updated_at=created_at
     )
     db.session.add(student)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({
+            'message': 'A student with this passport number already exists',
+            'code': 'passport_exists'
+        }), 409
     # 7. Notify admin and users when an agent adds a student
     if user_id:
         agent_user = User.query.get(user_id)
@@ -1159,9 +1175,22 @@ def update_student(student_id):
     data = request.json or {}
     if _request_role_value() == 'AGENT':
         return jsonify({'message': 'Agents cannot edit students'}), 403
+    if 'passportNumber' in data:
+        passport_number = str(data.get('passportNumber') or '').strip()
+        if not passport_number:
+            return jsonify({'message': 'Passport number is required', 'code': 'passport_required'}), 400
+        existing = Student.query.filter(
+            Student.passport_number == passport_number,
+            Student.id != student_id
+        ).first()
+        if existing:
+            return jsonify({
+                'message': 'A student with this passport number already exists',
+                'code': 'passport_exists'
+            }), 409
+        student.passport_number = passport_number
     student.first_name = data.get('firstName', student.first_name)
     student.last_name = data.get('lastName', student.last_name)
-    student.passport_number = data.get('passportNumber', student.passport_number)
     student.father_name = data.get('fatherName', student.father_name)
     student.mother_name = data.get('motherName', student.mother_name)
     student.gender = data.get('gender', student.gender)
@@ -1172,7 +1201,14 @@ def update_student(student_id):
     student.dob = data.get('dob', student.dob)
     student.residence_country = data.get('residenceCountry', student.residence_country)
     student.updated_at = _iso_timestamp()
-    db.session.commit()
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({
+            'message': 'A student with this passport number already exists',
+            'code': 'passport_exists'
+        }), 409
     return jsonify({'message': 'Student updated', 'updatedAt': student.updated_at})
 
 

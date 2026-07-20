@@ -38,6 +38,7 @@ const STATUS_ALIASES: Record<string, ApplicationStatus> = {
   'kabul mektubu bekleniyor': ApplicationStatus.ACCEPTANCE_LETTER_WAITING,
   'kabul metubu bekleniyor': ApplicationStatus.ACCEPTANCE_LETTER_WAITING,
   "kabul mektubu gonderilmesi bekleniyor (firma'ya)": ApplicationStatus.ACCEPTANCE_LETTER_SEND_TO_COMPANY_WAITING,
+  "kabul mektubu firma'ya gonderilmesi bekleniyor": ApplicationStatus.ACCEPTANCE_LETTER_SEND_TO_COMPANY_WAITING,
   "kabul metubu firma'ya gonderilmesi bekleniyor": ApplicationStatus.ACCEPTANCE_LETTER_SEND_TO_COMPANY_WAITING,
   'ogrenci belgesi bekleniyor': ApplicationStatus.STUDENT_DOCUMENT_WAITING,
   'ogrenci belgesi teslim edildi': ApplicationStatus.STUDENT_DOCUMENT_DELIVERED,

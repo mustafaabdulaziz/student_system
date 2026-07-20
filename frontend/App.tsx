@@ -357,9 +357,13 @@ export default function App() {
           user_id: userIdToSend
         })
       });
-      const data = await res.json();
+      let data: { id?: string; createdAt?: string; updatedAt?: string; message?: string; code?: string } = {};
+      try {
+        data = await res.json();
+      } catch {
+        // non-JSON error body
+      }
       if (res.ok) {
-        const agentUser = state.users.find(u => u.id === userIdToSend);
         const newStudent = {
           ...stud,
           id: data.id,
@@ -369,11 +373,14 @@ export default function App() {
         };
         setState(prev => ({ ...prev, students: [...prev.students, newStudent] }));
         return data.id;
+      }
+      if (data.code === 'passport_exists') {
+        alert(t.passportAlreadyExists);
       } else {
-        alert(data.message || 'فشل إضافة الطالب');
+        alert(data.message || t.errorAdd);
       }
     } catch (err) {
-      alert('خطأ في الاتصال بالخادم');
+      alert(t.errorConnection);
     }
     return null;
   };
@@ -388,7 +395,12 @@ export default function App() {
           role: state.currentUser?.role
         })
       });
-      const data = await res.json();
+      let data: { updatedAt?: string; message?: string; code?: string } = {};
+      try {
+        data = await res.json();
+      } catch {
+        // non-JSON error body
+      }
       if (res.ok) {
         const merged: Student = { ...student, ...(data.updatedAt ? { updatedAt: data.updatedAt } : {}) };
         setState(prev => ({
@@ -396,11 +408,14 @@ export default function App() {
           students: prev.students.map(s => s.id === student.id ? merged : s)
         }));
         return merged;
+      }
+      if (data.code === 'passport_exists') {
+        alert(t.passportAlreadyExists);
       } else {
-        alert(data.message || 'Failed to update student');
+        alert(data.message || t.errorUpdate);
       }
     } catch (err) {
-      alert('Connection error');
+      alert(t.errorConnection);
     }
     return undefined;
   };

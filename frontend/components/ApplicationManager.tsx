@@ -85,6 +85,17 @@ const formatApplicationFinanceValue = (app: Application, key: keyof Application)
   return Number.isNaN(n) ? '—' : n.toLocaleString();
 };
 
+const APPLICATION_STATUS_VALUES = Object.values(ApplicationStatus) as string[];
+
+/** Map stored/legacy status strings to a value that matches the edit <select> options. */
+const resolveEditFormStatus = (status: string | null | undefined): ApplicationStatus => {
+  const normalized = normalizeApplicationStatus(status);
+  if (APPLICATION_STATUS_VALUES.includes(normalized as string)) {
+    return normalized as ApplicationStatus;
+  }
+  return ApplicationStatus.NEW;
+};
+
 type ApplicationChatMessage = {
   id: string;
   sender: string;
@@ -612,7 +623,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
       setEditFormAgentId(app.userId || '');
       setEditFormResponsibleId(app.responsibleId || '');
       setEditFormAgencyCompanyId(app.agencyCompanyId || '');
-      setEditFormStatus(app.status);
+      setEditFormStatus(resolveEditFormStatus(app.status));
       setInternalDescription(app.internalDescription || '');
       seedEditProgramFilters(app);
     }
@@ -1539,6 +1550,9 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                   onChange={(e) => setEditFormStatus(e.target.value as ApplicationStatus)}
                   className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none"
                 >
+                  {!APPLICATION_STATUS_VALUES.includes(editFormStatus) && (
+                    <option value={editFormStatus}>{displayStatus(editFormStatus)}</option>
+                  )}
                   {Object.values(ApplicationStatus).map((st) => (
                     <option key={st} value={st}>{displayStatus(st)}</option>
                   ))}
@@ -1561,7 +1575,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                       setEditFormAgentId(app.userId || '');
                       setEditFormResponsibleId(app.responsibleId || '');
                       setEditFormAgencyCompanyId(app.agencyCompanyId || '');
-                      setEditFormStatus(app.status);
+                      setEditFormStatus(resolveEditFormStatus(app.status));
                       setInternalDescription(app.internalDescription || '');
                       seedEditProgramFilters(app);
                       setDetailEditMode(false);
@@ -1611,6 +1625,12 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                   type="button"
                   onClick={() => {
                     seedEditProgramFilters(app);
+                    setEditFormAgentId(app.userId || '');
+                    setEditFormResponsibleId(app.responsibleId || '');
+                    setEditFormAgencyCompanyId(app.agencyCompanyId || '');
+                    setEditFormStatus(resolveEditFormStatus(app.status));
+                    setInternalDescription(app.internalDescription || '');
+                    setDetailFinance(financeFromApplication(app));
                     setDetailEditMode(true);
                   }}
                   className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 transition-colors whitespace-nowrap"
