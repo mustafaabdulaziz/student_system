@@ -55,6 +55,8 @@ export interface Translations {
     totalDepositPaidPipeline: string;
     totalFinalRegistration: string;
     totalAnnualPaymentCompleted: string;
+    totalNewApplications: string;
+    totalOfferLetterWaiting: string;
     pendingApplications: string;
     approvedApplications: string;
     rejectedApplications: string;
@@ -92,6 +94,8 @@ export interface Translations {
     chartShare: string;
     totalsByFilter: string;
     totals: string;
+    financialTable: string;
+    groupBy: string;
     totalCost: string;
 
     // News and Updates
@@ -280,7 +284,14 @@ export interface Translations {
     messages: string;
     noMessages: string;
     typeMessage: string;
+    internalDescription: string;
+    internalDescriptionPlaceholder: string;
+    internalChat: string;
+    staffOnly: string;
+    noInternalMessages: string;
+    typeInternalMessage: string;
     responsible: string;
+    agencyCompany: string;
     cost: string;
     commission: string;
     saleAmount: string;
@@ -334,6 +345,7 @@ export interface Translations {
     readOnly: string;
     noNotificationsForFilter: string;
     markAsRead: string;
+    markAsUnread: string;
     markAllAsRead: string;
     newMessage: string;
     statusUpdate: string;
@@ -430,6 +442,8 @@ export const translations: Record<Language, Translations> = {
         totalDepositPaidPipeline: 'إجمالي دفع العربون',
         totalFinalRegistration: 'إجمالي التسجيل النهائي',
         totalAnnualPaymentCompleted: 'إجمالي إتمام الدفع السنوي',
+        totalNewApplications: 'إجمالي الطلبات الجديدة',
+        totalOfferLetterWaiting: 'إجمالي الطلبات بانتظار خطاب العرض',
         pendingApplications: 'طلبات قيد الانتظار',
         approvedApplications: 'طلبات مقبولة',
         rejectedApplications: 'طلبات مرفوضة',
@@ -466,6 +480,8 @@ export const translations: Record<Language, Translations> = {
         chartShare: 'النسبة',
         totalsByFilter: 'المجاميع حسب الفلتر',
         totals: 'المجاميع',
+        financialTable: 'الجدول المالي',
+        groupBy: 'تجميع حسب',
         totalCost: 'إجمالي التكلفة',
         newsAndUpdates: 'الأخبار والتحديثات',
         newsAndUpdatesSubtitle: 'آخر الأخبار والإعلانات من الإدارة',
@@ -650,7 +666,14 @@ export const translations: Record<Language, Translations> = {
         messages: 'الرسائل',
         noMessages: 'لا توجد رسائل',
         typeMessage: 'اكتب رسالة...',
+        internalDescription: 'الوصف',
+        internalDescriptionPlaceholder: 'أضف وصفاً للطلب...',
+        internalChat: 'المحادثة الداخلية',
+        staffOnly: 'للمدير والموظفين فقط',
+        noInternalMessages: 'لا توجد رسائل داخلية',
+        typeInternalMessage: 'اكتب رسالة داخلية...',
         responsible: 'المسؤول',
+        agencyCompany: 'الشركة الوسيطة',
         cost: 'التكلفة',
         commission: 'العمولة',
         saleAmount: 'مبلغ البيع',
@@ -704,6 +727,7 @@ export const translations: Record<Language, Translations> = {
         readOnly: 'المقروء فقط',
         noNotificationsForFilter: 'لا توجد إشعارات تطابق الفلتر',
         markAsRead: 'تعليم كمقروء',
+        markAsUnread: 'تعليم كغير مقروء',
         markAllAsRead: 'تجاهل الكل',
         newMessage: 'رسالة جديدة',
         statusUpdate: 'تحديث الحالة',
@@ -799,6 +823,8 @@ export const translations: Record<Language, Translations> = {
         totalDepositPaidPipeline: 'Total Deposit Paid',
         totalFinalRegistration: 'Total Final Registration',
         totalAnnualPaymentCompleted: 'Total Annual Payment Completed',
+        totalNewApplications: 'Total New Applications',
+        totalOfferLetterWaiting: 'Total Awaiting Offer Letter',
         pendingApplications: 'Pending Applications',
         approvedApplications: 'Approved Applications',
         rejectedApplications: 'Rejected Applications',
@@ -835,6 +861,8 @@ export const translations: Record<Language, Translations> = {
         chartShare: 'Share',
         totalsByFilter: 'Totals (filtered)',
         totals: 'Totals',
+        financialTable: 'Financial Table',
+        groupBy: 'Group by',
         totalCost: 'Total cost',
         newsAndUpdates: 'News and Updates',
         newsAndUpdatesSubtitle: 'Latest news and announcements from the administration',
@@ -1019,7 +1047,14 @@ export const translations: Record<Language, Translations> = {
         messages: 'Messages',
         noMessages: 'No messages',
         typeMessage: 'Type a message...',
+        internalDescription: 'Description',
+        internalDescriptionPlaceholder: 'Add an application description...',
+        internalChat: 'Internal Chat',
+        staffOnly: 'Admin and staff only',
+        noInternalMessages: 'No internal messages',
+        typeInternalMessage: 'Type an internal message...',
         responsible: 'Responsible',
+        agencyCompany: 'Agency company',
         cost: 'Cost',
         commission: 'Commission',
         saleAmount: 'Sale amount',
@@ -1073,6 +1108,7 @@ export const translations: Record<Language, Translations> = {
         readOnly: 'Read only',
         noNotificationsForFilter: 'No notifications match the filter',
         markAsRead: 'Mark as Read',
+        markAsUnread: 'Mark as unread',
         markAllAsRead: 'Ignore all',
         newMessage: 'New Message',
         statusUpdate: 'Status Update',
@@ -1168,6 +1204,8 @@ export const translations: Record<Language, Translations> = {
         totalDepositPaidPipeline: 'Toplam Depozito Ödemesi',
         totalFinalRegistration: 'Toplam Kesin Kayıt',
         totalAnnualPaymentCompleted: 'Toplam Yıllık Ödeme Tamamlanan',
+        totalNewApplications: 'Toplam Yeni Başvuru',
+        totalOfferLetterWaiting: 'Toplam Teklif Mektubu Bekleyen',
         pendingApplications: 'Bekleyen Başvurular',
         approvedApplications: 'Onaylanan Başvurular',
         rejectedApplications: 'Reddedilen Başvurular',
@@ -1204,6 +1242,8 @@ export const translations: Record<Language, Translations> = {
         chartShare: 'Oran',
         totalsByFilter: 'Toplamlar (filtreye göre)',
         totals: 'Toplamlar',
+        financialTable: 'Finansal Tablo',
+        groupBy: 'Gruplama kriteri',
         totalCost: 'Toplam maliyet',
         newsAndUpdates: 'Haberler ve Güncellemeler',
         newsAndUpdatesSubtitle: 'Yönetimden son haberler ve duyurular',
@@ -1388,7 +1428,14 @@ export const translations: Record<Language, Translations> = {
         messages: 'Mesajlar',
         noMessages: 'Mesaj yok',
         typeMessage: 'Mesaj yazın...',
+        internalDescription: 'Açıklama',
+        internalDescriptionPlaceholder: 'Başvuru için açıklama ekleyin...',
+        internalChat: 'İç Sohbet',
+        staffOnly: 'Yalnızca admin ve user',
+        noInternalMessages: 'İç mesaj yok',
+        typeInternalMessage: 'İç mesaj yazın...',
         responsible: 'Sorumlu',
+        agencyCompany: 'Aracı Firma',
         cost: 'Maliyet',
         commission: 'Komisyon',
         saleAmount: 'Satış tutarı',
@@ -1442,6 +1489,7 @@ export const translations: Record<Language, Translations> = {
         readOnly: 'Yalnızca okunmuş',
         noNotificationsForFilter: 'Filtreye uygun bildirim yok',
         markAsRead: 'Okundu Olarak İşaretle',
+        markAsUnread: 'Okunmadı olarak işaretle',
         markAllAsRead: 'Tümünü okundu işaretle',
         newMessage: 'Yeni Mesaj',
         statusUpdate: 'Durum Güncellemesi',

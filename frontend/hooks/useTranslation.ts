@@ -5,7 +5,7 @@ import { translateApplicationStatus } from '../utils/applicationStatus';
 export const useTranslation = () => {
     const { t, dir, language } = useLanguage();
 
-    const translateStatus = (status: string) => translateApplicationStatus(status, language);
+    const translateStatus = (status: string, viewerRole?: string) => translateApplicationStatus(status, language, viewerRole);
 
     // Helper function to translate degree
     const translateDegree = (degree: string) => {

@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Bell, ChevronRight } from 'lucide-react';
+import { Bell, ChevronRight, Mail, MailOpen } from 'lucide-react';
 import { useTranslation } from '../hooks/useTranslation';
 import { useNotifications } from '../contexts/NotificationContext';
 import { navigateFromNotification } from '../utils/notifications';
@@ -16,11 +16,11 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
   onViewAll
 }) => {
   const { t, language, translateNotification } = useTranslation();
-  const { notifications, unreadCount, loading, markAsRead, markAllAsRead } = useNotifications();
+  const { notifications, unreadCount, loading, markAsRead, markAsUnread, markAllAsRead } = useNotifications();
   const [isOpen, setIsOpen] = React.useState(false);
 
-  const handleNotificationClick = (notification: { id: string; link: string | null; type: string }) => {
-    markAsRead(notification.id);
+  const handleNotificationClick = (notification: { id: string; isRead: boolean; link: string | null; type: string }) => {
+    if (!notification.isRead) markAsRead(notification.id);
     setIsOpen(false);
     navigateFromNotification(notification, onNavigate);
   };
@@ -93,28 +93,46 @@ export const NotificationDropdown: React.FC<NotificationDropdownProps> = ({
                     return (
                       <div
                         key={notification.id}
-                        onClick={() => handleNotificationClick(notification)}
-                        className={`p-4 cursor-pointer transition-colors ${
+                        className={`p-4 transition-colors ${
                           notification.isRead ? 'bg-white hover:bg-gray-50' : 'bg-blue-50 hover:bg-blue-100'
                         }`}
                       >
                         <div className="flex items-start gap-3">
-                          <div
-                            className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${
-                              notification.isRead ? 'bg-gray-300' : 'bg-blue-500'
-                            }`}
-                          />
-                          <div className="flex-1 min-w-0">
-                            <h4 className={`font-medium text-sm ${notification.isRead ? 'text-gray-700' : 'text-gray-900'}`}>
-                              {title}
-                            </h4>
-                            <p className="text-sm text-gray-600 mt-1 line-clamp-2">{message}</p>
-                            <p className="text-xs text-gray-400 mt-1">
-                              {new Date(notification.createdAt).toLocaleString(
-                                language === 'ar' ? 'ar-SA' : language === 'tr' ? 'tr-TR' : 'en-US'
-                              )}
-                            </p>
-                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleNotificationClick(notification)}
+                            className="flex items-start gap-3 flex-1 min-w-0 text-left"
+                          >
+                            <div
+                              className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${
+                                notification.isRead ? 'bg-gray-300' : 'bg-blue-500'
+                              }`}
+                            />
+                            <div className="flex-1 min-w-0">
+                              <h4 className={`font-medium text-sm ${notification.isRead ? 'text-gray-700' : 'text-gray-900'}`}>
+                                {title}
+                              </h4>
+                              <p className="text-sm text-gray-600 mt-1 line-clamp-2">{message}</p>
+                              <p className="text-xs text-gray-400 mt-1">
+                                {new Date(notification.createdAt).toLocaleString(
+                                  language === 'ar' ? 'ar-SA' : language === 'tr' ? 'tr-TR' : 'en-US'
+                                )}
+                              </p>
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (notification.isRead) void markAsUnread(notification.id);
+                              else void markAsRead(notification.id);
+                            }}
+                            className="shrink-0 p-1.5 rounded-md text-gray-500 hover:text-blue-700 hover:bg-white/80 transition-colors"
+                            title={notification.isRead ? t.markAsUnread : t.markAsRead}
+                            aria-label={notification.isRead ? t.markAsUnread : t.markAsRead}
+                          >
+                            {notification.isRead ? <Mail size={16} /> : <MailOpen size={16} />}
+                          </button>
                         </div>
                       </div>
                     );

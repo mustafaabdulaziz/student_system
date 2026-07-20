@@ -49,7 +49,9 @@ const FINANCIAL_TREE_BASE_COLUMN_KEYS = [
   'degree',
   'program',
   'university',
-  'student'
+  'student',
+  'agencyCompany',
+  'description'
 ] as const;
 
 const FINANCIAL_TREE_COLUMN_KEYS = [
@@ -81,6 +83,15 @@ const formatApplicationFinanceValue = (app: Application, key: keyof Application)
   if (v == null || v === '') return '—';
   const n = Number(v);
   return Number.isNaN(n) ? '—' : n.toLocaleString();
+};
+
+type ApplicationChatMessage = {
+  id: string;
+  sender: string;
+  senderUserId?: string | null;
+  message: string;
+  createdAt: string;
+  senderName?: string | null;
 };
 
 function MultiSelectFilter({
@@ -129,6 +140,8 @@ interface ApplicationManagerProps {
     status?: ApplicationStatus;
     responsibleId?: string | null;
     userId?: string | null;
+    programId?: string | null;
+    periodId?: string | null;
     annualPayment?: number | null;
     educationVatRate?: number | null;
     abroadVatRate?: number | null;
@@ -141,6 +154,7 @@ interface ApplicationManagerProps {
     agencyCompanyId?: string | null;
     currency?: string | null;
     paymentDeserved?: boolean;
+    internalDescription?: string | null;
   }, opts?: { silent?: boolean }) => void | Promise<boolean | void>;
   onDeleteApplication?: (id: string) => void | Promise<void>;
   onSyncApplicationTimestamps?: (payload: {
@@ -209,13 +223,20 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const [kanbanPage, setKanbanPage] = useState(1);
   const [columnsOpen, setColumnsOpen] = useState(false);
   const columnsRef = useRef<HTMLDivElement>(null);
-  const applicationColumnKeys = useMemo(() => ['number', 'status', 'agent', 'responsible', 'student', 'nationality', 'program', 'university', 'degree', 'createdAt', 'updatedAt'], []);
+  const applicationColumnKeys = useMemo(
+    () => ['number', 'status', 'agent', 'responsible', 'student', 'nationality', 'program', 'university', 'degree', 'agencyCompany', 'description', 'createdAt', 'updatedAt'],
+    []
+  );
   const [visibleTreeColumns, setVisibleTreeColumns] = useState<string[]>(applicationColumnKeys);
   const [visibleFinancialColumns, setVisibleFinancialColumns] = useState<string[]>(FINANCIAL_TREE_COLUMN_KEYS);
 
-  const [messages, setMessages] = React.useState<Array<{ id: string; sender: string; message: string; createdAt: string; senderName?: string | null }>>([]);
+  const [messages, setMessages] = React.useState<ApplicationChatMessage[]>([]);
   const [newMessage, setNewMessage] = React.useState('');
   const chatMessagesRef = useRef<HTMLDivElement>(null);
+  const [internalMessages, setInternalMessages] = React.useState<ApplicationChatMessage[]>([]);
+  const [newInternalMessage, setNewInternalMessage] = React.useState('');
+  const internalChatMessagesRef = useRef<HTMLDivElement>(null);
+  const [internalDescription, setInternalDescription] = useState('');
   const [detailFiles, setDetailFiles] = React.useState<Array<{ url: string; name: string; filename?: string; fileType?: string; description?: string }>>([]);
   const [attachFiles, setAttachFiles] = React.useState<FileList | null>(null);
   const [receiptUploading, setReceiptUploading] = useState(false);
@@ -258,6 +279,20 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const [editFormResponsibleId, setEditFormResponsibleId] = useState('');
   const [editFormAgencyCompanyId, setEditFormAgencyCompanyId] = useState('');
   const [editFormStatus, setEditFormStatus] = useState<ApplicationStatus>(ApplicationStatus.NEW);
+  const [editFilterPeriod, setEditFilterPeriod] = useState('');
+  const [editFilterUni, setEditFilterUni] = useState('');
+  const [editFilterDegree, setEditFilterDegree] = useState('');
+  const [editFilterLang, setEditFilterLang] = useState('');
+  const [editFilterProgramName, setEditFilterProgramName] = useState('');
+
+  const seedEditProgramFilters = (app: Application) => {
+    const program = programs.find(p => p.id === app.programId);
+    setEditFilterPeriod(app.periodId || program?.periodId || '');
+    setEditFilterUni(program?.universityId || '');
+    setEditFilterDegree(program?.degree || '');
+    setEditFilterLang(program?.language || '');
+    setEditFilterProgramName(program?.name || '');
+  };
 
   const agentUsers = useMemo(() => users.filter(u => (u.role || '').toString().toLowerCase() === 'agent'), [users]);
   const responsibleUsers = useMemo(() => users.filter(u => { const r = (u.role || '').toString().toUpperCase(); return r === 'ADMIN' || r === 'USER'; }), [users]);
@@ -265,6 +300,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const canSeeAgentColumn = !!isAdminOrUser;
   const isAdmin = currentUser && (currentUser.role || '').toString().toUpperCase() === 'ADMIN';
   const isAgent = currentUser && (currentUser.role || '').toString().toLowerCase() === 'agent';
+  const displayStatus = (status: string) => translateStatus(status, currentUser?.role);
   const showFinancialTree = !!(isAdmin && listViewMode === 'tree' && treeDataMode === 'financial');
 
   useEffect(() => {
@@ -402,6 +438,78 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     )?.id;
   }, [filterPeriod, filterUni, filterDegree, filterLang, filterName, programs]);
 
+  const editAvailablePrograms = useMemo(() => {
+    const currentProgramId = selectedAppId
+      ? applications.find(a => a.id === selectedAppId)?.programId
+      : undefined;
+    return programs.filter(p =>
+      ((p.isOpen !== false && !p.isArchived) || p.id === currentProgramId) &&
+      (!editFilterPeriod || p.periodId === editFilterPeriod)
+    );
+  }, [programs, editFilterPeriod, selectedAppId, applications]);
+
+  const editAvailableUnis = useMemo(() => {
+    const byId = new Map<string, { id: string; name: string }>();
+    editAvailablePrograms.forEach(p => {
+      const uni = universities.find(u => u.id === p.universityId);
+      if (uni && !byId.has(uni.id)) byId.set(uni.id, { id: uni.id, name: uni.name });
+    });
+    return Array.from(byId.values());
+  }, [editAvailablePrograms, universities]);
+
+  const editAvailableDegrees = useMemo(() => {
+    return Array.from(new Set(
+      editAvailablePrograms
+        .filter(p => !editFilterUni || p.universityId === editFilterUni)
+        .map(p => p.degree)
+    ));
+  }, [editAvailablePrograms, editFilterUni]);
+
+  const editAvailableLanguages = useMemo(() => {
+    return Array.from(new Set(
+      editAvailablePrograms
+        .filter(p =>
+          (!editFilterUni || p.universityId === editFilterUni) &&
+          (!editFilterDegree || p.degree === editFilterDegree)
+        )
+        .map(p => p.language)
+    ));
+  }, [editAvailablePrograms, editFilterUni, editFilterDegree]);
+
+  const editAvailableProgramNames = useMemo(() => {
+    return Array.from(new Set(
+      editAvailablePrograms
+        .filter(p =>
+          (!editFilterUni || p.universityId === editFilterUni) &&
+          (!editFilterDegree || p.degree === editFilterDegree) &&
+          (!editFilterLang || p.language === editFilterLang)
+        )
+        .map(p => p.name)
+    ));
+  }, [editAvailablePrograms, editFilterUni, editFilterDegree, editFilterLang]);
+
+  const editFinalProgramId = useMemo(() => {
+    if (!editFilterPeriod || !editFilterUni || !editFilterDegree || !editFilterLang || !editFilterProgramName) return null;
+    return programs.find(p =>
+      p.periodId === editFilterPeriod &&
+      p.universityId === editFilterUni &&
+      p.degree === editFilterDegree &&
+      p.language === editFilterLang &&
+      p.name === editFilterProgramName
+    )?.id || null;
+  }, [editFilterPeriod, editFilterUni, editFilterDegree, editFilterLang, editFilterProgramName, programs]);
+
+  const editProgramFormComplete = !!(editFilterPeriod && editFilterUni && editFilterDegree && editFilterLang && editFilterProgramName && editFinalProgramId);
+
+  const editPeriodOptions = useMemo(() => {
+    const list = [...activePeriods];
+    if (editFilterPeriod && !list.some(p => p.id === editFilterPeriod)) {
+      const current = periods.find(p => p.id === editFilterPeriod);
+      if (current) list.unshift(current);
+    }
+    return list;
+  }, [activePeriods, periods, editFilterPeriod]);
+
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -505,9 +613,11 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
       setEditFormResponsibleId(app.responsibleId || '');
       setEditFormAgencyCompanyId(app.agencyCompanyId || '');
       setEditFormStatus(app.status);
+      setInternalDescription(app.internalDescription || '');
+      seedEditProgramFilters(app);
     }
     setDetailEditMode(false);
-  }, [selectedAppId, applications]);
+  }, [selectedAppId, applications, programs]);
 
   useEffect(() => {
     if (view !== 'detail') return;
@@ -517,6 +627,15 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
       el.scrollTop = el.scrollHeight;
     });
   }, [messages, selectedAppId, view]);
+
+  useEffect(() => {
+    if (view !== 'detail' || !isAdminOrUser) return;
+    const el = internalChatMessagesRef.current;
+    if (!el) return;
+    requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+    });
+  }, [internalMessages, selectedAppId, view, isAdminOrUser]);
 
   // Load messages when opening a detail view
   React.useEffect(() => {
@@ -532,6 +651,16 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     };
     if (view === 'detail' && selectedAppId) {
       loadMessages(selectedAppId);
+      if (isAdminOrUser && currentUser?.id) {
+        fetch(`/api/applications/${selectedAppId}/internal-messages?actorUserId=${encodeURIComponent(currentUser.id)}`)
+          .then(async res => {
+            const data = await res.json();
+            if (res.ok) setInternalMessages(data);
+          })
+          .catch(err => console.error('Failed to load internal messages', err));
+      } else {
+        setInternalMessages([]);
+      }
       (async () => {
         try {
           const r = await fetch(`/api/applications/${selectedAppId}/files`);
@@ -551,7 +680,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
         }
       })();
     }
-  }, [view, selectedAppId]);
+  }, [view, selectedAppId, isAdminOrUser, currentUser?.id]);
 
   // Helpers
   const getStudent = (id: string) => students.find(s => s.id === id);
@@ -715,6 +844,8 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
         case 'program': va = (pA?.name || '').toLowerCase(); vb = (pB?.name || '').toLowerCase(); return dir * (va as string).localeCompare(vb as string);
         case 'university': va = (pA ? getUni(pA.universityId)?.name || '' : '').toLowerCase(); vb = (pB ? getUni(pB.universityId)?.name || '' : '').toLowerCase(); return dir * (va as string).localeCompare(vb as string);
         case 'degree': va = (pA?.degree || '').toLowerCase(); vb = (pB?.degree || '').toLowerCase(); return dir * (va as string).localeCompare(vb as string);
+        case 'agencyCompany': va = (a.agencyCompanyName || '').toLowerCase(); vb = (b.agencyCompanyName || '').toLowerCase(); return dir * (va as string).localeCompare(vb as string);
+        case 'description': va = (a.internalDescription || '').toLowerCase(); vb = (b.internalDescription || '').toLowerCase(); return dir * (va as string).localeCompare(vb as string);
         case 'createdAt': va = new Date(a.createdAt || 0).getTime(); vb = new Date(b.createdAt || 0).getTime(); return dir * ((va as number) - (vb as number));
         case 'updatedAt': va = new Date(a.updatedAt || a.createdAt || 0).getTime(); vb = new Date(b.updatedAt || b.createdAt || 0).getTime(); return dir * ((va as number) - (vb as number));
         case 'status': va = (a.status || '').toLowerCase(); vb = (b.status || '').toLowerCase(); return dir * (va as string).localeCompare(vb as string);
@@ -849,7 +980,8 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
         key: 'status',
         label: t.applicationStatus,
         type: 'select',
-        options: Object.values(ApplicationStatus).map(st => ({ value: st, label: translateStatus(st) }))
+        options: Object.values(ApplicationStatus).map(st => ({ value: st, label: displayStatus(st) }))
+          .filter(option => option.label)
       },
       { key: 'currency', label: fin('currency'), type: 'select', options: [{ value: 'USD', label: 'USD' }, { value: 'TRY', label: 'TRY' }, { value: 'EUR', label: 'EUR' }] },
       { key: 'paymentDeserved', label: fin('paymentDeserved'), type: 'boolean' },
@@ -932,6 +1064,8 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     { key: 'program', label: t.program },
     { key: 'university', label: t.universityName },
     { key: 'degree', label: t.programDegree },
+    { key: 'agencyCompany', label: t.agencyCompany },
+    { key: 'description', label: t.internalDescription },
     { key: 'createdAt', label: t.createdAt },
     { key: 'updatedAt', label: t.lastUpdatedAt }
   ];
@@ -944,12 +1078,16 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     { key: 'program', label: t.program },
     { key: 'university', label: t.universityName },
     { key: 'student', label: t.studentInfo },
+    { key: 'agencyCompany', label: t.agencyCompany },
+    { key: 'description', label: t.internalDescription },
     ...FINANCIAL_TREE_FIELDS.map((field) => ({ key: String(field.key), label: field.label }))
   ];
   const storageKey = `tree-columns:applications:${currentUser?.id || 'guest'}`;
   const financialStorageKey = `tree-columns:applications-financial:${currentUser?.id || 'guest'}`;
   const newColumnsMigrationKey = `${storageKey}:degree-nationality-v1`;
+  const agencyDescriptionMigrationKey = `${storageKey}:agency-description-v1`;
   const depositSupportMigrationKey = `${financialStorageKey}:deposit-support-v1`;
+  const financialAgencyDescriptionMigrationKey = `${financialStorageKey}:agency-description-v1`;
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -976,11 +1114,22 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
         }
         window.localStorage.setItem(newColumnsMigrationKey, '1');
       }
+      if (!window.localStorage.getItem(agencyDescriptionMigrationKey)) {
+        if (!valid.includes('agencyCompany')) {
+          const degreeIndex = valid.indexOf('degree');
+          valid.splice(degreeIndex >= 0 ? degreeIndex + 1 : valid.length, 0, 'agencyCompany');
+        }
+        if (!valid.includes('description')) {
+          const agencyIndex = valid.indexOf('agencyCompany');
+          valid.splice(agencyIndex >= 0 ? agencyIndex + 1 : valid.length, 0, 'description');
+        }
+        window.localStorage.setItem(agencyDescriptionMigrationKey, '1');
+      }
       if (valid.length > 0) setVisibleTreeColumns(valid);
     } catch {
       // ignore corrupted localStorage values
     }
-  }, [storageKey, newColumnsMigrationKey, applicationColumnKeys]);
+  }, [storageKey, newColumnsMigrationKey, agencyDescriptionMigrationKey, applicationColumnKeys]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -999,11 +1148,22 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
         if (!valid.includes('depositSupport')) valid.push('depositSupport');
         window.localStorage.setItem(depositSupportMigrationKey, '1');
       }
+      if (!window.localStorage.getItem(financialAgencyDescriptionMigrationKey)) {
+        if (!valid.includes('agencyCompany')) {
+          const studentIndex = valid.indexOf('student');
+          valid.splice(studentIndex >= 0 ? studentIndex + 1 : valid.length, 0, 'agencyCompany');
+        }
+        if (!valid.includes('description')) {
+          const agencyIndex = valid.indexOf('agencyCompany');
+          valid.splice(agencyIndex >= 0 ? agencyIndex + 1 : valid.length, 0, 'description');
+        }
+        window.localStorage.setItem(financialAgencyDescriptionMigrationKey, '1');
+      }
       if (valid.length > 0) setVisibleFinancialColumns(valid);
     } catch {
       // ignore corrupted localStorage values
     }
-  }, [financialStorageKey, depositSupportMigrationKey]);
+  }, [financialStorageKey, depositSupportMigrationKey, financialAgencyDescriptionMigrationKey]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1022,7 +1182,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
 
   useEffect(() => {
     const hiddenByConfig = sortBy && applicationColumnKeys.includes(sortBy) && !visibleTreeColumns.includes(sortBy);
-    const hiddenByRole = ((sortBy === 'responsible' || sortBy === 'agent') && !canSeeAgentColumn) || (sortBy === 'updatedAt' && isAgent);
+    const hiddenByRole = ((sortBy === 'responsible' || sortBy === 'agent' || sortBy === 'agencyCompany' || sortBy === 'description') && !canSeeAgentColumn) || (sortBy === 'updatedAt' && isAgent);
     if (hiddenByConfig || hiddenByRole) {
       setSortBy(null);
       setSortDir('asc');
@@ -1050,7 +1210,9 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   };
 
   useEffect(() => {
-    let allowed = canSeeAgentColumn ? applicationColumnKeys : applicationColumnKeys.filter(k => k !== 'agent' && k !== 'responsible');
+    let allowed = canSeeAgentColumn
+      ? applicationColumnKeys
+      : applicationColumnKeys.filter(k => k !== 'agent' && k !== 'responsible' && k !== 'agencyCompany' && k !== 'description');
     if (isAgent) allowed = allowed.filter(k => k !== 'updatedAt');
     const normalized = visibleTreeColumns.filter(k => allowed.includes(k));
     if (normalized.length !== visibleTreeColumns.length) {
@@ -1309,6 +1471,45 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
       } catch { alert('خطأ في الاتصال'); }
     };
 
+    const sendInternalMessage = async () => {
+      if (!newInternalMessage.trim() || !selectedAppId || !currentUser?.id || !isAdminOrUser) return;
+      try {
+        const messageText = newInternalMessage.trim();
+        const res = await fetch(`/api/applications/${selectedAppId}/internal-messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            actorUserId: currentUser.id,
+            message: messageText
+          })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          setInternalMessages(prev => [...prev, {
+            id: data.id,
+            sender: data.sender,
+            senderUserId: currentUser.id,
+            message: messageText,
+            createdAt: data.createdAt || new Date().toISOString(),
+            senderName: data.senderName ?? currentUser.name ?? null
+          }]);
+          setNewInternalMessage('');
+          if (data.updatedAt && onSyncApplicationTimestamps) {
+            onSyncApplicationTimestamps({
+              applicationId: selectedAppId,
+              applicationUpdatedAt: data.updatedAt,
+              studentId: data.studentId,
+              studentUpdatedAt: data.studentUpdatedAt ?? undefined
+            });
+          }
+        } else {
+          alert(data.message || t.errorConnection);
+        }
+      } catch {
+        alert(t.errorConnection);
+      }
+    };
+
     // --- Status Bar Steps ---
     const getStatusBadgeClass = (status: ApplicationStatus, size: 'header' | 'default' | 'compact' = 'default') =>
       getApplicationStatusBadgeClass(status, size);
@@ -1339,12 +1540,12 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                   className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none"
                 >
                   {Object.values(ApplicationStatus).map((st) => (
-                    <option key={st} value={st}>{translateStatus(st)}</option>
+                    <option key={st} value={st}>{displayStatus(st)}</option>
                   ))}
                 </select>
               ) : (
                 <span className={getStatusBadgeClass(app.status, 'header')}>
-                  {translateStatus(app.status)}
+                  {displayStatus(app.status)}
                 </span>
               )}
             </div>
@@ -1361,6 +1562,8 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                       setEditFormResponsibleId(app.responsibleId || '');
                       setEditFormAgencyCompanyId(app.agencyCompanyId || '');
                       setEditFormStatus(app.status);
+                      setInternalDescription(app.internalDescription || '');
+                      seedEditProgramFilters(app);
                       setDetailEditMode(false);
                     }}
                     className="px-4 py-2 rounded-xl font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors text-sm whitespace-nowrap"
@@ -1370,12 +1573,18 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                   <button
                     type="button"
                     onClick={() => {
+                      if (!editProgramFormComplete || !editFinalProgramId) {
+                        alert(`${t.period}, ${t.university}, ${t.programDegree}, ${t.programLanguage}, ${t.program}`);
+                        return;
+                      }
                       const num = (v: string) => { const n = parseFloat(v); return (v === '' || Number.isNaN(n)) ? null : n; };
                       onUpdateApplication(app.id, {
                         status: editFormStatus,
                         userId: editFormAgentId || null,
                         responsibleId: editFormResponsibleId || null,
                         agencyCompanyId: editFormAgencyCompanyId || null,
+                        programId: editFinalProgramId,
+                        periodId: editFilterPeriod,
                         annualPayment: num(detailFinance.annualPayment),
                         educationVatRate: num(detailFinance.educationVatRate),
                         abroadVatRate: num(detailFinance.abroadVatRate),
@@ -1386,11 +1595,13 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                         agencyBonus: num(detailFinance.agencyBonus),
                         depositSupport: num(detailFinance.depositSupport),
                         currency: ['USD', 'TRY', 'EUR'].includes(detailFinance.currency) ? detailFinance.currency : 'USD',
-                        paymentDeserved: detailFinance.paymentDeserved
+                        paymentDeserved: detailFinance.paymentDeserved,
+                        internalDescription
                       });
                       setDetailEditMode(false);
                     }}
-                    className="px-4 py-2 rounded-xl font-bold text-white bg-blue-600 hover:bg-blue-700 transition-colors text-sm flex items-center gap-2 whitespace-nowrap"
+                    disabled={!editProgramFormComplete}
+                    className="px-4 py-2 rounded-xl font-bold text-white bg-blue-600 hover:bg-blue-700 transition-colors text-sm flex items-center gap-2 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {t.save}
                   </button>
@@ -1398,7 +1609,10 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
               ) : (
                 <button
                   type="button"
-                  onClick={() => setDetailEditMode(true)}
+                  onClick={() => {
+                    seedEditProgramFilters(app);
+                    setDetailEditMode(true);
+                  }}
                   className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 transition-colors whitespace-nowrap"
                 >
                   <FileEdit size={16} />
@@ -1430,25 +1644,119 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                 </div>
                 <div className="min-w-0">
                   <h3 className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-1">{t.programsTitle}</h3>
-                  <p className="text-xl font-bold text-gray-800 leading-tight">{program?.name}</p>
+                  {!detailEditMode && (
+                    <p className="text-xl font-bold text-gray-800 leading-tight">{program?.name}</p>
+                  )}
                 </div>
               </div>
-              <div className="space-y-2 text-sm">
-                {(getPeriod(app.periodId || program?.periodId)?.name) && (
-                  <div className="flex items-center gap-2 text-gray-600">
-                    <span className="text-gray-500">{t.period}:</span>
-                    <span className="font-medium text-gray-800">{getPeriod(app.periodId || program?.periodId)?.name}</span>
+              {detailEditMode && onUpdateApplication ? (
+                <div className="space-y-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-purple-500 uppercase tracking-wider">{t.period}</label>
+                    <select
+                      required
+                      className="w-full p-2.5 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                      value={editFilterPeriod}
+                      onChange={e => {
+                        setEditFilterPeriod(e.target.value);
+                        setEditFilterUni('');
+                        setEditFilterDegree('');
+                        setEditFilterLang('');
+                        setEditFilterProgramName('');
+                      }}
+                    >
+                      <option value="">{t.selectPeriod}</option>
+                      {editPeriodOptions.map(per => (
+                        <option key={per.id} value={per.id}>{per.name}</option>
+                      ))}
+                    </select>
                   </div>
-                )}
-                <div className="flex items-center gap-2 text-gray-600 min-w-0">
-                  <GraduationCap size={16} className="text-purple-400 shrink-0" />
-                  <span className="text-blue-600 font-semibold">{university?.name || '—'}</span>
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-purple-500 uppercase tracking-wider">{t.universities}</label>
+                    <SearchableSelect
+                      value={editFilterUni}
+                      onChange={(value) => {
+                        setEditFilterUni(value);
+                        setEditFilterDegree('');
+                        setEditFilterLang('');
+                        setEditFilterProgramName('');
+                      }}
+                      options={editAvailableUnis.map((university) => ({ value: university.id, label: university.name }))}
+                      placeholder={t.selectUniversity}
+                      searchPlaceholder={t.search}
+                      noResultsText={t.searchNoResults}
+                      disabled={!editFilterPeriod}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-purple-500 uppercase tracking-wider">{t.programDegree}</label>
+                    <select
+                      required
+                      className="w-full p-2.5 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 outline-none disabled:opacity-50"
+                      value={editFilterDegree}
+                      onChange={e => {
+                        setEditFilterDegree(e.target.value);
+                        setEditFilterLang('');
+                        setEditFilterProgramName('');
+                      }}
+                      disabled={!editFilterUni}
+                    >
+                      <option value="">{t.selectDegree}</option>
+                      {editAvailableDegrees.map(d => <option key={d} value={d}>{translateDegree(d)}</option>)}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-purple-500 uppercase tracking-wider">{t.programLanguage}</label>
+                    <select
+                      required
+                      className="w-full p-2.5 border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 outline-none disabled:opacity-50"
+                      value={editFilterLang}
+                      onChange={e => {
+                        setEditFilterLang(e.target.value);
+                        setEditFilterProgramName('');
+                      }}
+                      disabled={!editFilterDegree}
+                    >
+                      <option value="">{t.selectLanguage}</option>
+                      {editAvailableLanguages.map(l => <option key={l} value={l}>{l}</option>)}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-purple-500 uppercase tracking-wider">{t.programName}</label>
+                    <SearchableSelect
+                      value={editFilterProgramName}
+                      onChange={setEditFilterProgramName}
+                      options={editAvailableProgramNames.map((name) => ({ value: name, label: name }))}
+                      placeholder={t.selectProgram}
+                      searchPlaceholder={t.search}
+                      noResultsText={t.searchNoResults}
+                      disabled={!editFilterLang}
+                    />
+                  </div>
+                  {!editProgramFormComplete && (
+                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                      {t.period}, {t.university}, {t.programDegree}, {t.programLanguage}, {t.program}
+                    </p>
+                  )}
                 </div>
-                <div className="flex flex-wrap gap-x-4 gap-y-1">
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-purple-50 text-purple-700 font-medium">{translateDegree(program?.degree || '')}</span>
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-700 font-medium">{program?.language || '—'}</span>
+              ) : (
+                <div className="space-y-2 text-sm">
+                  {(getPeriod(app.periodId || program?.periodId)?.name) && (
+                    <div className="flex items-center gap-2 text-gray-600">
+                      <span className="text-gray-500">{t.period}:</span>
+                      <span className="font-medium text-gray-800">{getPeriod(app.periodId || program?.periodId)?.name}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2 text-gray-600 min-w-0">
+                    <GraduationCap size={16} className="text-purple-400 shrink-0" />
+                    <span className="text-blue-600 font-semibold">{university?.name || '—'}</span>
+                  </div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1">
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-purple-50 text-purple-700 font-medium">{translateDegree(program?.degree || '')}</span>
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-700 font-medium">{program?.language || '—'}</span>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
             {/* Student Card */}
@@ -1566,6 +1874,29 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                     </div>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {isAdminOrUser && (
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-amber-100">
+                <div className="flex items-center gap-2 mb-3">
+                  <FileText size={18} className="text-amber-600" />
+                  <h3 className="font-bold text-gray-800">{t.internalDescription}</h3>
+                </div>
+                {detailEditMode && onUpdateApplication ? (
+                  <textarea
+                    value={internalDescription}
+                    onChange={event => setInternalDescription(event.target.value)}
+                    maxLength={10000}
+                    rows={5}
+                    placeholder={t.internalDescriptionPlaceholder}
+                    className="w-full resize-y rounded-xl border border-gray-200 p-3 text-sm outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+                  />
+                ) : (
+                  <p className="whitespace-pre-wrap break-words text-sm text-gray-700">
+                    {app.internalDescription || '—'}
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -1829,6 +2160,73 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                 </div>
               </div>
             </div>
+
+            {isAdminOrUser && (
+              <div className="order-3 lg:col-span-2 flex flex-col bg-amber-50/40 rounded-2xl shadow-sm border border-amber-200 overflow-hidden h-[390px]">
+                <div className="p-4 border-b border-amber-100 bg-amber-50 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <MessageSquare className="text-amber-700" size={20} />
+                    <h3 className="font-bold text-amber-950">{t.internalChat}</h3>
+                  </div>
+                  <span className="text-[11px] font-semibold text-amber-700">{t.staffOnly}</span>
+                </div>
+
+                <div ref={internalChatMessagesRef} className="flex-1 min-h-0 overflow-y-auto p-6 space-y-4">
+                  {internalMessages.length === 0 ? (
+                    <div className="h-full flex flex-col items-center justify-center text-amber-300 space-y-2">
+                      <MessageSquare size={48} className="opacity-30" />
+                      <p className="text-sm">{t.noInternalMessages}</p>
+                    </div>
+                  ) : (
+                    internalMessages.map(message => {
+                      const isOwnMessage = message.senderUserId === currentUser?.id;
+                      return (
+                        <div key={message.id} className={`flex w-full ${isOwnMessage ? 'justify-end' : 'justify-start'}`}>
+                          <div className={`max-w-[80%] flex flex-col ${isOwnMessage ? 'items-end' : 'items-start'}`}>
+                            <div className="flex items-center gap-2 mb-1 px-1">
+                              <span className="text-[10px] font-bold uppercase tracking-widest text-amber-700">
+                                {message.senderName || message.sender}
+                              </span>
+                              <span className="text-[10px] text-gray-400">
+                                {new Date(message.createdAt).toLocaleTimeString(dateLocale, { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+                            <div className={`px-4 py-3 rounded-2xl shadow-sm text-sm break-words leading-relaxed ${
+                              isOwnMessage
+                                ? 'bg-amber-600 text-white rounded-br-none'
+                                : 'bg-white text-gray-800 border border-amber-100 rounded-bl-none'
+                            }`} dir="auto">
+                              {message.message}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                <div className="p-4 border-t border-amber-100 bg-white">
+                  <div className="flex gap-2 items-center bg-amber-50/60 p-1 rounded-2xl border border-amber-200 focus-within:border-amber-400 focus-within:ring-2 focus-within:ring-amber-100 transition-all">
+                    <input
+                      value={newInternalMessage}
+                      onChange={event => setNewInternalMessage(event.target.value)}
+                      onKeyDown={event => event.key === 'Enter' && !event.shiftKey && (event.preventDefault(), sendInternalMessage())}
+                      maxLength={10000}
+                      className="flex-1 bg-transparent p-3 outline-none text-sm placeholder:text-gray-400"
+                      placeholder={t.typeInternalMessage}
+                    />
+                    <button
+                      type="button"
+                      onClick={sendInternalMessage}
+                      disabled={!newInternalMessage.trim()}
+                      className="bg-amber-600 text-white p-3 rounded-xl hover:bg-amber-700 disabled:opacity-30 transition-all active:scale-90"
+                    >
+                      <Send size={18} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -2117,7 +2515,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                       {(showFinancialTree
                         ? financialColumnOptions
                         : applicationColumnOptions.filter(col => {
-                            if (!canSeeAgentColumn && (col.key === 'agent' || col.key === 'responsible')) return false;
+                            if (!canSeeAgentColumn && (col.key === 'agent' || col.key === 'responsible' || col.key === 'agencyCompany' || col.key === 'description')) return false;
                             if (isAgent && col.key === 'updatedAt') return false;
                             return true;
                           })
@@ -2215,7 +2613,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                 selected={filterStatuses}
                 onChange={setFilterStatuses}
                 options={Object.values(ApplicationStatus)}
-                optionLabels={Object.fromEntries(Object.values(ApplicationStatus).map((st) => [st, translateStatus(st)]))}
+                optionLabels={Object.fromEntries(Object.values(ApplicationStatus).map((st) => [st, displayStatus(st)]).filter(([, label]) => Boolean(label)))}
                 placeholder={`${t.applicationStatus} (${t.filterAll})`}
                 searchPlaceholder={t.search}
               />
@@ -2384,6 +2782,8 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                     {visibleFinancialColumns.includes('program') && <SortTh colKey="program" label={t.program} />}
                     {visibleFinancialColumns.includes('university') && <SortTh colKey="university" label={t.universityName} />}
                     {visibleFinancialColumns.includes('student') && <SortTh colKey="student" label={t.studentInfo} />}
+                    {isAdminOrUser && visibleFinancialColumns.includes('agencyCompany') && <SortTh colKey="agencyCompany" label={t.agencyCompany} />}
+                    {isAdminOrUser && visibleFinancialColumns.includes('description') && <SortTh colKey="description" label={t.internalDescription} />}
                     {visibleFinancialFields.map((col) => (
                       <th key={col.key} className="px-4 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider whitespace-nowrap">
                         {col.label}
@@ -2424,7 +2824,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                         </td>}
                         {visibleFinancialColumns.includes('status') && <td className="px-2 py-3 text-center w-[170px] max-w-[170px]">
                           <span className={`${getApplicationStatusBadgeClass(app.status, 'compact')} inline-block max-w-[160px] whitespace-normal break-words leading-tight`}>
-                            {translateStatus(app.status)}
+                            {displayStatus(app.status)}
                           </span>
                         </td>}
                         {visibleFinancialColumns.includes('agent') && <td className="px-4 py-3 text-gray-900 whitespace-nowrap">{getAgentName(app)}</td>}
@@ -2435,6 +2835,14 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                         {visibleFinancialColumns.includes('program') && <td className="px-4 py-3 font-bold text-gray-900 whitespace-nowrap">{p?.name || '—'}</td>}
                         {visibleFinancialColumns.includes('university') && <td className="px-4 py-3 text-gray-900 whitespace-nowrap">{uni?.name || '—'}</td>}
                         {visibleFinancialColumns.includes('student') && <td className="px-4 py-3 font-bold text-gray-900 whitespace-nowrap">{s?.firstName} {s?.lastName}</td>}
+                        {isAdminOrUser && visibleFinancialColumns.includes('agencyCompany') && (
+                          <td className="px-4 py-3 text-gray-900 whitespace-nowrap">{app.agencyCompanyName || '—'}</td>
+                        )}
+                        {isAdminOrUser && visibleFinancialColumns.includes('description') && (
+                          <td className="px-4 py-3 text-gray-900 max-w-[220px]">
+                            <span className="line-clamp-2" title={app.internalDescription || ''}>{app.internalDescription || '—'}</span>
+                          </td>
+                        )}
                         {visibleFinancialFields.map((col) => (
                           <td key={col.key} className="px-4 py-3 text-gray-900 tabular-nums whitespace-nowrap text-xs">
                             {formatApplicationFinanceValue(app, col.key)}
@@ -2497,6 +2905,8 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                     {visibleTreeColumns.includes('program') && <SortTh colKey="program" label={t.program} />}
                     {visibleTreeColumns.includes('university') && <SortTh colKey="university" label={t.universityName} />}
                     {visibleTreeColumns.includes('degree') && <SortTh colKey="degree" label={t.programDegree} />}
+                    {isAdminOrUser && visibleTreeColumns.includes('agencyCompany') && <SortTh colKey="agencyCompany" label={t.agencyCompany} />}
+                    {isAdminOrUser && visibleTreeColumns.includes('description') && <SortTh colKey="description" label={t.internalDescription} />}
                     {visibleTreeColumns.includes('createdAt') && <SortTh colKey="createdAt" label={t.createdAt} />}
                     {!isAgent && visibleTreeColumns.includes('updatedAt') && <SortTh colKey="updatedAt" label={t.lastUpdatedAt} />}
                   </tr>
@@ -2520,6 +2930,8 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                       (visibleTreeColumns.includes('program') ? 1 : 0) +
                       (visibleTreeColumns.includes('university') ? 1 : 0) +
                       (visibleTreeColumns.includes('degree') ? 1 : 0) +
+                      (isAdminOrUser && visibleTreeColumns.includes('agencyCompany') ? 1 : 0) +
+                      (isAdminOrUser && visibleTreeColumns.includes('description') ? 1 : 0) +
                       (visibleTreeColumns.includes('createdAt') ? 1 : 0) +
                       (!isAgent && visibleTreeColumns.includes('updatedAt') ? 1 : 0) +
                       1; // expand toggle column
@@ -2571,7 +2983,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                             <td className="px-2 py-4 text-center w-[170px] max-w-[170px]">
                               <div className="flex justify-center">
                                 <span className={`${getApplicationStatusBadgeClass(app.status, 'compact')} inline-block max-w-[160px] whitespace-normal break-words leading-tight text-center`}>
-                                  {translateStatus(app.status)}
+                                  {displayStatus(app.status)}
                                 </span>
                               </div>
                             </td>
@@ -2596,6 +3008,14 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                           )}
                           {visibleTreeColumns.includes('degree') && (
                             <td className="px-6 py-4 text-gray-900">{p?.degree ? translateDegree(p.degree) : '—'}</td>
+                          )}
+                          {isAdminOrUser && visibleTreeColumns.includes('agencyCompany') && (
+                            <td className="px-6 py-4 text-gray-900">{app.agencyCompanyName || '—'}</td>
+                          )}
+                          {isAdminOrUser && visibleTreeColumns.includes('description') && (
+                            <td className="px-6 py-4 text-gray-900 max-w-[240px]">
+                              <span className="line-clamp-2" title={app.internalDescription || ''}>{app.internalDescription || '—'}</span>
+                            </td>
                           )}
                           {visibleTreeColumns.includes('createdAt') && (
                             <td className="px-6 py-4 text-gray-900 font-medium">
@@ -2707,7 +3127,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                           )}
                         </p>
                         <span className={`inline-block mt-2 ${getApplicationStatusBadgeClass(app.status, 'compact')}`}>
-                          {translateStatus(app.status)}
+                          {displayStatus(app.status)}
                         </span>
                       </button>
                     );

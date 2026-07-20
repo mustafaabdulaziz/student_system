@@ -131,23 +131,34 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const savedSession = localStorage.getItem('userSession');
-    if (savedSession) {
-      try {
-        const session = JSON.parse(savedSession);
-        const now = Date.now();
-        const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+    const restoreSession = async () => {
+      const savedSession = localStorage.getItem('userSession');
+      if (savedSession) {
+        try {
+          const stored = JSON.parse(savedSession);
+          const now = Date.now();
+          const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
 
-        if (now - session.timestamp < TWENTY_FOUR_HOURS) {
-          setState(prev => ({ ...prev, currentUser: session.user }));
-        } else {
+          if (now - stored.timestamp < TWENTY_FOUR_HOURS) {
+            const response = await fetch('/api/session');
+            const data = await response.json();
+            if (response.ok && data.user) {
+              const nextSession = { user: data.user, timestamp: stored.timestamp };
+              localStorage.setItem('userSession', JSON.stringify(nextSession));
+              setState(prev => ({ ...prev, currentUser: data.user }));
+            } else {
+              localStorage.removeItem('userSession');
+            }
+          } else {
+            localStorage.removeItem('userSession');
+          }
+        } catch {
           localStorage.removeItem('userSession');
         }
-      } catch (e) {
-        localStorage.removeItem('userSession');
       }
-    }
-    setIsLoaded(true);
+      setIsLoaded(true);
+    };
+    void restoreSession();
   }, []);
 
   useEffect(() => {
@@ -184,6 +195,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    void fetch('/api/logout', { method: 'POST' }).catch(() => undefined);
     localStorage.removeItem('userSession');
     setState(prev => ({ ...prev, currentUser: null }));
   };
@@ -606,6 +618,8 @@ export default function App() {
     status?: ApplicationStatus;
     userId?: string | null;
     responsibleId?: string | null;
+    programId?: string | null;
+    periodId?: string | null;
     annualPayment?: number | null;
     educationVatRate?: number | null;
     abroadVatRate?: number | null;
@@ -618,12 +632,16 @@ export default function App() {
     agencyCompanyId?: string | null;
     currency?: string | null;
     paymentDeserved?: boolean;
+    internalDescription?: string | null;
   }, opts?: { silent?: boolean }): Promise<boolean> => {
     try {
       const res = await fetch(`/api/applications/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({
+          ...payload,
+          actorUserId: state.currentUser?.id
+        })
       });
       const data = await res.json();
       if (res.ok) {
@@ -635,6 +653,10 @@ export default function App() {
           applications: prev.applications.map(a => a.id === id ? {
             ...a,
             ...(payload.status != null && { status: payload.status }),
+            ...(payload.programId !== undefined && { programId: payload.programId || a.programId }),
+            ...(payload.periodId !== undefined && { periodId: payload.periodId || undefined }),
+            ...(data.programId !== undefined && { programId: data.programId || a.programId }),
+            ...(data.periodId !== undefined && { periodId: data.periodId || undefined }),
             ...(payload.userId !== undefined && {
               userId: payload.userId || undefined,
               agentName: agentUser?.name,
@@ -654,6 +676,7 @@ export default function App() {
             ...(payload.depositSupport !== undefined && { depositSupport: payload.depositSupport ?? undefined }),
             ...(payload.currency !== undefined && { currency: payload.currency ?? undefined }),
             ...(payload.paymentDeserved !== undefined && { paymentDeserved: payload.paymentDeserved }),
+            ...(payload.internalDescription !== undefined && { internalDescription: payload.internalDescription }),
             ...(data.annualPayment !== undefined && { annualPayment: data.annualPayment ?? undefined }),
             ...(data.educationVatRate !== undefined && { educationVatRate: data.educationVatRate ?? undefined }),
             ...(data.educationVat !== undefined && { educationVat: data.educationVat ?? undefined }),
@@ -666,6 +689,7 @@ export default function App() {
             ...(data.remainingMax !== undefined && { remainingMax: data.remainingMax ?? undefined }),
             ...(data.paymentDate !== undefined && { paymentDate: data.paymentDate ?? undefined }),
             ...(data.paymentMonth !== undefined && { paymentMonth: data.paymentMonth ?? undefined }),
+            ...(data.internalDescription !== undefined && { internalDescription: data.internalDescription }),
             ...(data.updatedAt ? { updatedAt: data.updatedAt } : {})
           } : a),
           students: data.studentId && data.studentUpdatedAt
@@ -996,8 +1020,8 @@ export default function App() {
       try {
         const buildBaseUrl = (base: string) => {
           const params = new URLSearchParams();
-          if (state.currentUser?.role === UserRole.AGENT && state.currentUser.id) {
-            params.set('role', 'agent');
+          if (state.currentUser?.id) {
+            params.set('role', state.currentUser.role);
             params.set('user_id', state.currentUser.id);
           }
           const query = params.toString();
@@ -1081,6 +1105,7 @@ export default function App() {
             applications={state.applications}
             programs={state.programs}
             universities={state.universities}
+            periods={state.periods}
             users={state.users}
             currentUser={state.currentUser}
             universitiesCount={state.universities.length}

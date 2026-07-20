@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Bell, Filter, X, CheckCheck, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Bell, Filter, X, CheckCheck, ChevronLeft, ChevronRight, Mail, MailOpen } from 'lucide-react';
 import { useTranslation } from '../hooks/useTranslation';
 import { useNotifications } from '../contexts/NotificationContext';
 import { matchesCreatedAtRange } from '../utils/createdAtRangeFilter';
@@ -14,7 +14,7 @@ const PAGE_SIZE = 50;
 export const NotificationsPage: React.FC<NotificationsPageProps> = ({ onNavigate }) => {
   const { t, language, translateNotification } = useTranslation();
   const dateLocale = { ar: 'ar-SA', en: 'en-GB', tr: 'tr-TR' }[language] || 'en-GB';
-  const { notifications, unreadCount, loading, markAsRead, markAllAsRead } = useNotifications();
+  const { notifications, unreadCount, loading, markAsRead, markAsUnread, markAllAsRead } = useNotifications();
 
   const [filterFrom, setFilterFrom] = useState('');
   const [filterTo, setFilterTo] = useState('');
@@ -208,33 +208,50 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({ onNavigate
               {paginated.map((notification) => {
               const { title, message } = translateNotification(notification);
               return (
-                <button
+                <div
                   key={notification.id}
-                  type="button"
-                  onClick={() => handleClick(notification)}
                   className={`w-full text-left p-5 transition-colors hover:bg-gray-50 ${
                     notification.isRead ? 'bg-white' : 'bg-blue-50/80 hover:bg-blue-50'
                   }`}
                 >
                   <div className="flex items-start gap-4">
-                    <div
-                      className={`w-2.5 h-2.5 rounded-full mt-2 flex-shrink-0 ${
-                        notification.isRead ? 'bg-gray-300' : 'bg-blue-500'
-                      }`}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <h4 className={`font-bold text-base ${notification.isRead ? 'text-gray-700' : 'text-gray-900'}`}>
-                          {title}
-                        </h4>
-                        <time className="text-xs text-gray-400 whitespace-nowrap font-medium">
-                          {formatDate(notification.createdAt)}
-                        </time>
+                    <button
+                      type="button"
+                      onClick={() => handleClick(notification)}
+                      className="flex items-start gap-4 flex-1 min-w-0 text-left"
+                    >
+                      <div
+                        className={`w-2.5 h-2.5 rounded-full mt-2 flex-shrink-0 ${
+                          notification.isRead ? 'bg-gray-300' : 'bg-blue-500'
+                        }`}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <h4 className={`font-bold text-base ${notification.isRead ? 'text-gray-700' : 'text-gray-900'}`}>
+                            {title}
+                          </h4>
+                          <time className="text-xs text-gray-400 whitespace-nowrap font-medium">
+                            {formatDate(notification.createdAt)}
+                          </time>
+                        </div>
+                        <p className="text-sm text-gray-600 mt-1.5 leading-relaxed">{message}</p>
                       </div>
-                      <p className="text-sm text-gray-600 mt-1.5 leading-relaxed">{message}</p>
-                    </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (notification.isRead) void markAsUnread(notification.id);
+                        else void markAsRead(notification.id);
+                      }}
+                      className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 text-gray-600 hover:bg-white hover:text-blue-700 hover:border-blue-200 transition-colors"
+                      title={notification.isRead ? t.markAsUnread : t.markAsRead}
+                    >
+                      {notification.isRead ? <Mail size={14} /> : <MailOpen size={14} />}
+                      <span className="hidden sm:inline">{notification.isRead ? t.markAsUnread : t.markAsRead}</span>
+                    </button>
                   </div>
-                </button>
+                </div>
               );
             })}
             </div>

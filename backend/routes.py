@@ -499,7 +499,7 @@ def _serialize_application(a, program_by_id, student_by_id=None):
     elif a.student_id:
         st = Student.query.get(a.student_id)
     files_raw = _application_files_raw(a, st)
-    return {
+    data = {
         'id': a.id,
         'studentId': a.student_id,
         'programId': a.program_id,
@@ -537,6 +537,9 @@ def _serialize_application(a, program_by_id, student_by_id=None):
         'paymentDate': getattr(a, 'payment_date', None),
         'paymentMonth': getattr(a, 'payment_month', None)
     }
+    if _request_staff_user():
+        data['internalDescription'] = getattr(a, 'internal_description', None)
+    return data
 
 
 def _apply_acceptance_payment_markers(application):
@@ -582,6 +585,24 @@ def _request_role_value():
         data = request.get_json(silent=True) or {}
         return (data.get('role') or '').upper()
     return (request.form.get('role') or '').upper()
+
+
+def _session_user():
+    user_id = session.get('user_id')
+    if not user_id:
+        return None
+    user = User.query.get(user_id)
+    if not user or not getattr(user, 'is_active', True):
+        session.pop('user_id', None)
+        return None
+    return user
+
+
+def _request_staff_user():
+    user = _session_user()
+    if user and (user.role or '').upper() in ('ADMIN', 'USER'):
+        return user
+    return None
 
 
 def _require_admin():
@@ -1008,6 +1029,8 @@ def login():
     if user and user.password == password:
         if not getattr(user, 'is_active', True):
             return jsonify({'success': False, 'message': 'هذا الحساب غير مفعل', 'code': 'ACCOUNT_DEACTIVATED'}), 401
+        session.clear()
+        session['user_id'] = user.id
         return jsonify({
             'success': True,
             'user': {
@@ -1021,6 +1044,32 @@ def login():
             }
         })
     return jsonify({'success': False, 'message': 'اسم المستخدم أو كلمة المرور غير صحيحة'}), 401
+
+
+@api_bp.route('/logout', methods=['POST'])
+def logout():
+    session.clear()
+    return jsonify({'success': True}), 200
+
+
+@api_bp.route('/session', methods=['GET'])
+def get_session():
+    user = _session_user()
+    if not user:
+        return jsonify({'success': False}), 401
+    return jsonify({
+        'success': True,
+        'user': {
+            'id': user.id,
+            'name': user.name,
+            'email': user.email,
+            'role': user.role,
+            'phone': user.phone,
+            'countryCode': getattr(user, 'country_code', None),
+            'active': getattr(user, 'is_active', True)
+        }
+    }), 200
+
 
 # Students
 @api_bp.route('/students', methods=['GET'])
@@ -1073,9 +1122,9 @@ def add_student():
         phone=data.get('phone') or '',
         email=data.get('email') or '',
         nationality=data['nationality'],
-        degree_target=data['degreeTarget'],
+        degree_target=data.get('degreeTarget') or '',
         dob=data['dob'],
-        residence_country=data['residenceCountry'],
+        residence_country=data.get('residenceCountry') or '',
         user_id=user_id,
         created_at=created_at,
         updated_at=created_at
@@ -1818,25 +1867,29 @@ def add_application_v2():
 
 
 # Messages for applications
+def _serialize_application_message(message):
+    sender_user = User.query.get(message.sender_user_id) if message.sender_user_id else None
+    return {
+        'id': message.id,
+        'applicationId': message.application_id,
+        'sender': message.sender,
+        'senderUserId': message.sender_user_id,
+        'senderName': sender_user.name if sender_user else None,
+        'message': message.message,
+        'createdAt': message.created_at
+    }
+
+
 @api_bp.route('/applications/<app_id>/messages', methods=['GET'])
 def get_application_messages(app_id):
-    msgs = ApplicationMessage.query.filter_by(application_id=app_id).order_by(ApplicationMessage.created_at).all()
-    out = []
-    for m in msgs:
-        obj = {
-            'id': m.id,
-            'applicationId': m.application_id,
-            'sender': m.sender,
-            'message': m.message,
-            'createdAt': m.created_at
-        }
-        if getattr(m, 'sender_user_id', None):
-            u = User.query.get(m.sender_user_id)
-            obj['senderName'] = u.name if u else None
-        else:
-            obj['senderName'] = None
-        out.append(obj)
-    return jsonify(out)
+    msgs = ApplicationMessage.query.filter(
+        ApplicationMessage.application_id == app_id,
+        db.or_(
+            ApplicationMessage.channel == 'public',
+            ApplicationMessage.channel.is_(None)
+        )
+    ).order_by(ApplicationMessage.created_at).all()
+    return jsonify([_serialize_application_message(message) for message in msgs])
 
 
 @api_bp.route('/applications/<app_id>/messages', methods=['POST'])
@@ -1853,7 +1906,8 @@ def post_application_message(app_id):
         sender=sender,
         sender_user_id=sender_user_id,
         message=message,
-        created_at=datetime.utcnow().isoformat()
+        created_at=datetime.utcnow().isoformat(),
+        channel='public'
     )
     db.session.add(msg)
     db.session.flush()
@@ -1906,6 +1960,72 @@ def post_application_message(app_id):
     else:
         resp['senderName'] = None
     return jsonify(resp), 201
+
+
+@api_bp.route('/applications/<app_id>/internal-messages', methods=['GET'])
+def get_internal_application_messages(app_id):
+    if not _request_staff_user():
+        return jsonify({'message': 'Only admin and user roles can access internal messages'}), 403
+    if not Application.query.get(app_id):
+        return jsonify({'message': 'Application not found'}), 404
+    messages = ApplicationMessage.query.filter_by(
+        application_id=app_id,
+        channel='internal'
+    ).order_by(ApplicationMessage.created_at).all()
+    return jsonify([_serialize_application_message(message) for message in messages])
+
+
+@api_bp.route('/applications/<app_id>/internal-messages', methods=['POST'])
+def post_internal_application_message(app_id):
+    staff_user = _request_staff_user()
+    if not staff_user:
+        return jsonify({'message': 'Only admin and user roles can send internal messages'}), 403
+    application = Application.query.get(app_id)
+    if not application:
+        return jsonify({'message': 'Application not found'}), 404
+    data = request.get_json(silent=True) or {}
+    message_text = str(data.get('message') or '').strip()
+    if not message_text:
+        return jsonify({'message': 'message required'}), 400
+    if len(message_text) > 10000:
+        return jsonify({'message': 'Message cannot exceed 10000 characters'}), 400
+
+    message = ApplicationMessage(
+        id=str(uuid.uuid4()),
+        application_id=app_id,
+        sender=(staff_user.role or 'USER').upper(),
+        sender_user_id=staff_user.id,
+        message=message_text,
+        created_at=datetime.utcnow().isoformat(),
+        channel='internal'
+    )
+    db.session.add(message)
+    _touch_application_and_student(application)
+    for user in _staff_users():
+        if user.id == staff_user.id:
+            continue
+        db.session.add(Notification(
+            id=str(uuid.uuid4()),
+            user_id=user.id,
+            title='New Internal Message',
+            message=f'App #{app_id}: {message_text[:50]}...',
+            link=f'/applications/{app_id}',
+            created_at=datetime.utcnow().isoformat(),
+            type='MESSAGE'
+        ))
+    db.session.commit()
+
+    student = Student.query.get(application.student_id)
+    return jsonify({
+        'message': 'Internal message added',
+        'id': message.id,
+        'sender': message.sender,
+        'senderName': staff_user.name,
+        'createdAt': message.created_at,
+        'updatedAt': _application_updated_at_for_api(application),
+        'studentId': application.student_id,
+        'studentUpdatedAt': _student_updated_at_for_api(student) if student else None
+    }), 201
 
 
 @api_bp.route('/universities/import', methods=['POST'])
@@ -2217,6 +2337,9 @@ def update_application(app_id):
     if not application:
         return jsonify({'message': 'Application not found'}), 404
     data = request.get_json() or {}
+    staff_user = _request_staff_user()
+    if 'internalDescription' in data and not staff_user:
+        return jsonify({'message': 'Only admin and user roles can update the internal description'}), 403
     previous_status = application.status
     if 'status' in data and data['status']:
         application.status = data['status']
@@ -2227,6 +2350,33 @@ def update_application(app_id):
         application.responsible_id = data['responsibleId'] or None
     if 'agencyCompanyId' in data:
         application.agency_company_id = data['agencyCompanyId'] or None
+    if 'programId' in data or 'periodId' in data:
+        new_program_id = data.get('programId') if 'programId' in data else application.program_id
+        new_period_id = data.get('periodId') if 'periodId' in data else getattr(application, 'period_id', None)
+        new_program_id = (new_program_id or '').strip() if isinstance(new_program_id, str) else new_program_id
+        new_period_id = (new_period_id or '').strip() if isinstance(new_period_id, str) else new_period_id
+        if not new_program_id:
+            return jsonify({'message': 'programId required'}), 400
+        if not new_period_id:
+            return jsonify({'message': 'periodId required'}), 400
+        program_changed = new_program_id != application.program_id
+        period_changed = new_period_id != getattr(application, 'period_id', None)
+        if program_changed or period_changed:
+            period_error = _validate_application_period_and_program(new_period_id, new_program_id)
+            if period_error:
+                return period_error
+            program = Program.query.get(new_program_id)
+            if not program:
+                return jsonify({'message': 'Program not found'}), 404
+            if program.period_id and program.period_id != new_period_id:
+                return jsonify({'message': 'Program does not belong to selected period'}), 400
+        application.program_id = new_program_id
+        application.period_id = new_period_id
+    if 'internalDescription' in data:
+        description = str(data.get('internalDescription') or '').strip()
+        if len(description) > 10000:
+            return jsonify({'message': 'Internal description cannot exceed 10000 characters'}), 400
+        application.internal_description = description or None
     numeric_map = {
         'annualPayment': 'annual_payment',
         'educationVatRate': 'education_vat_rate',
@@ -2261,10 +2411,12 @@ def update_application(app_id):
     _touch_application_and_student(application)
     db.session.commit()
     stu = Student.query.get(application.student_id)
-    return jsonify({
+    response_data = {
         'message': 'Application updated',
         'id': application.id,
         'status': application.status,
+        'programId': application.program_id,
+        'periodId': getattr(application, 'period_id', None),
         'userId': application.user_id,
         'responsibleId': application.responsible_id,
         'agencyCompanyId': application.agency_company_id,
@@ -2291,7 +2443,10 @@ def update_application(app_id):
         'updatedAt': _application_updated_at_for_api(application),
         'studentId': application.student_id,
         'studentUpdatedAt': _student_updated_at_for_api(stu)
-    }), 200
+    }
+    if staff_user:
+        response_data['internalDescription'] = application.internal_description
+    return jsonify(response_data), 200
 
 
 @api_bp.route('/applications/<app_id>', methods=['DELETE'])
@@ -2843,6 +2998,16 @@ def mark_notification_read(n_id):
     notification.is_read = True
     db.session.commit()
     return jsonify({'message': 'Marked as read'}), 200
+
+
+@api_bp.route('/notifications/<n_id>/unread', methods=['PUT'])
+def mark_notification_unread(n_id):
+    notification = Notification.query.get(n_id)
+    if not notification:
+        return jsonify({'message': 'Notification not found'}), 404
+    notification.is_read = False
+    db.session.commit()
+    return jsonify({'message': 'Marked as unread'}), 200
 
 
 @api_bp.route('/notifications/read-all', methods=['PUT'])

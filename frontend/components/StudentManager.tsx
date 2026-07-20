@@ -39,6 +39,8 @@ interface StudentManagerProps {
     status?: ApplicationStatus;
     responsibleId?: string | null;
     userId?: string | null;
+    programId?: string | null;
+    periodId?: string | null;
     annualPayment?: number | null;
     educationVatRate?: number | null;
     abroadVatRate?: number | null;
@@ -47,9 +49,11 @@ interface StudentManagerProps {
     bonusMin?: number | null;
     agencyCommission?: number | null;
     agencyBonus?: number | null;
+    depositSupport?: number | null;
     agencyCompanyId?: string | null;
     currency?: string | null;
     paymentDeserved?: boolean;
+    internalDescription?: string | null;
   }) => void | Promise<void>;
   onDeleteApplication?: (id: string) => void | Promise<void>;
   onSyncApplicationTimestamps?: (payload: {
@@ -88,6 +92,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
   clearTargetStudent
 }) => {
   const { t, language, translateGender, translateStatus, translateDegree } = useTranslation();
+  const displayStatus = (status: string) => translateStatus(status, currentUser?.role);
   const { notifications } = useNotifications();
   const notificationIndex = useMemo(
     () => buildNotificationEntityIndex(notifications, applications),
@@ -119,6 +124,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
   const [selectedStudentForDetails, setSelectedStudentForDetails] = useState<Student | null>(null);
   const [embeddedApplicationId, setEmbeddedApplicationId] = useState<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState('');
+  const [selectedAgencyCompanyId, setSelectedAgencyCompanyId] = useState('');
   const [quickAppOpen, setQuickAppOpen] = useState(false);
   const [quickAppStudentId, setQuickAppStudentId] = useState<string | null>(null);
   const [quickFilterPeriod, setQuickFilterPeriod] = useState('');
@@ -126,6 +132,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
   const [quickFilterDegree, setQuickFilterDegree] = useState('');
   const [quickFilterLang, setQuickFilterLang] = useState('');
   const [quickFilterProgramName, setQuickFilterProgramName] = useState('');
+  const [quickAgencyCompanyId, setQuickAgencyCompanyId] = useState('');
   const [quickSaving, setQuickSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -211,6 +218,22 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
     residenceCountry: ''
   });
 
+  const countryOptions = useMemo(() => COUNTRIES.map((c) => ({ value: c, label: c })), []);
+  const nationalityOptions = useMemo(() => {
+    const current = formData.nationality;
+    if (current && !COUNTRIES.includes(current)) {
+      return [{ value: current, label: current }, ...countryOptions];
+    }
+    return countryOptions;
+  }, [countryOptions, formData.nationality]);
+  const residenceCountryOptions = useMemo(() => {
+    const current = formData.residenceCountry;
+    if (current && !COUNTRIES.includes(current)) {
+      return [{ value: '', label: '—' }, { value: current, label: current }, ...countryOptions];
+    }
+    return [{ value: '', label: '—' }, ...countryOptions];
+  }, [countryOptions, formData.residenceCountry]);
+
   const openQuickApplicationModal = (studentId: string) => {
     setQuickAppStudentId(studentId);
     setQuickFilterPeriod('');
@@ -218,12 +241,14 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
     setQuickFilterDegree('');
     setQuickFilterLang('');
     setQuickFilterProgramName('');
+    setQuickAgencyCompanyId('');
     setQuickAppOpen(true);
   };
 
   const closeQuickApplicationModal = () => {
     setQuickAppOpen(false);
     setQuickAppStudentId(null);
+    setQuickAgencyCompanyId('');
     setQuickSaving(false);
   };
 
@@ -288,6 +313,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
     setAddFilterDegree('');
     setAddFilterLang('');
     setAddFilterProgramName('');
+    setSelectedAgencyCompanyId('');
     setPendingFiles([]);
     pendingFilesRef.current = [];
   };
@@ -384,7 +410,8 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
         createdAt: new Date().toISOString().split('T')[0],
         files: [],
         userId: agentId || undefined,
-        responsibleId
+        responsibleId,
+        ...(isAdminOrUser && quickAgencyCompanyId ? { agencyCompanyId: quickAgencyCompanyId } : {})
       });
       closeQuickApplicationModal();
     } finally {
@@ -534,7 +561,8 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                 createdAt: new Date().toISOString().split('T')[0],
                 files: [],
                 userId: agentIdForApp || undefined,
-                responsibleId: responsibleIdForApp
+                responsibleId: responsibleIdForApp,
+                ...(isAdminOrUser && selectedAgencyCompanyId ? { agencyCompanyId: selectedAgencyCompanyId } : {})
               });
               appId = createdAppId ?? null;
             }
@@ -871,7 +899,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
 
   const getStatusBadge = (status: string) => (
     <span className={getApplicationStatusBadgeClass(status, 'default')}>
-      {translateStatus(status)}
+      {displayStatus(status)}
     </span>
   );
 
@@ -1019,30 +1047,25 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.nationality}</label>
-                    <select
-                      required
-                      className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-gray-900 bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-shadow"
-                      value={formData.nationality}
-                      onChange={e => setFormData({ ...formData, nationality: e.target.value })}
-                    >
-                      <option value="">Select...</option>
-                      {[...(formData.nationality && !COUNTRIES.includes(formData.nationality) ? [formData.nationality] : []), ...COUNTRIES].map(c => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </select>
+                    <SearchableSelect
+                      value={formData.nationality || ''}
+                      onChange={(value) => setFormData({ ...formData, nationality: value })}
+                      options={nationalityOptions}
+                      placeholder="Select..."
+                      searchPlaceholder={t.search}
+                      noResultsText={t.searchNoResults}
+                    />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.residenceCountry}</label>
-                    <select
-                      className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-gray-900 bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-shadow"
-                      value={formData.residenceCountry}
-                      onChange={e => setFormData({ ...formData, residenceCountry: e.target.value })}
-                    >
-                      <option value="">Select...</option>
-                      {[...(formData.residenceCountry && !COUNTRIES.includes(formData.residenceCountry) ? [formData.residenceCountry] : []), ...COUNTRIES].map(c => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </select>
+                    <SearchableSelect
+                      value={formData.residenceCountry || ''}
+                      onChange={(value) => setFormData({ ...formData, residenceCountry: value })}
+                      options={residenceCountryOptions}
+                      placeholder="Select..."
+                      searchPlaceholder={t.search}
+                      noResultsText={t.searchNoResults}
+                    />
                   </div>
                 </div>
               </section>
@@ -1069,25 +1092,6 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                       onChange={e => setFormData({ ...formData, phone: e.target.value })}
                     />
                   </div>
-                </div>
-              </section>
-
-              {/* Academic */}
-              <section className="bg-gray-50/80 rounded-2xl p-6 border border-gray-100">
-                <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">{t.degreeTarget}</h3>
-                <div className="max-w-xs">
-                  <select
-                    className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-gray-900 bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-shadow"
-                    value={formData.degreeTarget}
-                    onChange={e => setFormData({ ...formData, degreeTarget: e.target.value })}
-                  >
-                    <option value="">{t.selectDegree}</option>
-                    <option value="Bachelor">{t.bachelor}</option>
-                    <option value="Master">{t.master}</option>
-                    <option value="PhD">{t.phd}</option>
-                    <option value="CombinedPhD">{t.combinedPhd}</option>
-                    <option value="Diploma">Diploma</option>
-                  </select>
                 </div>
               </section>
             </div>
@@ -1157,45 +1161,36 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">{t.nationality}</label>
-                        <select required className="w-full border border-gray-300 rounded-xl px-3 py-2 bg-white focus:ring-2 focus:ring-blue-500 outline-none" value={formData.nationality} onChange={e => setFormData({ ...formData, nationality: e.target.value })}>
-                          <option value="">Select...</option>
-                          {[...(formData.nationality && !COUNTRIES.includes(formData.nationality) ? [formData.nationality] : []), ...COUNTRIES].map(c => (
-                            <option key={c} value={c}>{c}</option>
-                          ))}
-                        </select>
+                        <SearchableSelect
+                          value={formData.nationality || ''}
+                          onChange={(value) => setFormData({ ...formData, nationality: value })}
+                          options={nationalityOptions}
+                          placeholder="Select..."
+                          searchPlaceholder={t.search}
+                          noResultsText={t.searchNoResults}
+                        />
                       </div>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">{t.residenceCountry}</label>
-                        <select className="w-full border border-gray-300 rounded-xl px-3 py-2 bg-white focus:ring-2 focus:ring-blue-500 outline-none" value={formData.residenceCountry} onChange={e => setFormData({ ...formData, residenceCountry: e.target.value })}>
-                          <option value="">Select...</option>
-                          {[...(formData.residenceCountry && !COUNTRIES.includes(formData.residenceCountry) ? [formData.residenceCountry] : []), ...COUNTRIES].map(c => (
-                            <option key={c} value={c}>{c}</option>
-                          ))}
-                        </select>
+                        <SearchableSelect
+                          value={formData.residenceCountry || ''}
+                          onChange={(value) => setFormData({ ...formData, residenceCountry: value })}
+                          options={residenceCountryOptions}
+                          placeholder="Select..."
+                          searchPlaceholder={t.search}
+                          noResultsText={t.searchNoResults}
+                        />
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">{t.phone}</label>
                         <input type="text" className="w-full border border-gray-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none" value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} />
                       </div>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">{t.email}</label>
-                        <input type="email" className="w-full border border-gray-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none" value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">{t.degreeTarget}</label>
-                        <select className="w-full border border-gray-300 rounded-xl px-3 py-2 bg-white focus:ring-2 focus:ring-blue-500 outline-none" value={formData.degreeTarget} onChange={e => setFormData({ ...formData, degreeTarget: e.target.value })}>
-                          <option value="">{t.selectDegree}</option>
-                          <option value="Bachelor">{t.bachelor}</option>
-                          <option value="Master">{t.master}</option>
-                          <option value="PhD">{t.phd}</option>
-                          <option value="CombinedPhD">{t.combinedPhd}</option>
-                          <option value="Diploma">Diploma</option>
-                        </select>
-                      </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">{t.email}</label>
+                      <input type="email" className="w-full border border-gray-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none" value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} />
                     </div>
                   </div>
                 </section>
@@ -1254,6 +1249,21 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                         disabled={!addFilterLang}
                       />
                     </div>
+                    {isAdminOrUser && (
+                      <div>
+                        <label className="text-xs font-bold text-blue-600 uppercase tracking-wider px-1">{t.agencyCompany}</label>
+                        <select
+                          className="w-full mt-1 p-2.5 border border-blue-100 rounded-xl bg-white focus:ring-2 focus:ring-blue-400 outline-none"
+                          value={selectedAgencyCompanyId}
+                          onChange={e => setSelectedAgencyCompanyId(e.target.value)}
+                        >
+                          <option value="">{t.agencyCompany}</option>
+                          {agencyCompanies.map(c => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                     {addFinalProgram && (
                       <div className="rounded-xl bg-white border border-blue-200 p-3 text-sm text-gray-700">
                         <p className="font-semibold text-blue-900">{addFinalProgram.name}</p>
@@ -1379,10 +1389,6 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.passportNumber}</label>
                       <div className="w-full rounded-xl px-4 py-2.5 text-gray-900 bg-white border border-gray-200 font-mono">{selectedStudentForDetails.passportNumber}</div>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.degreeTarget}</label>
-                      <div className="w-full rounded-xl px-4 py-2.5 text-gray-900 bg-white border border-gray-200">{selectedStudentForDetails.degreeTarget ? translateDegree(selectedStudentForDetails.degreeTarget) : '-'}</div>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.fatherName}</label>
@@ -2063,6 +2069,21 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                     />
                   </div>
                 </div>
+                {isAdminOrUser && (
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-blue-500 uppercase tracking-wider px-1">{t.agencyCompany}</label>
+                    <select
+                      className="w-full p-2.5 border border-blue-100 rounded-lg bg-white focus:ring-2 focus:ring-blue-400 outline-none"
+                      value={quickAgencyCompanyId}
+                      onChange={e => setQuickAgencyCompanyId(e.target.value)}
+                    >
+                      <option value="">{t.agencyCompany}</option>
+                      {agencyCompanies.map(c => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
             </div>
             <div className="px-6 py-4 flex justify-end gap-3">

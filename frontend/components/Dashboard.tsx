@@ -1,9 +1,10 @@
-import React, { useState, useMemo } from 'react';
-import { Student, Application, Program, University, User, UserRole, ApplicationListFilters } from '../types';
-import { Users, FileText, School, Filter, BarChart3, List, DollarSign, Mail, Wallet, UserCheck, CircleCheck } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Student, Application, Program, University, User, UserRole, ApplicationListFilters, Period } from '../types';
+import { Users, FileText, School, Filter, BarChart3, List, DollarSign, Mail, Wallet, UserCheck, CircleCheck, CirclePlus, Clock3, Download } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { useTranslation } from '../hooks/useTranslation';
 import { ApplicationStatus } from '../types';
-import { normalizeApplicationStatus, isApplicationStatusAtOrAfter } from '../utils/applicationStatus';
+import { normalizeApplicationStatus } from '../utils/applicationStatus';
 import { ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis } from 'recharts';
 import { DATE_PRESETS, getDatePreset } from '../utils/datePresets';
 import { SearchableMultiSelect } from './SearchableMultiSelect';
@@ -13,11 +14,40 @@ interface DashboardProps {
   applications: Application[];
   programs: Program[];
   universities: University[];
+  periods: Period[];
   users: User[];
   currentUser: User | null;
   universitiesCount: number;
   onDrilldownToApplications: (filters: ApplicationListFilters) => void;
 }
+
+interface DashboardOutgoingPayment {
+  id: string;
+  paymentDate: string;
+  paymentAmount: number;
+  currency?: string;
+  userId?: string | null;
+  userName?: string | null;
+  userRole?: string | null;
+}
+
+type FinancialTableGroup = 'university' | 'agent' | 'period' | 'nationality';
+
+const FINANCIAL_TABLE_FIELDS: Array<{ key: keyof Application; label: string }> = [
+  { key: 'annualPayment', label: 'Yıllık ödeme' },
+  { key: 'educationVat', label: 'Eğitim KDV tutarı' },
+  { key: 'grossCommission', label: 'Brüt komisyon' },
+  { key: 'abroadVat', label: 'Yurtdışı KDV tutarı' },
+  { key: 'netCommission', label: 'Net komisyon' },
+  { key: 'bonusMax', label: 'Bonus Max' },
+  { key: 'bonusMin', label: 'Bonus Min' },
+  { key: 'agencyCommission', label: 'Acenta komisyon' },
+  { key: 'agencyBonus', label: 'Acenta bonus' },
+  { key: 'depositSupport', label: 'Depozito desteği' },
+  { key: 'agencyContractAmount', label: 'Acenta anlaşma miktarı' },
+  { key: 'remainingMin', label: 'Kalan Min' },
+  { key: 'remainingMax', label: 'Kalan Max' },
+];
 
 type DrilldownDimension = 'status' | 'university' | 'program' | 'country' | 'degree' | 'responsible' | 'agency';
 
@@ -219,12 +249,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
   applications,
   programs,
   universities,
+  periods,
   users,
   currentUser,
   universitiesCount,
   onDrilldownToApplications
 }) => {
   const { t, translateStatus, translateDegree } = useTranslation();
+  const displayStatus = (status: string) => translateStatus(status, currentUser?.role);
   const isAdmin = currentUser?.role === UserRole.ADMIN;
   const isAdminOrUser = currentUser?.role === UserRole.ADMIN || currentUser?.role === UserRole.USER;
   const canSeeCountryChart = isAdminOrUser;
@@ -240,8 +272,23 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [responsibleFilter, setResponsibleFilter] = useState<string[]>([]);
   const [nationalityFilter, setNationalityFilter] = useState<string[]>([]);
   const [currencyFilter, setCurrencyFilter] = useState<string[]>([]);
+  const [outgoingPayments, setOutgoingPayments] = useState<DashboardOutgoingPayment[]>([]);
+  const [financialTableGroup, setFinancialTableGroup] = useState<FinancialTableGroup>('university');
 
   const canSeeNationalityFilter = currentUser?.role === UserRole.ADMIN || currentUser?.role === UserRole.USER;
+
+  useEffect(() => {
+    if (!isAdmin) {
+      setOutgoingPayments([]);
+      return;
+    }
+    fetch('/api/outgoing-payments?role=ADMIN')
+      .then(async response => {
+        const data = await response.json();
+        if (response.ok && Array.isArray(data)) setOutgoingPayments(data);
+      })
+      .catch(() => setOutgoingPayments([]));
+  }, [isAdmin]);
 
   const studentById = useMemo(() => {
     const map = new Map<string, Student>();
@@ -289,6 +336,25 @@ export const Dashboard: React.FC<DashboardProps> = ({
     });
   }, [scopedApplications, filterActive, fromDate, toDate, programs, statusFilter, universityFilter, programFilter, degreeFilter, agentFilter, responsibleFilter, nationalityFilter, currencyFilter, studentById, users]);
 
+  const applicationsForPayableTotal = useMemo(() => {
+    return scopedApplications.filter((app) => {
+      const d = dateOnly(app.createdAt);
+      if (filterActive && fromDate && toDate && (!d || d < fromDate || d > toDate)) return false;
+      const program = programs.find((p) => p.id === app.programId);
+      if (universityFilter.length > 0 && (!program || !universityFilter.includes(program.universityId))) return false;
+      if (programFilter.length > 0 && !programFilter.includes(app.programId)) return false;
+      if (degreeFilter.length > 0 && (!program || !degreeFilter.includes(program.degree))) return false;
+      if (agentFilter.length > 0 && !agentFilter.includes(getAgentName(app))) return false;
+      if (responsibleFilter.length > 0 && !responsibleFilter.includes(getResponsibleName(app))) return false;
+      if (nationalityFilter.length > 0) {
+        const nationality = studentById.get(app.studentId)?.nationality;
+        if (!nationality || !nationalityFilter.includes(nationality)) return false;
+      }
+      if (currencyFilter.length > 0 && !currencyFilter.includes((app.currency || 'USD').toUpperCase())) return false;
+      return true;
+    });
+  }, [scopedApplications, filterActive, fromDate, toDate, programs, universityFilter, programFilter, degreeFilter, agentFilter, responsibleFilter, nationalityFilter, currencyFilter, studentById, users]);
+
   const filteredStudents = useMemo(() => {
     const from = fromDate;
     const to = toDate;
@@ -330,6 +396,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
     programs.forEach((p) => map.set(p.id, p));
     return map;
   }, [programs]);
+
+  const periodById = useMemo(() => {
+    const map = new Map<string, Period>();
+    periods.forEach((period) => map.set(period.id, period));
+    return map;
+  }, [periods]);
 
   const uniqueAgents = useMemo(() => {
     const names = new Set<string>();
@@ -377,9 +449,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
       map.set(key, (map.get(key) || 0) + 1);
     });
     return Array.from(map.entries())
-      .map(([key, value]) => ({ key, label: translateStatus(key), value }))
+      .map(([key, value]) => ({ key, label: displayStatus(key), value }))
+      .filter((item) => item.label)
       .sort((a, b) => b.value - a.value);
-  }, [filteredApplications, translateStatus]);
+  }, [filteredApplications, currentUser?.role, translateStatus]);
 
   const universityStats = useMemo(() => {
     const map = new Map<string, number>();
@@ -484,6 +557,121 @@ export const Dashboard: React.FC<DashboardProps> = ({
     };
   }, [filteredApplications]);
 
+  const totalPaidToAgents = useMemo(() => {
+    const agentUsersById = new Map(
+      users
+        .filter(user => (user.role || '').toString().toLowerCase() === 'agent')
+        .map(user => [user.id, user])
+    );
+    const selectedAgentIds = new Set(
+      Array.from(agentUsersById.values())
+        .filter(user => agentFilter.length === 0 || agentFilter.includes(user.name))
+        .map(user => user.id)
+    );
+
+    return outgoingPayments.reduce((sum, payment) => {
+      if (!payment.userId || !agentUsersById.has(payment.userId)) return sum;
+      if (agentFilter.length > 0 && !selectedAgentIds.has(payment.userId)) return sum;
+      const paymentDate = dateOnly(payment.paymentDate);
+      if (filterActive && fromDate && toDate && (!paymentDate || paymentDate < fromDate || paymentDate > toDate)) {
+        return sum;
+      }
+      return sum + (Number(payment.paymentAmount) || 0);
+    }, 0);
+  }, [outgoingPayments, users, agentFilter, filterActive, fromDate, toDate]);
+
+  const totalPayableToAgents = useMemo(() => {
+    const payableStatuses = new Set<ApplicationStatus>([
+      ApplicationStatus.DEPOSIT_PAYMENT_UPLOAD_WAITING,
+      ApplicationStatus.ACCEPTANCE_LETTER_WAITING,
+      ApplicationStatus.ACCEPTANCE_LETTER_SEND_TO_COMPANY_WAITING,
+      ApplicationStatus.STUDENT_DOCUMENT_WAITING,
+      ApplicationStatus.STUDENT_DOCUMENT_DELIVERED,
+      ApplicationStatus.ANNUAL_PAYMENT_RECEIPT_WAITING,
+      ApplicationStatus.UNIVERSITY_ACCOUNTING_APPROVAL_WAITING,
+      ApplicationStatus.COMPLETED,
+    ]);
+    return applicationsForPayableTotal.reduce((sum, app) => {
+      const status = normalizeApplicationStatus(app.status) as ApplicationStatus;
+      if (!payableStatuses.has(status)) return sum;
+      return sum + (Number(app.agencyContractAmount) || 0);
+    }, 0);
+  }, [applicationsForPayableTotal]);
+
+  const financialTableRows = useMemo(() => {
+    const grouped = new Map<string, Record<string, number>>();
+    filteredApplications.forEach((app) => {
+      const program = programById.get(app.programId);
+      let groupLabel = '—';
+      if (financialTableGroup === 'university') {
+        groupLabel = program ? getUniversityName(program.universityId) : '—';
+      } else if (financialTableGroup === 'agent') {
+        groupLabel = getAgentName(app);
+      } else if (financialTableGroup === 'period') {
+        const periodId = app.periodId || program?.periodId;
+        groupLabel = (periodId && periodById.get(periodId)?.name) || '—';
+      } else if (financialTableGroup === 'nationality') {
+        groupLabel = studentById.get(app.studentId)?.nationality || '—';
+      }
+
+      const current = grouped.get(groupLabel) || Object.fromEntries(
+        FINANCIAL_TABLE_FIELDS.map(field => [String(field.key), 0])
+      );
+      FINANCIAL_TABLE_FIELDS.forEach(field => {
+        const key = String(field.key);
+        current[key] = (current[key] || 0) + (Number(app[field.key]) || 0);
+      });
+      grouped.set(groupLabel, current);
+    });
+
+    return Array.from(grouped.entries())
+      .map(([group, values]) => ({ group, values }))
+      .sort((a, b) => (b.values.annualPayment || 0) - (a.values.annualPayment || 0));
+  }, [filteredApplications, financialTableGroup, programById, periodById, studentById, universities, users]);
+
+  const financialTableTotals = useMemo(() => {
+    const result: Record<string, number> = {};
+    FINANCIAL_TABLE_FIELDS.forEach(field => {
+      const key = String(field.key);
+      result[key] = financialTableRows.reduce((sum, row) => sum + (row.values[key] || 0), 0);
+    });
+    return result;
+  }, [financialTableRows]);
+
+  const financialTableGroupLabel = {
+    university: t.university,
+    agent: t.agent,
+    period: t.period,
+    nationality: t.nationality,
+  }[financialTableGroup];
+
+  const exportFinancialTable = () => {
+    const rows = financialTableRows.map(row => {
+      const exported: Record<string, string | number> = {
+        [financialTableGroupLabel]: row.group,
+      };
+      FINANCIAL_TABLE_FIELDS.forEach(field => {
+        exported[field.label] = row.values[String(field.key)] || 0;
+      });
+      return exported;
+    });
+    const totalRow: Record<string, string | number> = {
+      [financialTableGroupLabel]: t.totals,
+    };
+    FINANCIAL_TABLE_FIELDS.forEach(field => {
+      totalRow[field.label] = financialTableTotals[String(field.key)] || 0;
+    });
+    rows.push(totalRow);
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    worksheet['!cols'] = [
+      { wch: 32 },
+      ...FINANCIAL_TABLE_FIELDS.map(() => ({ wch: 20 })),
+    ];
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Finansal Tablo');
+    XLSX.writeFile(workbook, `finansal-tablo-${financialTableGroup}.xlsx`);
+  };
+
   const financialTotalCards = [
     { label: 'Yıllık ödeme', value: totals.annualPayment, bg: 'bg-blue-50', text: 'text-blue-600', border: 'border-blue-100' },
     { label: 'Eğitim KDV tutarı', value: totals.educationVat, bg: 'bg-sky-50', text: 'text-sky-600', border: 'border-sky-100' },
@@ -495,6 +683,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
     { label: 'Acenta komisyon', value: totals.agencyCommission, bg: 'bg-cyan-50', text: 'text-cyan-700', border: 'border-cyan-100' },
     { label: 'Acenta Bonus', value: totals.agencyBonus, bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-100' },
     { label: 'Depozito desteği', value: totals.depositSupport, bg: 'bg-teal-50', text: 'text-teal-700', border: 'border-teal-100' },
+    { label: 'Toplam ödenmiş', value: totalPaidToAgents, bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-100' },
+    { label: 'Toplam ödenecek', value: totalPayableToAgents, bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-100' },
     { label: 'Acenta anlaşma miktarı', value: totals.agencyContractAmount, bg: 'bg-fuchsia-50', text: 'text-fuchsia-700', border: 'border-fuchsia-100' },
     { label: 'Kalan Min', value: totals.remainingMin, bg: 'bg-lime-50', text: 'text-lime-700', border: 'border-lime-100' },
     { label: 'Kalan Max', value: totals.remainingMax, bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-100' }
@@ -575,38 +765,73 @@ export const Dashboard: React.FC<DashboardProps> = ({
     { label: t.totalUniversities, value: universitiesCount, icon: School, color: 'bg-purple-500' },
   ];
 
+  const countApplicationsWithStatuses = (statuses: ApplicationStatus[]) => {
+    const statusSet = new Set<ApplicationStatus>(statuses);
+    return filteredApplications.filter((app) =>
+      statusSet.has(normalizeApplicationStatus(app.status) as ApplicationStatus)
+    ).length;
+  };
+
   const pipelineStats = [
     {
       label: t.totalOfferLetterPipeline,
-      value: filteredApplications.filter((app) =>
-        isApplicationStatusAtOrAfter(app.status, ApplicationStatus.OFFER_LETTER_SEND_TO_COMPANY_WAITING)
-      ).length,
+      value: countApplicationsWithStatuses([
+        ApplicationStatus.OFFER_LETTER_SEND_TO_COMPANY_WAITING,
+        ApplicationStatus.DEPOSIT_PAYMENT_WAITING,
+      ]),
       icon: Mail,
       color: 'bg-amber-500',
     },
     {
       label: t.totalDepositPaidPipeline,
-      value: filteredApplications.filter((app) =>
-        isApplicationStatusAtOrAfter(app.status, ApplicationStatus.DEPOSIT_PAID)
-      ).length,
+      value: countApplicationsWithStatuses([
+        ApplicationStatus.DEPOSIT_PAYMENT_UPLOAD_WAITING,
+        ApplicationStatus.ACCEPTANCE_LETTER_WAITING,
+        ApplicationStatus.ACCEPTANCE_LETTER_SEND_TO_COMPANY_WAITING,
+        ApplicationStatus.STUDENT_DOCUMENT_WAITING,
+        ApplicationStatus.STUDENT_DOCUMENT_DELIVERED,
+        ApplicationStatus.ANNUAL_PAYMENT_RECEIPT_WAITING,
+        ApplicationStatus.UNIVERSITY_ACCOUNTING_APPROVAL_WAITING,
+        ApplicationStatus.COMPLETED,
+      ]),
       icon: Wallet,
       color: 'bg-teal-500',
     },
     {
       label: t.totalFinalRegistration,
-      value: filteredApplications.filter((app) =>
-        isApplicationStatusAtOrAfter(app.status, ApplicationStatus.ANNUAL_PAYMENT_RECEIPT_WAITING)
-      ).length,
+      value: countApplicationsWithStatuses([
+        ApplicationStatus.ANNUAL_PAYMENT_RECEIPT_WAITING,
+        ApplicationStatus.UNIVERSITY_ACCOUNTING_APPROVAL_WAITING,
+        ApplicationStatus.COMPLETED,
+      ]),
       icon: UserCheck,
       color: 'bg-indigo-500',
     },
     {
       label: t.totalAnnualPaymentCompleted,
-      value: filteredApplications.filter((app) =>
-        isApplicationStatusAtOrAfter(app.status, ApplicationStatus.ANNUAL_PAYMENT_RECEIVED_BY_SCHOOL)
-      ).length,
+      value: countApplicationsWithStatuses([
+        ApplicationStatus.UNIVERSITY_ACCOUNTING_APPROVAL_WAITING,
+        ApplicationStatus.COMPLETED,
+      ]),
       icon: CircleCheck,
       color: 'bg-rose-500',
+    },
+    {
+      label: t.totalNewApplications,
+      value: countApplicationsWithStatuses([
+        ApplicationStatus.NEW,
+      ]),
+      icon: CirclePlus,
+      color: 'bg-blue-500',
+    },
+    {
+      label: t.totalOfferLetterWaiting,
+      value: countApplicationsWithStatuses([
+        ApplicationStatus.NEW,
+        ApplicationStatus.OFFER_LETTER_WAITING,
+      ]),
+      icon: Clock3,
+      color: 'bg-sky-500',
     },
   ];
 
@@ -674,7 +899,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <SearchableMultiSelect
             options={Object.values(ApplicationStatus).map((status) => ({
               value: status,
-              label: translateStatus(status as any)
+              label: displayStatus(status as any)
             }))}
             selected={statusFilter}
             onChange={setStatusFilter}
@@ -766,7 +991,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         ))}
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
         {pipelineStats.map((stat, idx) => (
           <div key={idx} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center gap-5">
             <div className={`p-4 rounded-lg text-white shrink-0 ${stat.color}`}>
@@ -797,6 +1022,95 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <p className="text-sm text-gray-500 mt-3">
             {filteredApplications.length} {t.applicationsTitle.toLowerCase()}
           </p>
+        </div>
+      )}
+
+      {isAdmin && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="p-6 border-b border-gray-100 flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+            <div>
+              <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                <DollarSign size={20} />
+                {t.financialTable}
+              </h3>
+              <p className="text-sm text-gray-500 mt-1">{filteredApplications.length} {t.applicationsTitle.toLowerCase()}</p>
+            </div>
+            <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+              <label className="text-sm font-medium text-gray-600">
+                <span className="block mb-1">{t.groupBy}</span>
+                <select
+                  value={financialTableGroup}
+                  onChange={event => setFinancialTableGroup(event.target.value as FinancialTableGroup)}
+                  className="min-w-52 rounded-lg border border-gray-200 bg-white px-3 py-2 text-gray-800 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                >
+                  <option value="university">{t.university}</option>
+                  <option value="agent">{t.agent}</option>
+                  <option value="period">{t.period}</option>
+                  <option value="nationality">{t.nationality}</option>
+                </select>
+              </label>
+              <button
+                type="button"
+                onClick={exportFinancialTable}
+                disabled={financialTableRows.length === 0}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Download size={17} />
+                Excel
+              </button>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="min-w-max w-full text-sm">
+              <thead className="bg-gray-50 text-gray-600">
+                <tr>
+                  <th className="sticky left-0 z-10 bg-gray-50 px-4 py-3 text-left font-semibold min-w-56">
+                    {financialTableGroupLabel}
+                  </th>
+                  {FINANCIAL_TABLE_FIELDS.map(field => (
+                    <th key={String(field.key)} className="px-4 py-3 text-right font-semibold min-w-36">
+                      {field.label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {financialTableRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={FINANCIAL_TABLE_FIELDS.length + 1} className="px-4 py-8 text-center text-gray-400">
+                      {t.noApplications}
+                    </td>
+                  </tr>
+                ) : (
+                  financialTableRows.map(row => (
+                    <tr key={row.group} className="hover:bg-blue-50/40">
+                      <td className="sticky left-0 bg-white px-4 py-3 font-semibold text-gray-800 border-r border-gray-100">
+                        {row.group}
+                      </td>
+                      {FINANCIAL_TABLE_FIELDS.map(field => (
+                        <td key={String(field.key)} className="px-4 py-3 text-right tabular-nums text-gray-700">
+                          {(row.values[String(field.key)] || 0).toLocaleString()}
+                        </td>
+                      ))}
+                    </tr>
+                  ))
+                )}
+              </tbody>
+              {financialTableRows.length > 0 && (
+                <tfoot className="bg-slate-100 border-t-2 border-slate-200">
+                  <tr>
+                    <td className="sticky left-0 bg-slate-100 px-4 py-3 font-bold text-gray-900">{t.totals}</td>
+                    {FINANCIAL_TABLE_FIELDS.map(field => (
+                      <td key={String(field.key)} className="px-4 py-3 text-right font-bold tabular-nums text-gray-900">
+                        {(financialTableTotals[String(field.key)] || 0).toLocaleString()}
+                      </td>
+                    ))}
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
         </div>
       )}
 

@@ -12,6 +12,7 @@ import {
   fetchUserNotifications,
   markAllNotificationsRead,
   markNotificationRead,
+  markNotificationUnread,
   parseApplicationIdFromNotification
 } from '../utils/notifications';
 import { playNotificationSound, unlockNotificationAudio } from '../utils/notificationSound';
@@ -25,6 +26,7 @@ interface NotificationContextValue {
   loading: boolean;
   refresh: () => Promise<void>;
   markAsRead: (id: string) => Promise<void>;
+  markAsUnread: (id: string) => Promise<void>;
   markAsReadForApplication: (applicationId: string) => Promise<void>;
   markAllAsRead: () => Promise<void>;
 }
@@ -130,6 +132,15 @@ export function NotificationProvider({
     }
   }, []);
 
+  const markAsUnread = useCallback(async (id: string) => {
+    const ok = await markNotificationUnread(id);
+    if (ok) {
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === id ? { ...n, isRead: false } : n))
+      );
+    }
+  }, []);
+
   const markAsReadForApplication = useCallback(async (applicationId: string) => {
     if (!applicationId) return;
     const toMark = notificationsRef.current.filter(
@@ -166,10 +177,11 @@ export function NotificationProvider({
       loading,
       refresh: () => refresh(false),
       markAsRead,
+      markAsUnread,
       markAsReadForApplication,
       markAllAsRead
     }),
-    [notifications, unreadCount, loading, refresh, markAsRead, markAsReadForApplication, markAllAsRead]
+    [notifications, unreadCount, loading, refresh, markAsRead, markAsUnread, markAsReadForApplication, markAllAsRead]
   );
 
   return (

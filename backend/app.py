@@ -13,8 +13,9 @@ def create_app():
     app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'postgresql://postgres:postgres@localhost:5432/studentdb')
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     secret = os.getenv('SECRET_KEY')
-    if secret:
-        app.config['SECRET_KEY'] = secret
+    app.config['SECRET_KEY'] = secret or os.urandom(32)
+    app.config['SESSION_COOKIE_HTTPONLY'] = True
+    app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
     db.init_app(app)
     CORS(app)
 

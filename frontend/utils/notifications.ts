@@ -85,6 +85,11 @@ export async function markNotificationRead(notificationId: string): Promise<bool
   return res.ok;
 }
 
+export async function markNotificationUnread(notificationId: string): Promise<boolean> {
+  const res = await fetch(`/api/notifications/${notificationId}/unread`, { method: 'PUT' });
+  return res.ok;
+}
+
 export async function markAllNotificationsRead(userId: string): Promise<boolean> {
   const res = await fetch(`/api/notifications/read-all?user_id=${userId}`, { method: 'PUT' });
   return res.ok;

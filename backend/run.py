@@ -201,6 +201,7 @@ if __name__ == '__main__':
                         ('payment_deserved', 'BOOLEAN NOT NULL DEFAULT FALSE'),
                         ('payment_date', 'VARCHAR'),
                         ('payment_month', 'VARCHAR'),
+                        ('internal_description', 'TEXT'),
                     ]
                     for col, typ in finance_cols:
                         if col not in app_cols:
@@ -257,15 +258,19 @@ if __name__ == '__main__':
                         pass
             except Exception as e:
                 print('Applications updated_at column check:', e)
-            # Ensure application_messages has sender_user_id (who sent the message)
+            # Ensure application_messages has sender_user_id and channel
             try:
                 if 'application_messages' in inspector.get_table_names():
                     msg_cols = [c['name'] for c in inspector.get_columns('application_messages')]
                     if 'sender_user_id' not in msg_cols:
                         conn.execute(text('ALTER TABLE application_messages ADD COLUMN sender_user_id VARCHAR'))
                         conn.commit()
+                    if 'channel' not in msg_cols:
+                        conn.execute(text("ALTER TABLE application_messages ADD COLUMN channel VARCHAR DEFAULT 'public'"))
+                        conn.execute(text("UPDATE application_messages SET channel = 'public' WHERE channel IS NULL"))
+                        conn.commit()
             except Exception as e:
-                print('application_messages sender_user_id column check:', e)
+                print('application_messages column check:', e)
             # Ensure payment tables and currency columns
             try:
                 table_names = inspector.get_table_names()

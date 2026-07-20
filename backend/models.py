@@ -134,6 +134,7 @@ class Application(db.Model):
     payment_deserved = db.Column(db.Boolean, nullable=False, default=False)
     payment_date = db.Column(db.String, nullable=True)
     payment_month = db.Column(db.String, nullable=True)
+    internal_description = db.Column(db.Text, nullable=True)
 
 
 class ApplicationMessage(db.Model):
@@ -144,6 +145,7 @@ class ApplicationMessage(db.Model):
     sender_user_id = db.Column(db.String, db.ForeignKey('users.id'), nullable=True)  # who sent (for display name)
     message = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.String, nullable=False)
+    channel = db.Column(db.String, nullable=False, default='public')  # 'public' | 'internal'
 
 class Period(db.Model):
     __tablename__ = 'periods'
