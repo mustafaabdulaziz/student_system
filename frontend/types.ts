@@ -98,6 +98,7 @@ export enum ApplicationStatus {
   ANNUAL_PAYMENT_RECEIPT_WAITING = 'Yıllık ödemesi dekonto bekleniyor',
   UNIVERSITY_ACCOUNTING_APPROVAL_WAITING = 'Üniversite muhasebe listesinde onaylanması bekleniyor',
   COMPLETED = 'Tamamlandı',
+  SCHOLARSHIP = 'Burslu',
   REJECTED = 'Red edildi',
   REGISTERED_WITH_OTHER_AGENCY = 'Baska agenta uzerinden kayitli',
   MISSING_DOCS = 'Eksik evrak',
@@ -106,20 +107,6 @@ export enum ApplicationStatus {
   DEPOSIT_REFUND_FORM_COMPLETED = 'Depozito iade formu dolduruldu',
   DEPOSIT_REFUND_DEPOSITED_TO_ACCOUNT = 'Depozito iadesi hesaba yatırıldı',
   DEPOSIT_REFUND_DELIVERED_TO_COMPANY = 'Depozito iadesi firmaya teslim edildi',
-
-  // Other existing statuses follow the prioritized list above.
-  TO_BE_APPLIED = 'Basvurulacak',
-  APPLIED = 'Basvuruldu',
-  OFFER_LETTER_UPLOADED = 'Teklif mektubu Yüklendi',
-  DEPOSIT_PAID = 'Depozito ödemesi Yapildi',
-  PAYMENT_REUPLOADED = 'Ödeme yeniden yüklendi',
-  ACCEPTANCE_LETTER_UPLOADED = 'Kabul mektubu Yüklendi',
-  STUDENT_CARD_WAITING = 'Öğrenci kartı bekleniyor',
-  ANNUAL_PAYMENT_RECEIVED_BY_SCHOOL = 'Yıllık ödemesi okul hesabına geçti',
-  DEPOSIT_REFUND_APPLIED = 'Depozito iade başvurusu Yapildi',
-  DEPOSIT_REFUND_WAITING = 'Depozito iadesi hesaba ulaşması bekleniyor',
-  SCHOOL_REGISTRATION_APPROVED = 'Okul kayıt listesinde onaylandı',
-  SCHOOL_PAYMENT_DONE = 'Okul ödemesi Yapildi',
 }
 
 export interface Application {

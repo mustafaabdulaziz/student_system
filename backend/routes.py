@@ -2333,7 +2333,7 @@ def update_application_status(app_id):
     
     # 6. Notify admin(s) when application is sent to review (e.g. by agent)
     if new_status in (
-        'Basvuruldu',
+        'Yeni Başvuru',
         'Teklif mektubu bekleniyor',
         'Teklif Mektubu Bekleniyor',
         'Under Review',
