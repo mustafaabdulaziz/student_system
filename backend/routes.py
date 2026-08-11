@@ -2,6 +2,7 @@
 from flask import Blueprint, request, jsonify, session, current_app, send_from_directory, url_for
 from models import db, Student, University, Program, Application, ApplicationMessage, User, Notification, Period, NewsItem, IncomingPayment, OutgoingPayment, AgencyCompany, UserUniversityCommission, PaymentSource
 import os
+import re
 import uuid
 from datetime import datetime
 from werkzeug.utils import secure_filename
@@ -2026,6 +2027,43 @@ def post_internal_application_message(app_id):
     if len(message_text) > 10000:
         return jsonify({'message': 'Message cannot exceed 10000 characters'}), 400
 
+    staff_by_id = {u.id: u for u in _staff_users()}
+    mentioned_ids = set()
+    for raw_id in (data.get('mentionedUserIds') or data.get('mentioned_user_ids') or []):
+        uid = str(raw_id or '').strip()
+        if uid and uid in staff_by_id and uid != staff_user.id:
+            mentioned_ids.add(uid)
+    for match in re.finditer(r'@\[([^\]]+)\]\(([^)]+)\)', message_text):
+        uid = (match.group(2) or '').strip()
+        if uid and uid in staff_by_id and uid != staff_user.id:
+            mentioned_ids.add(uid)
+
+    # Resolve plain @DisplayName mentions (longest name first)
+    plain_text = re.sub(r'@\[([^\]]+)\]\(([^)]+)\)', r'@\1', message_text)
+    named_staff = sorted(
+        [
+            (u, (u.name or u.email or '').strip())
+            for u in staff_by_id.values()
+            if (u.name or u.email or '').strip()
+        ],
+        key=lambda item: len(item[1]),
+        reverse=True,
+    )
+    for idx, ch in enumerate(plain_text):
+        if ch != '@':
+            continue
+        if idx > 0 and not plain_text[idx - 1].isspace():
+            continue
+        after = plain_text[idx + 1:]
+        for user, name in named_staff:
+            if after == name or after.startswith(name + ' ') or after.startswith(name + '\n'):
+                if user.id != staff_user.id:
+                    mentioned_ids.add(user.id)
+                break
+
+    preview = re.sub(r'@\[([^\]]+)\]\(([^)]+)\)', r'@\1', message_text)
+    preview = (preview[:50] + '...') if len(preview) > 50 else preview
+
     message = ApplicationMessage(
         id=str(uuid.uuid4()),
         application_id=app_id,
@@ -2037,14 +2075,27 @@ def post_internal_application_message(app_id):
     )
     db.session.add(message)
     _touch_application_and_student(application)
-    for user in _staff_users():
-        if user.id == staff_user.id:
-            continue
+
+    # Notify: all ADMIN + responsible USER (if set) + mentioned staff
+    notify_ids = set()
+    for user in staff_by_id.values():
+        if (user.role or '').upper() == 'ADMIN':
+            notify_ids.add(user.id)
+    responsible_id = getattr(application, 'responsible_id', None)
+    if responsible_id and responsible_id in staff_by_id:
+        resp = staff_by_id[responsible_id]
+        if (resp.role or '').upper() == 'USER':
+            notify_ids.add(responsible_id)
+    notify_ids.update(mentioned_ids)
+    notify_ids.discard(staff_user.id)
+
+    for user_id in notify_ids:
+        is_mentioned = user_id in mentioned_ids
         db.session.add(Notification(
             id=str(uuid.uuid4()),
-            user_id=user.id,
-            title='New Internal Message',
-            message=f'App #{app_id}: {message_text[:50]}...',
+            user_id=user_id,
+            title='You were mentioned' if is_mentioned else 'New Internal Message',
+            message=f'App #{app_id}: {preview}',
             link=f'/applications/{app_id}',
             created_at=datetime.utcnow().isoformat(),
             type='MESSAGE'
@@ -2058,6 +2109,7 @@ def post_internal_application_message(app_id):
         'sender': message.sender,
         'senderName': staff_user.name,
         'createdAt': message.created_at,
+        'mentionedUserIds': list(mentioned_ids),
         'updatedAt': _application_updated_at_for_api(application),
         'studentId': application.student_id,
         'studentUpdatedAt': _student_updated_at_for_api(student) if student else None

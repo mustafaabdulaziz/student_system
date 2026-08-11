@@ -97,6 +97,17 @@ export const useTranslation = () => {
         }
 
         if (n.type === 'MESSAGE') {
+            if (n.title === 'You were mentioned' || n.title === t.youWereMentioned) {
+                const idMatch = n.message.match(/#([A-Za-z0-9-]+)/);
+                const id = idMatch ? idMatch[1] : '';
+                const msgContent = n.message.includes(':')
+                    ? n.message.split(':').slice(1).join(':').trim()
+                    : n.message;
+                return {
+                    title: t.youWereMentioned,
+                    message: t.mentionedInApp.replace('{id}', id).replace('{message}', msgContent)
+                };
+            }
             if (n.message.startsWith('Admin:')) {
                 const msgContent = n.message.replace('Admin:', '').trim();
                 return {

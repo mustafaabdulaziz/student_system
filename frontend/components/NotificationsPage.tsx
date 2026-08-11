@@ -4,6 +4,7 @@ import { useTranslation } from '../hooks/useTranslation';
 import { useNotifications } from '../contexts/NotificationContext';
 import { matchesCreatedAtRange } from '../utils/createdAtRangeFilter';
 import { navigateFromNotification } from '../utils/notifications';
+import { NOTIFICATION_DATE_PRESETS, getDatePreset } from '../utils/datePresets';
 
 interface NotificationsPageProps {
   onNavigate?: (page: string, appId?: string) => void;
@@ -48,6 +49,12 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({ onNavigate
   const listTo = Math.min(page * PAGE_SIZE, filtered.length);
 
   const hasActiveFilters = Boolean(filterFrom || filterTo || readFilter !== 'all');
+
+  const applyDatePreset = (presetId: string) => {
+    const range = getDatePreset(presetId);
+    setFilterFrom(range.from);
+    setFilterTo(range.to);
+  };
 
   const handleMarkAllRead = () => {
     if (unreadCount === 0) return;
@@ -136,6 +143,18 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({ onNavigate
               onChange={(e) => setFilterTo(e.target.value)}
               className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
             />
+          </div>
+          <div className="flex flex-wrap gap-1.5 items-end pb-0.5">
+            {NOTIFICATION_DATE_PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                onClick={() => applyDatePreset(preset.id)}
+                className="px-2.5 py-2 text-xs rounded-lg bg-gray-100 hover:bg-blue-100 text-gray-700 hover:text-blue-800 transition-colors font-medium"
+              >
+                {t[preset.labelKey]}
+              </button>
+            ))}
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">{t.notificationReadFilter}</label>

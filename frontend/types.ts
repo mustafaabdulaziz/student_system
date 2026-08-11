@@ -201,4 +201,5 @@ export interface ApplicationListFilters {
   responsibles?: string[];
   agents?: string[];
   currencies?: string[];
+  agencyCompanyIds?: string[];
 }

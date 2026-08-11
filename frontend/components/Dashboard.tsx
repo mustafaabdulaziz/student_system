@@ -1,6 +1,6 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { Student, Application, Program, University, User, UserRole, ApplicationListFilters, Period } from '../types';
-import { Users, FileText, School, Filter, BarChart3, List, DollarSign, Mail, Wallet, UserCheck, CircleCheck, CirclePlus, Clock3, Download } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { Student, Application, Program, University, User, UserRole, ApplicationListFilters, Period, AgencyCompany } from '../types';
+import { Users, FileText, Filter, BarChart3, List, DollarSign, Mail, Wallet, UserCheck, CircleCheck, CirclePlus, Clock3, Download, Columns3 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useTranslation } from '../hooks/useTranslation';
 import { ApplicationStatus } from '../types';
@@ -16,8 +16,8 @@ interface DashboardProps {
   universities: University[];
   periods: Period[];
   users: User[];
+  agencyCompanies?: AgencyCompany[];
   currentUser: User | null;
-  universitiesCount: number;
   onDrilldownToApplications: (filters: ApplicationListFilters) => void;
 }
 
@@ -49,7 +49,9 @@ const FINANCIAL_TABLE_FIELDS: Array<{ key: keyof Application; label: string }> =
   { key: 'remainingMax', label: 'Kalan Max' },
 ];
 
-type DrilldownDimension = 'status' | 'university' | 'program' | 'country' | 'degree' | 'responsible' | 'agency';
+const FINANCIAL_TABLE_COLUMN_KEYS = FINANCIAL_TABLE_FIELDS.map((field) => String(field.key));
+const FINANCIAL_TABLE_COLUMNS_STORAGE_KEY = 'dashboard.financialTable.visibleColumns';
+type DrilldownDimension = 'status' | 'university' | 'program' | 'country' | 'degree' | 'responsible' | 'agency' | 'agencyCompany';
 
 function dateOnly(iso: string | undefined): string {
   if (!iso) return '';
@@ -251,8 +253,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
   universities,
   periods,
   users,
+  agencyCompanies = [],
   currentUser,
-  universitiesCount,
   onDrilldownToApplications
 }) => {
   const { t, translateStatus, translateDegree } = useTranslation();
@@ -260,6 +262,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const isAdmin = currentUser?.role === UserRole.ADMIN;
   const isAdminOrUser = currentUser?.role === UserRole.ADMIN || currentUser?.role === UserRole.USER;
   const canSeeCountryChart = isAdminOrUser;
+  const canSeeAgencyCompany = isAdminOrUser;
   const defaultRange = getDatePreset('thisYear');
   const [fromDate, setFromDate] = useState(defaultRange.from);
   const [toDate, setToDate] = useState(defaultRange.to);
@@ -272,10 +275,63 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [responsibleFilter, setResponsibleFilter] = useState<string[]>([]);
   const [nationalityFilter, setNationalityFilter] = useState<string[]>([]);
   const [currencyFilter, setCurrencyFilter] = useState<string[]>([]);
+  const [agencyCompanyFilter, setAgencyCompanyFilter] = useState<string[]>([]);
   const [outgoingPayments, setOutgoingPayments] = useState<DashboardOutgoingPayment[]>([]);
   const [financialTableGroup, setFinancialTableGroup] = useState<FinancialTableGroup>('university');
+  const [financialTableColumnsOpen, setFinancialTableColumnsOpen] = useState(false);
+  const [visibleFinancialTableColumns, setVisibleFinancialTableColumns] = useState<string[]>(FINANCIAL_TABLE_COLUMN_KEYS);
+  const financialTableColumnsRef = useRef<HTMLDivElement>(null);
 
   const canSeeNationalityFilter = currentUser?.role === UserRole.ADMIN || currentUser?.role === UserRole.USER;
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(FINANCIAL_TABLE_COLUMNS_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return;
+      const valid = parsed.filter((key: string) => FINANCIAL_TABLE_COLUMN_KEYS.includes(key));
+      if (valid.length > 0) setVisibleFinancialTableColumns(valid);
+    } catch {
+      // ignore invalid storage
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      FINANCIAL_TABLE_COLUMNS_STORAGE_KEY,
+      JSON.stringify(visibleFinancialTableColumns)
+    );
+  }, [visibleFinancialTableColumns]);
+
+  useEffect(() => {
+    if (!financialTableColumnsOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        financialTableColumnsRef.current &&
+        !financialTableColumnsRef.current.contains(event.target as Node)
+      ) {
+        setFinancialTableColumnsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [financialTableColumnsOpen]);
+
+  const toggleFinancialTableColumn = (key: string) => {
+    setVisibleFinancialTableColumns((prev) => {
+      if (prev.includes(key)) {
+        if (prev.length === 1) return prev;
+        return prev.filter((column) => column !== key);
+      }
+      return [...prev, key];
+    });
+  };
+
+  const visibleFinancialTableFields = useMemo(
+    () => FINANCIAL_TABLE_FIELDS.filter((field) => visibleFinancialTableColumns.includes(String(field.key))),
+    [visibleFinancialTableColumns]
+  );
 
   useEffect(() => {
     if (!isAdmin) {
@@ -332,9 +388,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
         if (!nationality || !nationalityFilter.includes(nationality)) return false;
       }
       if (currencyFilter.length > 0 && !currencyFilter.includes((app.currency || 'USD').toUpperCase())) return false;
+      if (canSeeAgencyCompany && agencyCompanyFilter.length > 0) {
+        if (!app.agencyCompanyId || !agencyCompanyFilter.includes(app.agencyCompanyId)) return false;
+      }
       return true;
     });
-  }, [scopedApplications, filterActive, fromDate, toDate, programs, statusFilter, universityFilter, programFilter, degreeFilter, agentFilter, responsibleFilter, nationalityFilter, currencyFilter, studentById, users]);
+  }, [scopedApplications, filterActive, fromDate, toDate, programs, statusFilter, universityFilter, programFilter, degreeFilter, agentFilter, responsibleFilter, nationalityFilter, currencyFilter, agencyCompanyFilter, canSeeAgencyCompany, studentById, users]);
 
   const applicationsForPayableTotal = useMemo(() => {
     return scopedApplications.filter((app) => {
@@ -351,9 +410,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
         if (!nationality || !nationalityFilter.includes(nationality)) return false;
       }
       if (currencyFilter.length > 0 && !currencyFilter.includes((app.currency || 'USD').toUpperCase())) return false;
+      if (canSeeAgencyCompany && agencyCompanyFilter.length > 0) {
+        if (!app.agencyCompanyId || !agencyCompanyFilter.includes(app.agencyCompanyId)) return false;
+      }
       return true;
     });
-  }, [scopedApplications, filterActive, fromDate, toDate, programs, universityFilter, programFilter, degreeFilter, agentFilter, responsibleFilter, nationalityFilter, currencyFilter, studentById, users]);
+  }, [scopedApplications, filterActive, fromDate, toDate, programs, universityFilter, programFilter, degreeFilter, agentFilter, responsibleFilter, nationalityFilter, currencyFilter, agencyCompanyFilter, canSeeAgencyCompany, studentById, users]);
 
   const filteredStudents = useMemo(() => {
     const hasAppFilters =
@@ -364,7 +426,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
       agentFilter.length > 0 ||
       responsibleFilter.length > 0 ||
       nationalityFilter.length > 0 ||
-      currencyFilter.length > 0;
+      currencyFilter.length > 0 ||
+      (canSeeAgencyCompany && agencyCompanyFilter.length > 0);
 
     if (hasAppFilters) {
       const studentIds = new Set(filteredApplications.map((app) => app.studentId));
@@ -389,7 +452,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
     agentFilter,
     responsibleFilter,
     nationalityFilter,
-    currencyFilter
+    currencyFilter,
+    agencyCompanyFilter,
+    canSeeAgencyCompany
   ]);
 
   const handleApply = () => {
@@ -414,6 +479,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     setResponsibleFilter([]);
     setNationalityFilter([]);
     setCurrencyFilter([]);
+    setAgencyCompanyFilter([]);
   };
 
   const getProgramName = (progId: string) => programs.find((p) => p.id === progId)?.name || t.noPrograms;
@@ -537,6 +603,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
     });
     return Array.from(map.entries()).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
   }, [filteredApplications, users]);
+
+  const agencyCompanyStats = useMemo(() => {
+    const map = new Map<string, number>();
+    filteredApplications.forEach((app) => {
+      const name = app.agencyCompanyName
+        || (app.agencyCompanyId && agencyCompanies.find((c) => c.id === app.agencyCompanyId)?.name)
+        || '—';
+      map.set(name, (map.get(name) || 0) + 1);
+    });
+    return Array.from(map.entries()).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
+  }, [filteredApplications, agencyCompanies]);
 
   const totals = useMemo(() => {
     let annualPayment = 0,
@@ -677,7 +754,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       const exported: Record<string, string | number> = {
         [financialTableGroupLabel]: row.group,
       };
-      FINANCIAL_TABLE_FIELDS.forEach(field => {
+      visibleFinancialTableFields.forEach(field => {
         exported[field.label] = row.values[String(field.key)] || 0;
       });
       return exported;
@@ -685,14 +762,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
     const totalRow: Record<string, string | number> = {
       [financialTableGroupLabel]: t.totals,
     };
-    FINANCIAL_TABLE_FIELDS.forEach(field => {
+    visibleFinancialTableFields.forEach(field => {
       totalRow[field.label] = financialTableTotals[String(field.key)] || 0;
     });
     rows.push(totalRow);
     const worksheet = XLSX.utils.json_to_sheet(rows);
     worksheet['!cols'] = [
       { wch: 32 },
-      ...FINANCIAL_TABLE_FIELDS.map(() => ({ wch: 20 })),
+      ...visibleFinancialTableFields.map(() => ({ wch: 20 })),
     ];
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Finansal Tablo');
@@ -739,6 +816,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     let responsibles = [...responsibleFilter];
     let agents = [...agentFilter];
     let currencies = [...currencyFilter];
+    let agencyCompanyIds = [...agencyCompanyFilter];
 
     switch (dimension) {
       case 'status':
@@ -770,6 +848,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
       case 'agency':
         agents = [value];
         break;
+      case 'agencyCompany': {
+        const id = agencyCompanies.find((c) => c.name === value)?.id;
+        if (id) agencyCompanyIds = [id];
+        else if (value === '—') agencyCompanyIds = [];
+        break;
+      }
     }
 
     onDrilldownToApplications({
@@ -783,13 +867,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
       ...(responsibles.length > 0 ? { responsibles } : {}),
       ...(agents.length > 0 ? { agents } : {}),
       ...(currencies.length > 0 ? { currencies } : {}),
+      ...(agencyCompanyIds.length > 0 ? { agencyCompanyIds } : {}),
     });
   };
 
   const stats = [
     { label: t.totalStudents, value: filteredStudents.length, icon: Users, color: 'bg-blue-500' },
     { label: t.totalApplications, value: filteredApplications.length, icon: FileText, color: 'bg-emerald-500' },
-    { label: t.totalUniversities, value: universitiesCount, icon: School, color: 'bg-purple-500' },
   ];
 
   const countApplicationsWithStatuses = (statuses: ApplicationStatus[]) => {
@@ -1000,6 +1084,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
               noResultsText={t.searchNoResults}
             />
           )}
+          {canSeeAgencyCompany && (
+            <SearchableMultiSelect
+              options={agencyCompanies.map((c) => ({ value: c.id, label: c.name }))}
+              selected={agencyCompanyFilter}
+              onChange={setAgencyCompanyFilter}
+              placeholder={`${t.agencyCompany} (${t.filterAll})`}
+              searchPlaceholder={t.search}
+              noResultsText={t.searchNoResults}
+            />
+          )}
         </div>
       </div>
 
@@ -1076,6 +1170,37 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   <option value="nationality">{t.nationality}</option>
                 </select>
               </label>
+              <div className="relative" ref={financialTableColumnsRef}>
+                <button
+                  type="button"
+                  onClick={() => setFinancialTableColumnsOpen((open) => !open)}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                >
+                  <Columns3 size={17} />
+                  {t.columns}
+                </button>
+                {financialTableColumnsOpen && (
+                  <div className="absolute right-0 z-30 mt-2 w-64 max-h-80 overflow-y-auto rounded-xl border border-gray-200 bg-white p-2 shadow-lg">
+                    {FINANCIAL_TABLE_FIELDS.map((field) => {
+                      const key = String(field.key);
+                      return (
+                        <label
+                          key={key}
+                          className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={visibleFinancialTableColumns.includes(key)}
+                            onChange={() => toggleFinancialTableColumn(key)}
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span>{field.label}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
               <button
                 type="button"
                 onClick={exportFinancialTable}
@@ -1095,7 +1220,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   <th className="sticky left-0 z-10 bg-gray-50 px-4 py-3 text-left font-semibold min-w-56">
                     {financialTableGroupLabel}
                   </th>
-                  {FINANCIAL_TABLE_FIELDS.map(field => (
+                  {visibleFinancialTableFields.map(field => (
                     <th key={String(field.key)} className="px-4 py-3 text-right font-semibold min-w-36">
                       {field.label}
                     </th>
@@ -1105,7 +1230,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <tbody className="divide-y divide-gray-100">
                 {financialTableRows.length === 0 ? (
                   <tr>
-                    <td colSpan={FINANCIAL_TABLE_FIELDS.length + 1} className="px-4 py-8 text-center text-gray-400">
+                    <td colSpan={visibleFinancialTableFields.length + 1} className="px-4 py-8 text-center text-gray-400">
                       {t.noApplications}
                     </td>
                   </tr>
@@ -1115,7 +1240,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       <td className="sticky left-0 bg-white px-4 py-3 font-semibold text-gray-800 border-r border-gray-100">
                         {row.group}
                       </td>
-                      {FINANCIAL_TABLE_FIELDS.map(field => (
+                      {visibleFinancialTableFields.map(field => (
                         <td key={String(field.key)} className="px-4 py-3 text-right tabular-nums text-gray-700">
                           {(row.values[String(field.key)] || 0).toLocaleString()}
                         </td>
@@ -1128,7 +1253,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <tfoot className="bg-slate-100 border-t-2 border-slate-200">
                   <tr>
                     <td className="sticky left-0 bg-slate-100 px-4 py-3 font-bold text-gray-900">{t.totals}</td>
-                    {FINANCIAL_TABLE_FIELDS.map(field => (
+                    {visibleFinancialTableFields.map(field => (
                       <td key={String(field.key)} className="px-4 py-3 text-right font-bold tabular-nums text-gray-900">
                         {(financialTableTotals[String(field.key)] || 0).toLocaleString()}
                       </td>
@@ -1163,6 +1288,19 @@ export const Dashboard: React.FC<DashboardProps> = ({
             nameColumnLabel={t.agent}
             countSummary={`${agencyStats.length} ${t.agent.toLowerCase()} · ${filteredApplications.length} ${t.totalApplications.toLowerCase()}`}
             onItemClick={(label) => handleDrilldown('agency', label)}
+            {...rankedCardLabels}
+          />
+        )}
+        {canSeeAgencyCompany && (
+          <RankedStatsCard
+            title={t.byAgencyCompany}
+            stats={agencyCompanyStats}
+            totalApplications={filteredApplications.length}
+            barColor="#0d9488"
+            searchPlaceholder={t.search}
+            nameColumnLabel={t.agencyCompany}
+            countSummary={`${agencyCompanyStats.length} ${t.agencyCompany.toLowerCase()} · ${filteredApplications.length} ${t.totalApplications.toLowerCase()}`}
+            onItemClick={(label) => handleDrilldown('agencyCompany', label)}
             {...rankedCardLabels}
           />
         )}

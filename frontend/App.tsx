@@ -1122,8 +1122,8 @@ export default function App() {
             universities={state.universities}
             periods={state.periods}
             users={state.users}
+            agencyCompanies={state.agencyCompanies}
             currentUser={state.currentUser}
-            universitiesCount={state.universities.length}
             onDrilldownToApplications={openApplicationsWithFilters}
           />
         );
@@ -1160,8 +1160,8 @@ export default function App() {
               programs={state.programs}
               universities={state.universities}
               users={state.users}
+              agencyCompanies={state.agencyCompanies}
               currentUser={state.currentUser}
-              universitiesCount={state.universities.length}
               onDrilldownToApplications={openApplicationsWithFilters}
             />
           );
@@ -1203,8 +1203,8 @@ export default function App() {
               programs={state.programs}
               universities={state.universities}
               users={state.users}
+              agencyCompanies={state.agencyCompanies}
               currentUser={state.currentUser}
-              universitiesCount={state.universities.length}
               onDrilldownToApplications={openApplicationsWithFilters}
             />
           );
@@ -1212,6 +1212,7 @@ export default function App() {
         return (
           <UserManagementPage
             users={state.users}
+            agencyCompanies={state.agencyCompanies}
             universities={state.universities}
             currentUser={state.currentUser}
             onAddUser={addUser}
@@ -1229,8 +1230,8 @@ export default function App() {
               programs={state.programs}
               universities={state.universities}
               users={state.users}
+              agencyCompanies={state.agencyCompanies}
               currentUser={state.currentUser}
-              universitiesCount={state.universities.length}
               onDrilldownToApplications={openApplicationsWithFilters}
             />
           );
@@ -1245,8 +1246,8 @@ export default function App() {
               programs={state.programs}
               universities={state.universities}
               users={state.users}
+              agencyCompanies={state.agencyCompanies}
               currentUser={state.currentUser}
-              universitiesCount={state.universities.length}
               onDrilldownToApplications={openApplicationsWithFilters}
             />
           );
@@ -1261,8 +1262,8 @@ export default function App() {
               programs={state.programs}
               universities={state.universities}
               users={state.users}
+              agencyCompanies={state.agencyCompanies}
               currentUser={state.currentUser}
-              universitiesCount={state.universities.length}
               onDrilldownToApplications={openApplicationsWithFilters}
             />
           );
@@ -1277,8 +1278,8 @@ export default function App() {
               programs={state.programs}
               universities={state.universities}
               users={state.users}
+              agencyCompanies={state.agencyCompanies}
               currentUser={state.currentUser}
-              universitiesCount={state.universities.length}
               onDrilldownToApplications={openApplicationsWithFilters}
             />
           );
@@ -1300,8 +1301,8 @@ export default function App() {
               programs={state.programs}
               universities={state.universities}
               users={state.users}
+              agencyCompanies={state.agencyCompanies}
               currentUser={state.currentUser}
-              universitiesCount={state.universities.length}
               onDrilldownToApplications={openApplicationsWithFilters}
             />
           );
@@ -1322,8 +1323,8 @@ export default function App() {
             programs={state.programs}
             universities={state.universities}
             users={state.users}
+            agencyCompanies={state.agencyCompanies}
             currentUser={state.currentUser}
-            universitiesCount={state.universities.length}
             onDrilldownToApplications={openApplicationsWithFilters}
           />
         );

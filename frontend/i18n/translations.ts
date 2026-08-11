@@ -23,6 +23,8 @@ export interface Translations {
     close: string;
     optional: string;
     columns: string;
+    exportExcel: string;
+    selectRowsToExport: string;
 
     // Navigation
     dashboard: string;
@@ -70,6 +72,7 @@ export interface Translations {
     dashboardStudentColumn: string;
     today: string;
     yesterday: string;
+    last3Days: string;
     last7Days: string;
     last30Days: string;
     thisWeek: string;
@@ -82,6 +85,7 @@ export interface Translations {
     byResponsible: string;
     byAgent: string;
     byAgency: string;
+    byAgencyCompany: string;
     byUniversity: string;
     byDegree: string;
     byProgram: string;
@@ -290,6 +294,10 @@ export interface Translations {
     staffOnly: string;
     noInternalMessages: string;
     typeInternalMessage: string;
+    mentionUser: string;
+    noMentionMatches: string;
+    youWereMentioned: string;
+    mentionedInApp: string;
     responsible: string;
     agencyCompany: string;
     cost: string;
@@ -411,6 +419,8 @@ export const translations: Record<Language, Translations> = {
         close: 'إغلاق',
         optional: 'اختياري',
         columns: 'الأعمدة',
+        exportExcel: 'تصدير Excel',
+        selectRowsToExport: 'يرجى تحديد السجلات للتصدير',
 
         // Navigation
         dashboard: 'لوحة التحكم',
@@ -457,6 +467,7 @@ export const translations: Record<Language, Translations> = {
         dashboardStudentColumn: 'الطالب',
         today: 'اليوم',
         yesterday: 'أمس',
+        last3Days: 'آخر 3 أيام',
         last7Days: 'آخر 7 أيام',
         last30Days: 'آخر 30 يوم',
         thisWeek: 'هذا الأسبوع',
@@ -469,6 +480,7 @@ export const translations: Record<Language, Translations> = {
         byResponsible: 'حسب المسؤول',
         byAgent: 'حسب الوكيل',
         byAgency: 'حسب الوكالة',
+        byAgencyCompany: 'حسب الشركة الوسيطة',
         byUniversity: 'حسب الجامعة',
         byDegree: 'حسب الدرجة',
         byProgram: 'حسب البرنامج',
@@ -672,7 +684,11 @@ export const translations: Record<Language, Translations> = {
         internalChat: 'المحادثة الداخلية',
         staffOnly: 'للمدير والموظفين فقط',
         noInternalMessages: 'لا توجد رسائل داخلية',
-        typeInternalMessage: 'اكتب رسالة داخلية...',
+        typeInternalMessage: 'اكتب رسالة داخلية... (@ للإشارة)',
+        mentionUser: 'أشر إلى مستخدم',
+        noMentionMatches: 'لا يوجد مستخدم مطابق',
+        youWereMentioned: 'تمت الإشارة إليك',
+        mentionedInApp: 'طلب #{id}: {message}',
         responsible: 'المسؤول',
         agencyCompany: 'الشركة الوسيطة',
         cost: 'التكلفة',
@@ -793,6 +809,8 @@ export const translations: Record<Language, Translations> = {
         close: 'Close',
         optional: 'Optional',
         columns: 'Columns',
+        exportExcel: 'Export Excel',
+        selectRowsToExport: 'Please select records to export',
 
         // Navigation
         dashboard: 'Dashboard',
@@ -839,6 +857,7 @@ export const translations: Record<Language, Translations> = {
         dashboardStudentColumn: 'Student',
         today: 'Today',
         yesterday: 'Yesterday',
+        last3Days: 'Last 3 days',
         last7Days: 'Last 7 days',
         last30Days: 'Last 30 days',
         thisWeek: 'This week',
@@ -851,6 +870,7 @@ export const translations: Record<Language, Translations> = {
         byResponsible: 'By responsible',
         byAgent: 'By agent',
         byAgency: 'By agency',
+        byAgencyCompany: 'By agency company',
         byUniversity: 'By university',
         byDegree: 'By degree',
         byProgram: 'By program',
@@ -1054,7 +1074,11 @@ export const translations: Record<Language, Translations> = {
         internalChat: 'Internal Chat',
         staffOnly: 'Admin and staff only',
         noInternalMessages: 'No internal messages',
-        typeInternalMessage: 'Type an internal message...',
+        typeInternalMessage: 'Type an internal message... (@ to mention)',
+        mentionUser: 'Mention a user',
+        noMentionMatches: 'No matching users',
+        youWereMentioned: 'You were mentioned',
+        mentionedInApp: 'App #{id}: {message}',
         responsible: 'Responsible',
         agencyCompany: 'Agency company',
         cost: 'Cost',
@@ -1175,6 +1199,8 @@ export const translations: Record<Language, Translations> = {
         close: 'Kapat',
         optional: 'İsteğe bağlı',
         columns: 'Sütunlar',
+        exportExcel: 'Excel Dışa Aktar',
+        selectRowsToExport: 'Dışa aktarmak için kayıt seçin',
 
         // Navigation
         dashboard: 'Kontrol Paneli',
@@ -1221,6 +1247,7 @@ export const translations: Record<Language, Translations> = {
         dashboardStudentColumn: 'Öğrenci',
         today: 'Bugün',
         yesterday: 'Dün',
+        last3Days: 'Son 3 gün',
         last7Days: 'Son 7 gün',
         last30Days: 'Son 30 gün',
         thisWeek: 'Bu hafta',
@@ -1233,6 +1260,7 @@ export const translations: Record<Language, Translations> = {
         byResponsible: 'Sorumluya göre',
         byAgent: 'Temsilciye göre',
         byAgency: 'Acenteye göre',
+        byAgencyCompany: 'Aracı firmaya göre',
         byUniversity: 'Üniversiteye göre',
         byDegree: 'Dereceye göre',
         byProgram: 'Bölüme göre',
@@ -1436,7 +1464,11 @@ export const translations: Record<Language, Translations> = {
         internalChat: 'İç Sohbet',
         staffOnly: 'Yalnızca admin ve user',
         noInternalMessages: 'İç mesaj yok',
-        typeInternalMessage: 'İç mesaj yazın...',
+        typeInternalMessage: 'İç mesaj yazın... (@ ile etiketle)',
+        mentionUser: 'Kullanıcı etiketle',
+        noMentionMatches: 'Eşleşen kullanıcı yok',
+        youWereMentioned: 'Etiketlendiniz',
+        mentionedInApp: 'Başvuru #{id}: {message}',
         responsible: 'Sorumlu',
         agencyCompany: 'Aracı Firma',
         cost: 'Maliyet',

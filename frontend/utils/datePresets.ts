@@ -35,6 +35,12 @@ export function getDatePreset(preset: string): { from: string; to: string } {
       y.setDate(y.getDate() - 1);
       return { from: formatLocalDate(y), to: formatLocalDate(y) };
     }
+    case 'last3': {
+      const end = new Date(today);
+      const start = new Date(today);
+      start.setDate(start.getDate() - 2);
+      return { from: formatLocalDate(start), to: formatLocalDate(end) };
+    }
     case 'last7': {
       const end = new Date(today);
       const start = new Date(today);
@@ -98,4 +104,12 @@ export const FILTER_DATE_PRESETS = [
   { id: 'last30', labelKey: 'last30Days' },
   { id: 'thisMonth', labelKey: 'thisMonth' },
   { id: 'thisYear', labelKey: 'thisYear' }
+] as const;
+
+/** Notifications page quick date filters */
+export const NOTIFICATION_DATE_PRESETS = [
+  { id: 'today', labelKey: 'today' },
+  { id: 'yesterday', labelKey: 'yesterday' },
+  { id: 'last3', labelKey: 'last3Days' },
+  { id: 'last30', labelKey: 'last30Days' }
 ] as const;

@@ -4,8 +4,9 @@ import {
   Plus, Filter, FileText,
   MessageSquare, User as UserIcon, GraduationCap,
   Send, Upload, Paperclip, ChevronLeft, MapPin, Trash2, Mail, Phone, FileEdit,
-  List, LayoutGrid, Search, X, ChevronDown, ChevronUp, ChevronRight, DollarSign
+  List, LayoutGrid, Search, X, ChevronDown, ChevronUp, ChevronRight, DollarSign, Download
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { useTranslation } from '../hooks/useTranslation';
 import { useLanguage } from '../contexts/LanguageContext';
 import { matchesCreatedAtRange } from '../utils/createdAtRangeFilter';
@@ -20,6 +21,12 @@ import { getStudentFileTypeLabel, type StudentFileTypeCode } from '../constants/
 import { MassEditModal, type MassEditFieldDef } from './MassEditModal';
 import { SearchableMultiSelect } from './SearchableMultiSelect';
 import { SearchableSelect } from './SearchableSelect';
+import {
+  extractMentionIds,
+  getActiveMentionQuery,
+  insertMentionToken,
+  parseMentionSegments
+} from '../utils/mentions';
 
 const FINANCIAL_TREE_FIELDS: { key: keyof Application; label: string }[] = [
   { key: 'annualPayment', label: 'Yıllık ödeme' },
@@ -104,6 +111,23 @@ type ApplicationChatMessage = {
   createdAt: string;
   senderName?: string | null;
 };
+
+const MentionMessageText: React.FC<{ text: string; own?: boolean; users?: User[] }> = ({ text, own, users = [] }) => (
+  <>
+    {parseMentionSegments(text, users).map((seg, i) =>
+      seg.type === 'mention' ? (
+        <span
+          key={i}
+          className={`font-semibold ${own ? 'text-amber-100 bg-amber-700/50' : 'text-amber-800 bg-amber-100'} px-1 rounded`}
+        >
+          @{seg.name}
+        </span>
+      ) : (
+        <span key={i}>{seg.value}</span>
+      )
+    )}
+  </>
+);
 
 function MultiSelectFilter({
   selected,
@@ -197,7 +221,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   onOpenStudent, currentUser,
   embedMode, embedApplicationId, onEmbedBack
 }) => {
-  const { t, translateStatus, translateDegree } = useTranslation();
+  const { t, translateStatus, translateDegree, translateRole } = useTranslation();
   const { notifications, markAsReadForApplication } = useNotifications();
   const notificationIndex = useMemo(
     () => buildNotificationEntityIndex(notifications, applications),
@@ -223,6 +247,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const [filterPrograms, setFilterPrograms] = useState<string[]>([]);
   const [filterNationalities, setFilterNationalities] = useState<string[]>([]);
   const [filterCurrencies, setFilterCurrencies] = useState<string[]>([]);
+  const [filterAgencyCompanies, setFilterAgencyCompanies] = useState<string[]>([]);
   const [filterStatuses, setFilterStatuses] = useState<string[]>([]);
   const [filterDegrees, setFilterDegrees] = useState<string[]>([]);
   const [filterAppCreatedFrom, setFilterAppCreatedFrom] = useState('');
@@ -247,6 +272,11 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const [internalMessages, setInternalMessages] = React.useState<ApplicationChatMessage[]>([]);
   const [newInternalMessage, setNewInternalMessage] = React.useState('');
   const internalChatMessagesRef = useRef<HTMLDivElement>(null);
+  const internalInputRef = useRef<HTMLInputElement>(null);
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState('');
+  const [mentionStart, setMentionStart] = useState(0);
+  const [mentionIndex, setMentionIndex] = useState(0);
   const [internalDescription, setInternalDescription] = useState('');
   const [detailFiles, setDetailFiles] = React.useState<Array<{ url: string; name: string; filename?: string; fileType?: string; description?: string }>>([]);
   const [attachFiles, setAttachFiles] = React.useState<FileList | null>(null);
@@ -307,6 +337,17 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
 
   const agentUsers = useMemo(() => users.filter(u => (u.role || '').toString().toLowerCase() === 'agent'), [users]);
   const responsibleUsers = useMemo(() => users.filter(u => { const r = (u.role || '').toString().toUpperCase(); return r === 'ADMIN' || r === 'USER'; }), [users]);
+  const mentionableUsers = useMemo(
+    () => responsibleUsers.filter(u => u.id !== currentUser?.id),
+    [responsibleUsers, currentUser?.id]
+  );
+  const filteredMentionUsers = useMemo(() => {
+    const q = mentionQuery.trim().toLowerCase();
+    if (!q) return mentionableUsers;
+    return mentionableUsers.filter(u =>
+      (u.name || '').toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q)
+    );
+  }, [mentionableUsers, mentionQuery]);
   const isAdminOrUser = currentUser && ((currentUser.role || '').toString().toUpperCase() === 'ADMIN' || (currentUser.role || '').toString().toUpperCase() === 'USER');
   const canSeeAgentColumn = !!isAdminOrUser;
   const isAdmin = currentUser && (currentUser.role || '').toString().toUpperCase() === 'ADMIN';
@@ -589,6 +630,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
       setFilterAgents(initialListFilters.agents ?? []);
       setFilterResponsibles(initialListFilters.responsibles ?? []);
       setFilterCurrencies(initialListFilters.currencies ?? []);
+      setFilterAgencyCompanies(initialListFilters.agencyCompanyIds ?? []);
     }
     setFilterUniversities(initialListFilters.universityIds ?? []);
     setFilterPrograms(initialListFilters.programIds ?? []);
@@ -606,6 +648,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     setFilterAgents([]);
     setFilterResponsibles([]);
     setFilterCurrencies([]);
+    setFilterAgencyCompanies([]);
   }, [isAgent]);
 
   useEffect(() => {
@@ -821,15 +864,16 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
       const matchProgram = filterPrograms.length === 0 || filterPrograms.includes(app.programId);
       const matchNationality = filterNationalities.length === 0 || (s?.nationality && filterNationalities.includes(s.nationality));
       const matchCurrency = filterCurrencies.length === 0 || filterCurrencies.includes((app.currency || 'USD').toUpperCase());
+      const matchAgencyCompany = filterAgencyCompanies.length === 0 || (!!app.agencyCompanyId && filterAgencyCompanies.includes(app.agencyCompanyId));
       const appStatusNorm = normalizeApplicationStatus(app.status);
       const selectedNorm = filterStatuses.map((s) => normalizeApplicationStatus(s));
       const matchStatus = filterStatuses.length === 0 || selectedNorm.includes(appStatusNorm);
       const matchDegree = filterDegrees.length === 0 || (p?.degree && filterDegrees.includes(p.degree));
       const matchCreated = matchesCreatedAtRange(app.createdAt, filterAppCreatedFrom, filterAppCreatedTo);
-      return matchNumber && matchName && matchAgent && matchResponsible && matchUniversity && matchProgram && matchNationality && matchCurrency && matchStatus && matchDegree && matchCreated;
+      return matchNumber && matchName && matchAgent && matchResponsible && matchUniversity && matchProgram && matchNationality && matchCurrency && matchAgencyCompany && matchStatus && matchDegree && matchCreated;
     });
     return list;
-  }, [applications, students, programs, universities, users, searchApplicationNumber, searchStudentName, filterAgents, filterResponsibles, filterUniversities, filterPrograms, filterNationalities, filterCurrencies, filterStatuses, filterDegrees, filterAppCreatedFrom, filterAppCreatedTo]);
+  }, [applications, students, programs, universities, users, searchApplicationNumber, searchStudentName, filterAgents, filterResponsibles, filterUniversities, filterPrograms, filterNationalities, filterCurrencies, filterAgencyCompanies, filterStatuses, filterDegrees, filterAppCreatedFrom, filterAppCreatedTo]);
 
   const sortedApplications = useMemo(() => {
     const list = [...filteredApplications];
@@ -1064,7 +1108,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   useEffect(() => {
     setTreePage(1);
     setKanbanPage(1);
-  }, [searchApplicationNumber, searchStudentName, filterAgents, filterResponsibles, filterUniversities, filterPrograms, filterNationalities, filterCurrencies, filterStatuses, filterDegrees, filterAppCreatedFrom, filterAppCreatedTo, sortBy, sortDir, listViewMode]);
+  }, [searchApplicationNumber, searchStudentName, filterAgents, filterResponsibles, filterUniversities, filterPrograms, filterNationalities, filterCurrencies, filterAgencyCompanies, filterStatuses, filterDegrees, filterAppCreatedFrom, filterAppCreatedTo, sortBy, sortDir, listViewMode]);
   const applicationColumnOptions = [
     { key: 'number', label: t.number },
     { key: 'status', label: t.applicationStatus },
@@ -1093,6 +1137,106 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     { key: 'description', label: t.internalDescription },
     ...FINANCIAL_TREE_FIELDS.map((field) => ({ key: String(field.key), label: field.label }))
   ];
+
+  const exportSelectedApplicationsToExcel = () => {
+    if (selectedApplicationIds.size === 0) {
+      alert(t.selectRowsToExport);
+      return;
+    }
+    const selectedApps = sortedApplications.filter((app) => selectedApplicationIds.has(app.id));
+    if (selectedApps.length === 0) {
+      alert(t.selectRowsToExport);
+      return;
+    }
+
+    const columnDefs = (showFinancialTree ? financialColumnOptions : applicationColumnOptions).filter((col) => {
+      if (showFinancialTree) {
+        if (!visibleFinancialColumns.includes(col.key)) return false;
+        if (!isAdminOrUser && (col.key === 'agencyCompany' || col.key === 'description')) return false;
+        return true;
+      }
+      if (!visibleTreeColumns.includes(col.key)) return false;
+      if (!canSeeAgentColumn && (col.key === 'agent' || col.key === 'responsible' || col.key === 'agencyCompany' || col.key === 'description')) return false;
+      if (isAgent && col.key === 'updatedAt') return false;
+      return true;
+    });
+
+    const formatDate = (iso?: string) =>
+      iso ? new Date(iso).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' }) : '—';
+
+    const rows = selectedApps.map((app) => {
+      const s = getStudent(app.studentId);
+      const p = getProgram(app.programId);
+      const uni = p ? getUni(p.universityId) : null;
+      const row: Record<string, string | number> = {};
+      columnDefs.forEach((col) => {
+        let value: string | number = '—';
+        switch (col.key) {
+          case 'number':
+            value = app.id;
+            break;
+          case 'status':
+            value = displayStatus(app.status) || app.status || '—';
+            break;
+          case 'agent':
+            value = getAgentName(app);
+            break;
+          case 'responsible':
+            value = getResponsibleLabel(app);
+            break;
+          case 'student':
+            value = s ? `${s.firstName || ''} ${s.lastName || ''}`.trim() || '—' : '—';
+            break;
+          case 'nationality':
+            value = s?.nationality || '—';
+            break;
+          case 'program':
+            value = p?.name || '—';
+            break;
+          case 'university':
+            value = uni?.name || '—';
+            break;
+          case 'degree':
+            value = p?.degree ? translateDegree(p.degree) : '—';
+            break;
+          case 'agencyCompany':
+            value = app.agencyCompanyName || '—';
+            break;
+          case 'description':
+            value = app.internalDescription || '—';
+            break;
+          case 'createdAt':
+            value = formatDate(app.createdAt);
+            break;
+          case 'updatedAt':
+            value = formatDate(app.updatedAt || app.createdAt);
+            break;
+          default:
+            value = formatApplicationFinanceValue(app, col.key as keyof Application);
+            break;
+        }
+        row[col.label] = value;
+      });
+      return row;
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    worksheet['!cols'] = columnDefs.map((col) => ({
+      wch: Math.min(40, Math.max(12, col.label.length + 4))
+    }));
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      workbook,
+      worksheet,
+      showFinancialTree ? 'Finansal agac' : 'Genel agac'
+    );
+    const stamp = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(
+      workbook,
+      `basvurular-${showFinancialTree ? 'finansal' : 'genel'}-${stamp}.xlsx`
+    );
+  };
+
   const storageKey = `tree-columns:applications:${currentUser?.id || 'guest'}`;
   const financialStorageKey = `tree-columns:applications-financial:${currentUser?.id || 'guest'}`;
   const newColumnsMigrationKey = `${storageKey}:degree-nationality-v1`;
@@ -1486,12 +1630,16 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
       if (!newInternalMessage.trim() || !selectedAppId || !currentUser?.id || !isAdminOrUser) return;
       try {
         const messageText = newInternalMessage.trim();
+        const mentionedUserIds = extractMentionIds(messageText, mentionableUsers).filter(id =>
+          mentionableUsers.some(u => u.id === id)
+        );
         const res = await fetch(`/api/applications/${selectedAppId}/internal-messages`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             actorUserId: currentUser.id,
-            message: messageText
+            message: messageText,
+            mentionedUserIds
           })
         });
         const data = await res.json();
@@ -1505,6 +1653,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
             senderName: data.senderName ?? currentUser.name ?? null
           }]);
           setNewInternalMessage('');
+          setMentionOpen(false);
           if (data.updatedAt && onSyncApplicationTimestamps) {
             onSyncApplicationTimestamps({
               applicationId: selectedAppId,
@@ -1518,6 +1667,70 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
         }
       } catch {
         alert(t.errorConnection);
+      }
+    };
+
+    const updateInternalMentionState = (value: string, cursorPos: number) => {
+      const active = getActiveMentionQuery(value, cursorPos);
+      if (active) {
+        setMentionOpen(true);
+        setMentionQuery(active.query);
+        setMentionStart(active.start);
+        setMentionIndex(0);
+      } else {
+        setMentionOpen(false);
+        setMentionQuery('');
+      }
+    };
+
+    const applyInternalMention = (user: User) => {
+      const input = internalInputRef.current;
+      const cursorPos = input?.selectionStart ?? newInternalMessage.length;
+      const { text, cursor } = insertMentionToken(
+        newInternalMessage,
+        cursorPos,
+        mentionStart,
+        user.name || user.email || 'user',
+        user.id
+      );
+      setNewInternalMessage(text);
+      setMentionOpen(false);
+      setMentionQuery('');
+      requestAnimationFrame(() => {
+        const el = internalInputRef.current;
+        if (el) {
+          el.focus();
+          el.setSelectionRange(cursor, cursor);
+        }
+      });
+    };
+
+    const handleInternalInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (mentionOpen && filteredMentionUsers.length > 0) {
+        if (event.key === 'ArrowDown') {
+          event.preventDefault();
+          setMentionIndex(i => (i + 1) % filteredMentionUsers.length);
+          return;
+        }
+        if (event.key === 'ArrowUp') {
+          event.preventDefault();
+          setMentionIndex(i => (i - 1 + filteredMentionUsers.length) % filteredMentionUsers.length);
+          return;
+        }
+        if (event.key === 'Enter' || event.key === 'Tab') {
+          event.preventDefault();
+          applyInternalMention(filteredMentionUsers[mentionIndex] || filteredMentionUsers[0]);
+          return;
+        }
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          setMentionOpen(false);
+          return;
+        }
+      }
+      if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        void sendInternalMessage();
       }
     };
 
@@ -2216,7 +2429,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                                 ? 'bg-amber-600 text-white rounded-br-none'
                                 : 'bg-white text-gray-800 border border-amber-100 rounded-bl-none'
                             }`} dir="auto">
-                              {message.message}
+                              <MentionMessageText text={message.message} own={isOwnMessage} users={responsibleUsers} />
                             </div>
                           </div>
                         </div>
@@ -2225,15 +2438,59 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                   )}
                 </div>
 
-                <div className="p-4 border-t border-amber-100 bg-white">
+                <div className="p-4 border-t border-amber-100 bg-white relative">
+                  {mentionOpen && (
+                    <div className="absolute bottom-full left-4 right-4 mb-1 max-h-48 overflow-y-auto rounded-xl border border-amber-200 bg-white shadow-lg z-20">
+                      <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-700 border-b border-amber-50">
+                        {t.mentionUser}
+                      </div>
+                      {filteredMentionUsers.length === 0 ? (
+                        <div className="px-3 py-2 text-sm text-gray-400">{t.noMentionMatches}</div>
+                      ) : (
+                        filteredMentionUsers.map((user, idx) => (
+                          <button
+                            key={user.id}
+                            type="button"
+                            onMouseDown={(e) => { e.preventDefault(); applyInternalMention(user); }}
+                            className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between gap-2 ${
+                              idx === mentionIndex ? 'bg-amber-50 text-amber-900' : 'hover:bg-gray-50 text-gray-800'
+                            }`}
+                          >
+                            <span className="font-medium truncate">{user.name}</span>
+                            <span className="text-[10px] font-bold uppercase text-gray-400 shrink-0">
+                              {translateRole(user.role || 'USER')}
+                            </span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
                   <div className="flex gap-2 items-center bg-amber-50/60 p-1 rounded-2xl border border-amber-200 focus-within:border-amber-400 focus-within:ring-2 focus-within:ring-amber-100 transition-all">
                     <input
+                      ref={internalInputRef}
                       value={newInternalMessage}
-                      onChange={event => setNewInternalMessage(event.target.value)}
-                      onKeyDown={event => event.key === 'Enter' && !event.shiftKey && (event.preventDefault(), sendInternalMessage())}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setNewInternalMessage(value);
+                        updateInternalMentionState(value, event.target.selectionStart ?? value.length);
+                      }}
+                      onClick={(event) => {
+                        updateInternalMentionState(event.currentTarget.value, event.currentTarget.selectionStart ?? 0);
+                      }}
+                      onKeyUp={(event) => {
+                        if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+                          updateInternalMentionState(event.currentTarget.value, event.currentTarget.selectionStart ?? 0);
+                        }
+                      }}
+                      onKeyDown={handleInternalInputKeyDown}
+                      onBlur={() => {
+                        // Delay so click on suggestion still registers
+                        setTimeout(() => setMentionOpen(false), 150);
+                      }}
                       maxLength={10000}
                       className="flex-1 bg-transparent p-3 outline-none text-sm placeholder:text-gray-400"
                       placeholder={t.typeInternalMessage}
+                      autoComplete="off"
                     />
                     <button
                       type="button"
@@ -2509,10 +2766,10 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                   <Filter size={18} className="text-purple-500" />
                   <span className="text-sm font-medium">{t.filter}</span>
                 </div>
-                {(searchApplicationNumber || searchStudentName || (!isAgent && (filterAgents.length > 0 || filterResponsibles.length > 0 || filterCurrencies.length > 0)) || filterUniversities.length > 0 || filterPrograms.length > 0 || filterNationalities.length > 0 || filterStatuses.length > 0 || filterDegrees.length > 0 || filterAppCreatedFrom || filterAppCreatedTo) && (
+                {(searchApplicationNumber || searchStudentName || (!isAgent && (filterAgents.length > 0 || filterResponsibles.length > 0 || filterCurrencies.length > 0 || filterAgencyCompanies.length > 0)) || filterUniversities.length > 0 || filterPrograms.length > 0 || filterNationalities.length > 0 || filterStatuses.length > 0 || filterDegrees.length > 0 || filterAppCreatedFrom || filterAppCreatedTo) && (
                   <button
                     type="button"
-                    onClick={() => { setSearchApplicationNumber(''); setSearchStudentName(''); setFilterAgents([]); setFilterResponsibles([]); setFilterUniversities([]); setFilterPrograms([]); setFilterNationalities([]); setFilterCurrencies([]); setFilterStatuses([]); setFilterDegrees([]); setFilterAppCreatedFrom(''); setFilterAppCreatedTo(''); }}
+                    onClick={() => { setSearchApplicationNumber(''); setSearchStudentName(''); setFilterAgents([]); setFilterResponsibles([]); setFilterUniversities([]); setFilterPrograms([]); setFilterNationalities([]); setFilterCurrencies([]); setFilterAgencyCompanies([]); setFilterStatuses([]); setFilterDegrees([]); setFilterAppCreatedFrom(''); setFilterAppCreatedTo(''); }}
                     className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors"
                   >
                     <X size={14} />
@@ -2520,7 +2777,25 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                   </button>
                 )}
               </div>
-              <div className="flex rounded-lg border border-gray-200 p-0.5 bg-gray-50">
+              <div className="flex items-center gap-2 flex-wrap">
+                {isAdmin && listViewMode === 'tree' && (
+                  <button
+                    type="button"
+                    onClick={exportSelectedApplicationsToExcel}
+                    disabled={selectedApplicationIds.size === 0}
+                    className="inline-flex items-center gap-2 px-3 py-2 text-sm font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    title={t.exportExcel}
+                  >
+                    <Download size={16} />
+                    <span className="hidden sm:inline">{t.exportExcel}</span>
+                    {selectedApplicationIds.size > 0 && (
+                      <span className="text-xs font-bold bg-white/20 px-2 py-0.5 rounded-full">
+                        {selectedApplicationIds.size}
+                      </span>
+                    )}
+                  </button>
+                )}
+                <div className="flex rounded-lg border border-gray-200 p-0.5 bg-gray-50">
                 <div className="relative mr-2" ref={columnsRef}>
                   <button
                     type="button"
@@ -2572,8 +2847,9 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                   <span className="hidden sm:inline">{t.kanbanView}</span>
                 </button>
               </div>
+              </div>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full">
+            <div className={`grid grid-cols-1 gap-3 w-full ${isAgent ? 'sm:grid-cols-3' : 'sm:grid-cols-4'}`}>
               <input
                 type="text"
                 placeholder={t.applicationNumber}
@@ -2629,6 +2905,16 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                 searchPlaceholder={t.search}
               />
               )}
+              {isAdminOrUser && (
+              <MultiSelectFilter
+                selected={filterAgencyCompanies}
+                onChange={setFilterAgencyCompanies}
+                options={agencyCompanies.map(c => c.id)}
+                optionLabels={Object.fromEntries(agencyCompanies.map(c => [c.id, c.name]))}
+                placeholder={`${t.agencyCompany} (${t.filterAll})`}
+                searchPlaceholder={t.search}
+              />
+              )}
               <MultiSelectFilter
                 selected={filterStatuses}
                 onChange={setFilterStatuses}
@@ -2644,21 +2930,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                 placeholder={`${t.programDegree} (${t.filterAll})`}
                 searchPlaceholder={t.search}
               />
-              {isAgent && (
-                <div className="sm:col-span-2">
-                  <CreatedAtRangeFilter
-                    from={filterAppCreatedFrom}
-                    to={filterAppCreatedTo}
-                    onFromChange={setFilterAppCreatedFrom}
-                    onToChange={setFilterAppCreatedTo}
-                  />
-                </div>
-              )}
-            </div>
-            {!isAgent && (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full mt-3">
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">{t.responsible}</label>
+              {!isAgent && (
                 <MultiSelectFilter
                   selected={filterResponsibles}
                   onChange={setFilterResponsibles}
@@ -2666,7 +2938,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                   placeholder={`${t.responsible} (${t.filterAll})`}
                   searchPlaceholder={t.search}
                 />
-              </div>
+              )}
               <div className="sm:col-span-2">
                 <CreatedAtRangeFilter
                   from={filterAppCreatedFrom}
@@ -2676,7 +2948,6 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                 />
               </div>
             </div>
-            )}
           </div>
 
           {listViewMode === 'tree' && (
