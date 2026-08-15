@@ -22,6 +22,7 @@ import {
   type IncomingPaymentTypeCode
 } from '../constants/incomingPayment';
 import { CreatedAtRangeFilter } from './CreatedAtRangeFilter';
+import { SavedQuickFilters } from './SavedQuickFilters';
 
 type PaymentsMode = 'incoming' | 'outgoing';
 type CurrencyCode = 'USD' | 'TRY' | 'EUR';
@@ -854,6 +855,27 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
       )}
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 space-y-3">
+        <SavedQuickFilters
+          pageKey={mode === 'incoming' ? 'incoming-payments' : 'outgoing-payments'}
+          userId={currentUser?.id}
+          isAdmin={!!isAdmin}
+          getFilters={() => ({ ...filters })}
+          onApply={(f) => {
+            setFilters({
+              dateFrom: typeof f.dateFrom === 'string' ? f.dateFrom : '',
+              dateTo: typeof f.dateTo === 'string' ? f.dateTo : '',
+              currency: typeof f.currency === 'string' ? f.currency : '',
+              paymentSource: typeof f.paymentSource === 'string' ? f.paymentSource : '',
+              paymentType: typeof f.paymentType === 'string' ? f.paymentType : '',
+              paymentReason: typeof f.paymentReason === 'string' ? f.paymentReason : '',
+              expenseType: typeof f.expenseType === 'string' ? f.expenseType : '',
+              commissionShape: typeof f.commissionShape === 'string' ? f.commissionShape : '',
+              descriptionQuery: typeof f.descriptionQuery === 'string' ? f.descriptionQuery : '',
+              amountMin: typeof f.amountMin === 'string' ? f.amountMin : '',
+              amountMax: typeof f.amountMax === 'string' ? f.amountMax : ''
+            });
+          }}
+        />
         <CreatedAtRangeFilter
           from={filters.dateFrom}
           to={filters.dateTo}

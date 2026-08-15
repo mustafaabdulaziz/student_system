@@ -26,6 +26,7 @@ const EMPTY_FORM = {
 
 const EMPTY_COMMISSION_ROW: AgentCommission = {
   universityId: '',
+  degree: '',
   commissionKind: 'rate',
   commissionValue: 0,
   depositSupport: null
@@ -70,7 +71,7 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
   onDeleteUser,
   onSetUserActive
 }) => {
-  const { t, translateRole } = useTranslation();
+  const { t, translateRole, translateDegree } = useTranslation();
   const [formMode, setFormMode] = useState<'add' | 'edit' | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [formData, setFormData] = useState(EMPTY_FORM);
@@ -80,6 +81,36 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
   const [statement, setStatement] = useState<StatementData | null>(null);
   const [statementLoading, setStatementLoading] = useState(false);
 
+  const commissionRowKey = (row: Pick<AgentCommission, 'universityId' | 'degree'>) =>
+    `${row.universityId}::${row.degree || ''}`;
+
+  const hasDuplicateCommission = (rows: AgentCommission[]) => {
+    const seen = new Set<string>();
+    for (const row of rows) {
+      if (!row.universityId) continue;
+      const key = commissionRowKey(row);
+      if (seen.has(key)) return true;
+      seen.add(key);
+    }
+    return false;
+  };
+
+  const updateCommissionRow = (idx: number, patch: Partial<AgentCommission>) => {
+    setAgentCommissions(prev => {
+      const next = prev.map((r, i) => (i === idx ? { ...r, ...patch } : r));
+      const updated = next[idx];
+      if (updated?.universityId) {
+        const key = commissionRowKey(updated);
+        const duplicate = next.some((r, i) => i !== idx && r.universityId && commissionRowKey(r) === key);
+        if (duplicate) {
+          alert(t.agentCommissionDuplicate);
+          return prev;
+        }
+      }
+      return next;
+    });
+  };
+
   if (!currentUser || currentUser.role !== UserRole.ADMIN) {
     return <div className="p-8 text-center text-gray-500">{t.noUsers}</div>;
   }
@@ -87,6 +118,18 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
   const handleAddSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (formData.name && formData.email && formData.password) {
+      if (formData.role === UserRole.AGENT) {
+        const incomplete = agentCommissions.some(r => r.universityId || Number(r.commissionValue))
+          && agentCommissions.some(r => !(r.universityId && Number.isFinite(Number(r.commissionValue))));
+        if (incomplete) {
+          alert('Üniversite komisyon satırlarında üniversite ve tutar/oran zorunludur.');
+          return;
+        }
+        if (hasDuplicateCommission(agentCommissions)) {
+          alert(t.agentCommissionDuplicate);
+          return;
+        }
+      }
       onAddUser({
         id: '',
         name: formData.name,
@@ -114,7 +157,18 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
       phone: user.phone || '',
       countryCode: user.countryCode || ''
     });
-    setAgentCommissions(user.agentCommissions && user.agentCommissions.length > 0 ? user.agentCommissions : []);
+    setAgentCommissions(
+      (user.agentCommissions && user.agentCommissions.length > 0
+        ? user.agentCommissions
+        : []
+      ).map((r) => ({
+        universityId: r.universityId,
+        degree: r.degree || '',
+        commissionKind: r.commissionKind,
+        commissionValue: r.commissionValue,
+        depositSupport: r.depositSupport ?? null
+      }))
+    );
     setFormMode('edit');
     setFormEditable(false);
     setStatement(null);
@@ -126,6 +180,18 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
       if (formData.password && formData.password !== formData.confirmPassword) {
         alert(t.passwordMismatch);
         return;
+      }
+      if (formData.role === UserRole.AGENT) {
+        const incomplete = agentCommissions.some(r => r.universityId || Number(r.commissionValue))
+          && agentCommissions.some(r => !(r.universityId && Number.isFinite(Number(r.commissionValue))));
+        if (incomplete) {
+          alert('Üniversite komisyon satırlarında üniversite ve tutar/oran zorunludur.');
+          return;
+        }
+        if (hasDuplicateCommission(agentCommissions)) {
+          alert(t.agentCommissionDuplicate);
+          return;
+        }
       }
       const payload: User & { password?: string } = {
         ...editingUser,
@@ -356,6 +422,7 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
                     <thead className="bg-gray-50 border-b border-gray-200">
                       <tr>
                         <th className="px-3 py-2 text-left font-semibold text-gray-700">Üniversite</th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-700">Derece</th>
                         <th className="px-3 py-2 text-left font-semibold text-gray-700">Komisyon Tipi</th>
                         <th className="px-3 py-2 text-left font-semibold text-gray-700">Tutar / Oran</th>
                         <th className="px-3 py-2 text-left font-semibold text-gray-700">Depozito Desteği</th>
@@ -364,12 +431,13 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                       {agentCommissions.map((row, idx) => (
-                        <tr key={`${row.universityId}-${idx}`}>
+                        <tr key={`${row.universityId}-${row.degree}-${idx}`}>
                           <td className="px-3 py-2">
                             <select
                               value={row.universityId}
-                              onChange={(e) => setAgentCommissions(prev => prev.map((r, i) => i === idx ? { ...r, universityId: e.target.value } : r))}
+                              onChange={(e) => updateCommissionRow(idx, { universityId: e.target.value })}
                               disabled={!formEditable}
+                              required
                               className="w-full border border-gray-300 rounded-lg p-2 disabled:bg-gray-50 disabled:text-gray-600"
                             >
                               <option value="">Seç</option>
@@ -380,9 +448,24 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
                           </td>
                           <td className="px-3 py-2">
                             <select
-                              value={row.commissionKind}
-                              onChange={(e) => setAgentCommissions(prev => prev.map((r, i) => i === idx ? { ...r, commissionKind: e.target.value as 'rate' | 'amount' } : r))}
+                              value={row.degree || ''}
+                              onChange={(e) => updateCommissionRow(idx, { degree: e.target.value as AgentCommission['degree'] })}
                               disabled={!formEditable}
+                              className="w-full border border-gray-300 rounded-lg p-2 disabled:bg-gray-50 disabled:text-gray-600"
+                            >
+                              <option value="">Tümü / Seçilmedi</option>
+                              <option value="Diploma">{translateDegree('Diploma')}</option>
+                              <option value="Bachelor">{translateDegree('Bachelor')}</option>
+                              <option value="Master">{translateDegree('Master')}</option>
+                              <option value="PhD">{translateDegree('PhD')}</option>
+                            </select>
+                          </td>
+                          <td className="px-3 py-2">
+                            <select
+                              value={row.commissionKind}
+                              onChange={(e) => updateCommissionRow(idx, { commissionKind: e.target.value as 'rate' | 'amount' })}
+                              disabled={!formEditable}
+                              required
                               className="w-full border border-gray-300 rounded-lg p-2 disabled:bg-gray-50 disabled:text-gray-600"
                             >
                               <option value="rate">Oran (%)</option>
@@ -394,7 +477,7 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
                               type="number"
                               step="any"
                               value={row.commissionValue}
-                              onChange={(e) => setAgentCommissions(prev => prev.map((r, i) => i === idx ? { ...r, commissionValue: Number(e.target.value) } : r))}
+                              onChange={(e) => updateCommissionRow(idx, { commissionValue: Number(e.target.value) })}
                               disabled={!formEditable}
                               className="w-full border border-gray-300 rounded-lg p-2 disabled:bg-gray-50 disabled:text-gray-600"
                             />
@@ -405,9 +488,9 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
                               min="0"
                               step="any"
                               value={row.depositSupport ?? ''}
-                              onChange={(e) => setAgentCommissions(prev => prev.map((r, i) => i === idx
-                                ? { ...r, depositSupport: e.target.value === '' ? null : Number(e.target.value) }
-                                : r))}
+                              onChange={(e) => updateCommissionRow(idx, {
+                                depositSupport: e.target.value === '' ? null : Number(e.target.value)
+                              })}
                               disabled={!formEditable}
                               placeholder="Sabit tutar"
                               className="w-full border border-gray-300 rounded-lg p-2 disabled:bg-gray-50 disabled:text-gray-600"

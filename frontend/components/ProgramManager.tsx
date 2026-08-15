@@ -8,6 +8,7 @@ import { Plus, BookOpen, DollarSign, Trash2, Pencil, Search, Filter, X, ChevronD
 import { useTranslation } from '../hooks/useTranslation';
 import { SearchableMultiSelect } from './SearchableMultiSelect';
 import { MassEditModal, type MassEditFieldDef } from './MassEditModal';
+import { SavedQuickFilters } from './SavedQuickFilters';
 
 interface ProgramManagerProps {
   programs: Program[];
@@ -1361,6 +1362,32 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
               <X size={14} />
               {t.clearFilters}
             </button>
+          )}
+          {isAdmin && (
+            <SavedQuickFilters
+              pageKey="programs"
+              userId={currentUser?.id}
+              isAdmin
+              className="ml-1"
+              getFilters={() => ({
+                searchProgramName,
+                filterPeriodIds,
+                filterUniversityIds,
+                filterDegrees,
+                filterLanguages,
+                filterFeeMin,
+                filterFeeMax
+              })}
+              onApply={(f) => {
+                setSearchProgramName(typeof f.searchProgramName === 'string' ? f.searchProgramName : '');
+                setFilterPeriodIds(Array.isArray(f.filterPeriodIds) ? f.filterPeriodIds as string[] : []);
+                setFilterUniversityIds(Array.isArray(f.filterUniversityIds) ? f.filterUniversityIds as string[] : []);
+                setFilterDegrees(Array.isArray(f.filterDegrees) ? f.filterDegrees as string[] : []);
+                setFilterLanguages(Array.isArray(f.filterLanguages) ? f.filterLanguages as string[] : []);
+                setFilterFeeMin(typeof f.filterFeeMin === 'string' ? f.filterFeeMin : '');
+                setFilterFeeMax(typeof f.filterFeeMax === 'string' ? f.filterFeeMax : '');
+              }}
+            />
           )}
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

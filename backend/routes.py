@@ -429,6 +429,8 @@ def _serialize_student(s):
         'dob': s.dob,
         'residenceCountry': s.residence_country,
         'userId': getattr(s, 'user_id', None),
+        'createdBy': getattr(s, 'created_by', None),
+        'createdByName': s.creator.name if getattr(s, 'creator', None) else None,
         'files': [url_for('api.upload_file', filename=f, _external=False) for f in _student_files_raw(s)],
         'createdAt': getattr(s, 'created_at', None),
         'updatedAt': _student_updated_at_for_api(s) or _normalize_ts_z(getattr(s, 'created_at', None))
@@ -515,6 +517,8 @@ def _serialize_application(a, program_by_id, student_by_id=None):
         'agentPhone': a.user.phone if a.user else None,
         'agentName': a.user.name if a.user else None,
         'agentCountryCode': a.user.country_code if a.user else None,
+        'createdBy': getattr(a, 'created_by', None),
+        'createdByName': a.creator.name if getattr(a, 'creator', None) else None,
         'responsibleId': getattr(a, 'responsible_id', None),
         'responsibleName': a.responsible.name if getattr(a, 'responsible', None) and a.responsible else None,
         'agencyCompanyId': getattr(a, 'agency_company_id', None),
@@ -522,12 +526,16 @@ def _serialize_application(a, program_by_id, student_by_id=None):
         'annualPayment': getattr(a, 'annual_payment', None),
         'educationVatRate': getattr(a, 'education_vat_rate', None),
         'educationVat': getattr(a, 'education_vat', None),
+        'grossCommissionKind': getattr(a, 'gross_commission_kind', None) or 'amount',
+        'grossCommissionRate': getattr(a, 'gross_commission_rate', None),
         'grossCommission': getattr(a, 'gross_commission', None),
         'abroadVatRate': getattr(a, 'abroad_vat_rate', 10.0),
         'abroadVat': getattr(a, 'abroad_vat', None),
         'netCommission': getattr(a, 'net_commission', None),
         'bonusMax': getattr(a, 'bonus_max', None),
         'bonusMin': getattr(a, 'bonus_min', None),
+        'agencyCommissionKind': getattr(a, 'agency_commission_kind', None) or 'amount',
+        'agencyCommissionRate': getattr(a, 'agency_commission_rate', None),
         'agencyCommission': getattr(a, 'agency_commission', None),
         'agencyBonus': getattr(a, 'agency_bonus', None),
         'depositSupport': getattr(a, 'deposit_support', None),
@@ -618,15 +626,71 @@ def _next_sequence(model_cls):
     return int(max_value or 0) + 1
 
 
+DEGREE_COMMISSION_DEGREES = frozenset({'Diploma', 'Bachelor', 'Master', 'PhD'})
+
+
+def _normalize_degree_commissions(rows):
+    out = []
+    seen = set()
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        degree = (row.get('degree') or '').strip()
+        commission_kind = (row.get('commissionKind') or '').strip()
+        if degree not in DEGREE_COMMISSION_DEGREES or commission_kind not in ('rate', 'amount'):
+            continue
+        if degree in seen:
+            continue
+        try:
+            commission_value = float(row.get('commissionValue'))
+        except (TypeError, ValueError):
+            continue
+        seen.add(degree)
+        out.append({
+            'degree': degree,
+            'commissionKind': commission_kind,
+            'commissionValue': commission_value
+        })
+    return out
+
+
+def _university_degree_commission(university, degree):
+    if not university or not degree:
+        return None
+    rows = getattr(university, 'degree_commissions', None) or []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if (row.get('degree') or '').strip() != degree:
+            continue
+        kind = (row.get('commissionKind') or '').strip()
+        if kind not in ('rate', 'amount'):
+            continue
+        try:
+            value = float(row.get('commissionValue'))
+        except (TypeError, ValueError):
+            continue
+        return {'kind': kind, 'value': value}
+    return None
+
+
 def _normalize_agent_commissions(rows):
     out = []
+    seen = set()
     for row in rows or []:
         if not isinstance(row, dict):
             continue
         university_id = (row.get('universityId') or '').strip()
         commission_kind = (row.get('commissionKind') or '').strip()
+        degree = (row.get('degree') or '').strip() or None
+        if degree and degree not in DEGREE_COMMISSION_DEGREES:
+            continue
         if commission_kind not in ('rate', 'amount') or not university_id:
             continue
+        key = (university_id, degree or '')
+        if key in seen:
+            continue
+        seen.add(key)
         try:
             commission_value = float(row.get('commissionValue'))
         except (TypeError, ValueError):
@@ -639,11 +703,28 @@ def _normalize_agent_commissions(rows):
                 continue
         out.append({
             'universityId': university_id,
+            'degree': degree,
             'commissionKind': commission_kind,
             'commissionValue': commission_value,
             'depositSupport': deposit_support
         })
     return out
+
+
+def _agent_commissions_have_duplicate(rows):
+    seen = set()
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        university_id = (row.get('universityId') or '').strip()
+        if not university_id:
+            continue
+        degree = (row.get('degree') or '').strip()
+        key = (university_id, degree)
+        if key in seen:
+            return True
+        seen.add(key)
+    return False
 
 
 def _replace_user_agent_commissions(user_id, rows):
@@ -653,32 +734,50 @@ def _replace_user_agent_commissions(user_id, rows):
             id=str(uuid.uuid4()),
             user_id=user_id,
             university_id=row['universityId'],
+            degree=row.get('degree'),
             commission_kind=row['commissionKind'],
             commission_value=row['commissionValue'],
             deposit_support=row.get('depositSupport')
         ))
 
 
-def _agent_commission_for_user_university(user_id, university_id):
+def _agent_commission_for_user_university(user_id, university_id, degree=None):
+    """Match agent commission: exact degree first, then empty/all-degree row. No other fallback."""
     if not user_id or not university_id:
         return None
-    row = UserUniversityCommission.query.filter_by(user_id=user_id, university_id=university_id).first()
-    if not row:
+    rows = UserUniversityCommission.query.filter_by(user_id=user_id, university_id=university_id).all()
+    if not rows:
+        return None
+    matched = None
+    if degree:
+        for row in rows:
+            if (getattr(row, 'degree', None) or '') == degree:
+                matched = row
+                break
+    if matched is None:
+        for row in rows:
+            if not getattr(row, 'degree', None):
+                matched = row
+                break
+    if matched is None:
         return None
     return {
-        'kind': row.commission_kind,
-        'value': float(row.commission_value),
-        'depositSupport': float(row.deposit_support) if row.deposit_support is not None else None
+        'kind': matched.commission_kind,
+        'value': float(matched.commission_value),
+        'depositSupport': float(matched.deposit_support) if matched.deposit_support is not None else None
     }
 
 
 def _compute_application_finance(
     application,
     prefer_user_agency_commission=False,
-    prefer_user_deposit_support=False
+    prefer_user_deposit_support=False,
+    preserve_gross_commission=False,
+    preserve_agency_commission=False
 ):
     program = Program.query.get(application.program_id) if application.program_id else None
     university = University.query.get(program.university_id) if program and program.university_id else None
+    program_degree = getattr(program, 'degree', None) if program else None
 
     # Defaults from program/university
     if application.annual_payment is None and program:
@@ -705,16 +804,45 @@ def _compute_application_finance(
     application.education_vat = (annual * edu_rate / 100.0) if (annual is not None and edu_rate is not None) else None
     edu_amount = float(application.education_vat) if application.education_vat is not None else 0.0
 
-    # brüt komisyon: üniversiteye göre
-    gross = None
-    if university:
-        ck = getattr(university, 'commission_kind', None)
-        cv = getattr(university, 'commission_value', None)
-        if ck == 'rate' and cv is not None and annual is not None:
-            gross = (annual - edu_amount) * float(cv) / 100.0
-        elif ck == 'amount' and cv is not None:
-            gross = float(cv)
-    application.gross_commission = gross
+    # --- Brüt komisyon ---
+    # Kaynak: üniversite derece komisyonu → yoksa üniversite genel komisyonu
+    if not preserve_gross_commission:
+        degree_cfg = _university_degree_commission(university, program_degree) if university else None
+        if degree_cfg:
+            ck, cv = degree_cfg['kind'], degree_cfg['value']
+        elif university:
+            ck = getattr(university, 'commission_kind', None)
+            cv = getattr(university, 'commission_value', None)
+        else:
+            ck, cv = None, None
+
+        if ck in ('rate', 'amount') and cv is not None:
+            application.gross_commission_kind = ck
+            if ck == 'rate':
+                application.gross_commission_rate = float(cv)
+                application.gross_commission = (
+                    (annual - edu_amount) * float(cv) / 100.0
+                    if annual is not None
+                    else None
+                )
+            else:
+                application.gross_commission_rate = None
+                application.gross_commission = float(cv)
+        else:
+            if not getattr(application, 'gross_commission_kind', None):
+                application.gross_commission_kind = 'amount'
+            if application.gross_commission_kind != 'rate':
+                application.gross_commission_rate = None
+
+    gross_kind = getattr(application, 'gross_commission_kind', None) or 'amount'
+    gross_rate = getattr(application, 'gross_commission_rate', None)
+    if gross_kind == 'rate':
+        application.gross_commission = (
+            (annual - edu_amount) * float(gross_rate) / 100.0
+            if gross_rate is not None and annual is not None
+            else None
+        )
+    gross = float(application.gross_commission) if application.gross_commission is not None else None
 
     # yurtdışı kdv oranı default %10
     if application.abroad_vat_rate is None:
@@ -731,26 +859,47 @@ def _compute_application_finance(
 
     net = float(application.net_commission) if application.net_commission is not None else None
 
-    should_default_agency_commission = (
-        prefer_user_agency_commission or application.agency_commission is None
+    # --- Acente komisyon ---
+    # Kaynak: agent üniversite+derece → agent üniversite+tümü → sabit tutar 0
+    agent_cfg = _agent_commission_for_user_university(
+        application.user_id,
+        program.university_id if program else None,
+        program_degree
     )
-    agent_cfg = None
-    if should_default_agency_commission or prefer_user_deposit_support:
-        agent_cfg = _agent_commission_for_user_university(
-            application.user_id,
-            program.university_id if program else None
+
+    should_seed_agency = (
+        (not preserve_agency_commission)
+        and (prefer_user_agency_commission or application.agency_commission is None)
+    )
+    if should_seed_agency:
+        if agent_cfg and agent_cfg.get('kind') in ('rate', 'amount') and agent_cfg.get('value') is not None:
+            application.agency_commission_kind = agent_cfg['kind']
+            if agent_cfg['kind'] == 'rate':
+                application.agency_commission_rate = float(agent_cfg['value'])
+                application.agency_commission = (
+                    net * float(agent_cfg['value']) / 100.0
+                    if net is not None
+                    else None
+                )
+            else:
+                application.agency_commission_rate = None
+                application.agency_commission = float(agent_cfg['value'])
+        else:
+            application.agency_commission_kind = 'amount'
+            application.agency_commission_rate = None
+            application.agency_commission = 0.0
+
+    agency_kind = getattr(application, 'agency_commission_kind', None) or 'amount'
+    agency_rate = getattr(application, 'agency_commission_rate', None)
+    if agency_kind == 'rate':
+        application.agency_commission = (
+            net * float(agency_rate) / 100.0
+            if agency_rate is not None and net is not None
+            else None
         )
 
-    # acente komisyonu: kullanıcı/universite eşleşmesine göre default
-    if should_default_agency_commission:
-        if agent_cfg and net is not None:
-            if agent_cfg['kind'] == 'rate':
-                application.agency_commission = net * float(agent_cfg['value']) / 100.0
-            elif agent_cfg['kind'] == 'amount':
-                application.agency_commission = float(agent_cfg['value'])
-
     # depozito desteği: kullanıcı/universite eşleşmesindeki sabit tutar
-    if prefer_user_deposit_support and agent_cfg and agent_cfg['depositSupport'] is not None:
+    if prefer_user_deposit_support and agent_cfg and agent_cfg.get('depositSupport') is not None:
         application.deposit_support = agent_cfg['depositSupport']
 
     agency_bonus = float(application.agency_bonus) if application.agency_bonus is not None else 0.0
@@ -792,7 +941,11 @@ def add_user():
     db.session.add(user)
     db.session.flush()
     if (user.role or '').lower() == 'agent':
-        _replace_user_agent_commissions(user.id, _normalize_agent_commissions(data.get('agentCommissions')))
+        raw_commissions = data.get('agentCommissions')
+        if _agent_commissions_have_duplicate(raw_commissions):
+            db.session.rollback()
+            return jsonify({'message': 'Aynı üniversite ve derece için iki satır eklenemez'}), 400
+        _replace_user_agent_commissions(user.id, _normalize_agent_commissions(raw_commissions))
     db.session.commit()
     return jsonify({'message': 'تمت إضافة المستخدم', 'id': user.id}), 201
 
@@ -849,6 +1002,7 @@ def get_users():
     for r in UserUniversityCommission.query.all():
         commissions_by_user.setdefault(r.user_id, []).append({
             'universityId': r.university_id,
+            'degree': getattr(r, 'degree', None),
             'commissionKind': r.commission_kind,
             'commissionValue': r.commission_value,
             'depositSupport': r.deposit_support
@@ -951,7 +1105,10 @@ def update_user(user_id):
     if 'active' in data:
         user.is_active = bool(data['active'])
     if 'agentCommissions' in data or (user.role or '').lower() == 'agent':
-        rows = _normalize_agent_commissions(data.get('agentCommissions'))
+        raw_commissions = data.get('agentCommissions')
+        if (user.role or '').lower() == 'agent' and _agent_commissions_have_duplicate(raw_commissions):
+            return jsonify({'message': 'Aynı üniversite ve derece için iki satır eklenemez'}), 400
+        rows = _normalize_agent_commissions(raw_commissions)
         _replace_user_agent_commissions(user.id, rows if (user.role or '').lower() == 'agent' else [])
     db.session.commit()
     return jsonify({'message': 'تم تحديث المستخدم', 'id': user.id}), 200
@@ -1110,6 +1267,8 @@ def add_student():
     data = request.json or {}
     user_role = data.get('role')
     user_id = data.get('user_id')
+    actor_user_id = (data.get('actorUserId') or '').strip() or None
+    created_by = actor_user_id or user_id
     if user_role == 'agent' and not user_id:
         return jsonify({'message': 'Agent user_id required'}), 400
     passport_number = str(data.get('passportNumber') or '').strip()
@@ -1136,6 +1295,7 @@ def add_student():
         dob=data['dob'],
         residence_country=data.get('residenceCountry') or '',
         user_id=user_id,
+        created_by=created_by,
         created_at=created_at,
         updated_at=created_at
     )
@@ -1164,8 +1324,16 @@ def add_student():
                 )
                 db.session.add(n)
             db.session.commit()
-    print(f"Created student {student.id} user_id={user_id}")
-    return jsonify({'message': 'Student added', 'id': student.id, 'createdAt': created_at, 'updatedAt': created_at}), 201
+    print(f"Created student {student.id} user_id={user_id} created_by={created_by}")
+    creator = User.query.get(created_by) if created_by else None
+    return jsonify({
+        'message': 'Student added',
+        'id': student.id,
+        'createdAt': created_at,
+        'updatedAt': created_at,
+        'createdBy': created_by,
+        'createdByName': creator.name if creator else None
+    }), 201
 
 
 @api_bp.route('/students/<student_id>', methods=['PUT'])
@@ -1250,7 +1418,8 @@ def get_universities():
         'commissionKind': getattr(u, 'commission_kind', None),
         'commissionValue': getattr(u, 'commission_value', None),
         'bonusMax': getattr(u, 'bonus_max', None),
-        'bonusMin': getattr(u, 'bonus_min', None)
+        'bonusMin': getattr(u, 'bonus_min', None),
+        'degreeCommissions': getattr(u, 'degree_commissions', None) or []
     } for u in universities])
 
 @api_bp.route('/universities', methods=['POST'])
@@ -1307,6 +1476,10 @@ def add_university():
     else:
         bmin = None
 
+    degree_commissions = None
+    if 'degreeCommissions' in data:
+        degree_commissions = _normalize_degree_commissions(data.get('degreeCommissions'))
+
     university = University(
         id=str(uuid.uuid4()),
         name=data['name'],
@@ -1320,7 +1493,8 @@ def add_university():
         commission_kind=ck,
         commission_value=cv,
         bonus_max=bmax,
-        bonus_min=bmin
+        bonus_min=bmin,
+        degree_commissions=degree_commissions
     )
     db.session.add(university)
     db.session.commit()
@@ -1530,6 +1704,8 @@ def update_university(uni_id):
                 university.bonus_min = float(bmin)
             except (TypeError, ValueError):
                 return jsonify({'message': 'bonusMin must be a number'}), 400
+    if 'degreeCommissions' in data:
+        university.degree_commissions = _normalize_degree_commissions(data.get('degreeCommissions'))
     db.session.commit()
     return jsonify({'message': 'تم تحديث الجامعة', 'id': university.id}), 200
 
@@ -1762,6 +1938,8 @@ def add_application():
     semester = request.form.get('semester')
     user_role = request.form.get('role')
     user_id = request.form.get('user_id')
+    actor_user_id = (request.form.get('actorUserId') or '').strip() or None
+    created_by = actor_user_id or user_id
     responsible_id = request.form.get('responsible_id') or None
     agency_company_id = request.form.get('agency_company_id') or None
     period_error = _validate_application_period_and_program(period_id, program_id)
@@ -1782,6 +1960,7 @@ def add_application():
         updated_at=created_at,
         files=[],
         user_id=user_id,
+        created_by=created_by,
         responsible_id=responsible_id,
         agency_company_id=agency_company_id
     )
@@ -1856,6 +2035,7 @@ def add_application_v2():
     status = request.form.get('status')
     semester = request.form.get('semester')
     agency_company_id = request.form.get('agency_company_id') or None
+    actor_user_id = (request.form.get('actorUserId') or request.form.get('user_id') or '').strip() or None
     period_error = _validate_application_period_and_program(period_id, program_id)
     if period_error:
         return period_error
@@ -1871,6 +2051,7 @@ def add_application_v2():
         status=status,
         semester=semester,
         agency_company_id=agency_company_id,
+        created_by=actor_user_id,
         created_at=created_at,
         updated_at=created_at,
         files=[]
@@ -2465,13 +2646,25 @@ def update_application(app_id):
         if len(description) > 10000:
             return jsonify({'message': 'Internal description cannot exceed 10000 characters'}), 400
         application.internal_description = description or None
+    commission_kind_map = {
+        'grossCommissionKind': 'gross_commission_kind',
+        'agencyCommissionKind': 'agency_commission_kind'
+    }
+    for api_key, db_attr in commission_kind_map.items():
+        if api_key in data:
+            kind = (data.get(api_key) or 'amount').strip().lower()
+            if kind not in ('amount', 'rate'):
+                return jsonify({'message': f'{api_key} must be amount or rate'}), 400
+            setattr(application, db_attr, kind)
     numeric_map = {
         'annualPayment': 'annual_payment',
         'educationVatRate': 'education_vat_rate',
+        'grossCommissionRate': 'gross_commission_rate',
         'grossCommission': 'gross_commission',
         'abroadVatRate': 'abroad_vat_rate',
         'bonusMax': 'bonus_max',
         'bonusMin': 'bonus_min',
+        'agencyCommissionRate': 'agency_commission_rate',
         'agencyCommission': 'agency_commission',
         'agencyBonus': 'agency_bonus',
         'depositSupport': 'deposit_support',
@@ -2485,7 +2678,21 @@ def update_application(app_id):
             setattr(application, db_attr, value if value not in (None, '') else None)
     _compute_application_finance(
         application,
-        prefer_user_agency_commission=('agencyCommission' not in data)
+        prefer_user_agency_commission=(
+            'agencyCommission' not in data
+            and 'agencyCommissionKind' not in data
+            and 'agencyCommissionRate' not in data
+        ),
+        preserve_gross_commission=(
+            'grossCommission' in data
+            or 'grossCommissionKind' in data
+            or 'grossCommissionRate' in data
+        ),
+        preserve_agency_commission=(
+            'agencyCommission' in data
+            or 'agencyCommissionKind' in data
+            or 'agencyCommissionRate' in data
+        )
     )
 
     if 'currency' in data:
@@ -2512,12 +2719,16 @@ def update_application(app_id):
         'annualPayment': application.annual_payment,
         'educationVatRate': application.education_vat_rate,
         'educationVat': application.education_vat,
+        'grossCommissionKind': application.gross_commission_kind or 'amount',
+        'grossCommissionRate': application.gross_commission_rate,
         'grossCommission': application.gross_commission,
         'abroadVatRate': application.abroad_vat_rate if application.abroad_vat_rate is not None else 10.0,
         'abroadVat': application.abroad_vat,
         'netCommission': application.net_commission,
         'bonusMax': application.bonus_max,
         'bonusMin': application.bonus_min,
+        'agencyCommissionKind': application.agency_commission_kind or 'amount',
+        'agencyCommissionRate': application.agency_commission_rate,
         'agencyCommission': application.agency_commission,
         'agencyBonus': application.agency_bonus,
         'depositSupport': application.deposit_support,

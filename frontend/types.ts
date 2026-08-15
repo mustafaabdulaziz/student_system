@@ -18,10 +18,17 @@ export interface User {
 
 export interface AgentCommission {
   universityId: string;
+  degree?: 'Diploma' | 'Bachelor' | 'Master' | 'PhD' | '';
   commissionKind: 'rate' | 'amount';
   commissionValue: number;
   depositSupport?: number | null;
 }
+
+export type UniversityDegreeCommission = {
+  degree: 'Diploma' | 'Bachelor' | 'Master' | 'PhD';
+  commissionKind: 'rate' | 'amount';
+  commissionValue: number;
+};
 
 export interface University {
   id: string;
@@ -38,9 +45,10 @@ export interface University {
   /** Admin-only: commission as fixed amount or rate */
   commissionKind?: 'amount' | 'rate' | null;
   commissionValue?: number | null;
-  /** Admin-only: default bonus max/min for new applications */
   bonusMax?: number | null;
   bonusMin?: number | null;
+  /** Admin-only: per-degree commission rows */
+  degreeCommissions?: UniversityDegreeCommission[];
 }
 
 export interface Program {
@@ -80,6 +88,8 @@ export interface Student {
   dob: string;
   residenceCountry: string;
   userId?: string; // Agent who owns this student (for ADMIN/USER display)
+  createdBy?: string;
+  createdByName?: string | null;
   files?: string[];
   createdAt?: string;
   updatedAt?: string;
@@ -123,6 +133,8 @@ export interface Application {
   agentPhone?: string;
   agentName?: string;
   agentCountryCode?: string;
+  createdBy?: string;
+  createdByName?: string | null;
   responsibleId?: string;
   responsibleName?: string;
   agencyCompanyId?: string;
@@ -131,11 +143,15 @@ export interface Application {
   educationVatRate?: number;
   educationVat?: number;
   abroadVatRate?: number;
+  grossCommissionKind?: 'amount' | 'rate';
+  grossCommissionRate?: number;
   grossCommission?: number;
   abroadVat?: number;
   netCommission?: number;
   bonusMax?: number;
   bonusMin?: number;
+  agencyCommissionKind?: 'amount' | 'rate';
+  agencyCommissionRate?: number;
   agencyCommission?: number;
   agencyBonus?: number;
   depositSupport?: number;
@@ -202,4 +218,5 @@ export interface ApplicationListFilters {
   agents?: string[];
   currencies?: string[];
   agencyCompanyIds?: string[];
+  periodIds?: string[];
 }

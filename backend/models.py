@@ -28,6 +28,8 @@ class Student(db.Model):
     dob = db.Column(db.String, nullable=False)
     residence_country = db.Column(db.String, nullable=False)
     user_id = db.Column(db.String, db.ForeignKey('users.id'), nullable=True)  # Added to link student to agent
+    created_by = db.Column(db.String, db.ForeignKey('users.id'), nullable=True)  # user who created the record
+    creator = db.relationship('User', foreign_keys=[created_by])
     files = db.Column(db.ARRAY(db.String))
     file_metadata = db.Column(db.JSON, nullable=True)
     created_at = db.Column(db.String, nullable=True)
@@ -49,6 +51,8 @@ class University(db.Model):
     commission_value = db.Column(db.Float, nullable=True)
     bonus_max = db.Column(db.Float, nullable=True)
     bonus_min = db.Column(db.Float, nullable=True)
+    # Per-degree commission rows: [{degree, commissionKind, commissionValue}]
+    degree_commissions = db.Column(db.JSON, nullable=True)
 
 class Program(db.Model):
     __tablename__ = 'programs'
@@ -89,6 +93,7 @@ class UserUniversityCommission(db.Model):
     id = db.Column(db.String, primary_key=True)
     user_id = db.Column(db.String, db.ForeignKey('users.id'), nullable=False)
     university_id = db.Column(db.String, db.ForeignKey('universities.id'), nullable=False)
+    degree = db.Column(db.String, nullable=True)  # Diploma | Bachelor | Master | PhD
     commission_kind = db.Column(db.String, nullable=False)  # 'rate' | 'amount'
     commission_value = db.Column(db.Float, nullable=False)
     deposit_support = db.Column(db.Float, nullable=True)
@@ -107,6 +112,8 @@ class Application(db.Model):
     files = db.Column(db.ARRAY(db.String))
     user_id = db.Column(db.String, db.ForeignKey('users.id'), nullable=True)  # Agent
     user = db.relationship('User', backref='applications', foreign_keys=[user_id])
+    created_by = db.Column(db.String, db.ForeignKey('users.id'), nullable=True)  # user who created the record
+    creator = db.relationship('User', foreign_keys=[created_by])
     responsible_id = db.Column(db.String, db.ForeignKey('users.id'), nullable=True)  # Admin or User responsible
     responsible = db.relationship('User', foreign_keys=[responsible_id])
     agency_company_id = db.Column(db.String, db.ForeignKey('agency_companies.id'), nullable=True)
@@ -115,11 +122,15 @@ class Application(db.Model):
     education_vat_rate = db.Column(db.Float, nullable=True)
     education_vat = db.Column(db.Float, nullable=True)
     abroad_vat_rate = db.Column(db.Float, nullable=True, default=10.0)
+    gross_commission_kind = db.Column(db.String, nullable=False, default='amount')
+    gross_commission_rate = db.Column(db.Float, nullable=True)
     gross_commission = db.Column(db.Float, nullable=True)
     abroad_vat = db.Column(db.Float, nullable=True)
     net_commission = db.Column(db.Float, nullable=True)
     bonus_max = db.Column(db.Float, nullable=True)
     bonus_min = db.Column(db.Float, nullable=True)
+    agency_commission_kind = db.Column(db.String, nullable=False, default='amount')
+    agency_commission_rate = db.Column(db.Float, nullable=True)
     agency_commission = db.Column(db.Float, nullable=True)
     agency_bonus = db.Column(db.Float, nullable=True)
     deposit_support = db.Column(db.Float, nullable=True)

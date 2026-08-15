@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { University, Program, User, UserRole } from '../types';
+import { University, Program, User, UserRole, UniversityDegreeCommission } from '../types';
 import {
   Plus, Globe, Sparkles, X, Image, Pencil, Trash2,
   BookOpen, Clock, DollarSign, Calendar, ChevronLeft,
@@ -8,6 +8,21 @@ import {
 import { generateUniversityDescription } from '../services/geminiService';
 import { useTranslation } from '../hooks/useTranslation';
 import * as XLSX from 'xlsx';
+import { SavedQuickFilters } from './SavedQuickFilters';
+
+const DEGREE_COMMISSION_OPTIONS = ['Diploma', 'Bachelor', 'Master', 'PhD'] as const;
+
+type DegreeCommissionFormRow = {
+  degree: '' | typeof DEGREE_COMMISSION_OPTIONS[number];
+  commissionKind: '' | 'rate' | 'amount';
+  commissionValue: string;
+};
+
+const EMPTY_DEGREE_COMMISSION_ROW: DegreeCommissionFormRow = {
+  degree: '',
+  commissionKind: '',
+  commissionValue: ''
+};
 
 interface UniversityManagerProps {
   universities: University[];
@@ -121,6 +136,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
         commissionValue: fresh.commissionValue ?? prev.commissionValue,
         bonusMax: fresh.bonusMax ?? prev.bonusMax,
         bonusMin: fresh.bonusMin ?? prev.bonusMin,
+        degreeCommissions: fresh.degreeCommissions ?? prev.degreeCommissions,
       };
     });
   }, [universities, detailUni?.id]);
@@ -132,6 +148,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
 
   /* -------- Form State -------- */
   const [formData, setFormData] = useState<Partial<University>>(EMPTY_FORM);
+  const [degreeCommissionRows, setDegreeCommissionRows] = useState<DegreeCommissionFormRow[]>([]);
   const [loadingAi, setLoadingAi] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
@@ -160,6 +177,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
   const openAdd = () => {
     setDetailUni(null);
     setFormData(EMPTY_FORM); setLogoPreview(null); setLogoBase64(null);
+    setDegreeCommissionRows([]);
     setEditingId(null); setModalMode('add');
   };
   const openEdit = (uni: University, e: React.MouseEvent) => {
@@ -179,13 +197,49 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
       bonusMaxInput?: string;
       bonusMinInput?: string;
     });
+    setDegreeCommissionRows(
+      (uni.degreeCommissions || []).map((row) => ({
+        degree: row.degree,
+        commissionKind: row.commissionKind,
+        commissionValue: String(row.commissionValue)
+      }))
+    );
     setLogoPreview(uni.logo || null); setLogoBase64(uni.logo || null);
     setEditingId(uni.id); setModalMode('edit');
   };
   const closeModal = () => {
     setModalMode(null); setEditingId(null); setFormData(EMPTY_FORM);
+    setDegreeCommissionRows([]);
     setLogoPreview(null); setLogoBase64(null);
     if (logoInputRef.current) logoInputRef.current.value = '';
+  };
+
+  const parseDegreeCommissions = (): UniversityDegreeCommission[] | null => {
+    const out: UniversityDegreeCommission[] = [];
+    const seen = new Set<string>();
+    for (const row of degreeCommissionRows) {
+      const degree = row.degree;
+      const kind = row.commissionKind;
+      const raw = row.commissionValue.trim();
+      const empty = !degree && !kind && raw === '';
+      if (empty) continue;
+      if (!degree || !kind || raw === '') {
+        alert('Derece komisyon satırlarında derece, komisyon türü ve tutar/oran zorunludur.');
+        return null;
+      }
+      const value = Number(raw);
+      if (!Number.isFinite(value)) {
+        alert('Derece komisyon tutar/oran değeri geçerli bir sayı olmalıdır.');
+        return null;
+      }
+      if (seen.has(degree)) {
+        alert('Aynı derece için birden fazla komisyon satırı eklenemez.');
+        return null;
+      }
+      seen.add(degree);
+      out.push({ degree, commissionKind: kind, commissionValue: value });
+    }
+    return out;
   };
 
   /* -------- AI description -------- */
@@ -276,6 +330,8 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
         return;
       }
     }
+    const degreeCommissions = isAdmin ? parseDegreeCommissions() : [];
+    if (isAdmin && degreeCommissions === null) return;
     const uniData: University = {
       id: editingId || Date.now().toString(),
       name: formData.name, website: formData.website,
@@ -283,7 +339,8 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
       city: formData.city || '',
       description: formData.description,
       logo: logoBase64 || undefined,
-      ...(isAdmin ? adminFin : {})
+      ...(isAdmin ? adminFin : {}),
+      ...(isAdmin ? { degreeCommissions: degreeCommissions || [] } : {})
     };
     if (modalMode === 'edit') {
       const saved = await Promise.resolve(onEditUniversity(uniData));
@@ -638,6 +695,33 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                       <dd className="text-gray-900 font-medium">{detailUni.bonusMin != null ? String(detailUni.bonusMin) : '—'}</dd>
                     </div>
                   </dl>
+                  {(detailUni.degreeCommissions || []).length > 0 && (
+                    <div className="mt-4">
+                      <h4 className="text-xs font-semibold text-amber-900/80 uppercase tracking-wide mb-2">Derece komisyon oranları</h4>
+                      <div className="overflow-x-auto rounded-xl border border-amber-100 bg-white">
+                        <table className="w-full text-sm">
+                          <thead className="bg-amber-50/80">
+                            <tr>
+                              <th className="px-3 py-2 text-left font-semibold text-gray-700">Derece</th>
+                              <th className="px-3 py-2 text-left font-semibold text-gray-700">Komisyon türü</th>
+                              <th className="px-3 py-2 text-left font-semibold text-gray-700">Tutar / Oran</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100">
+                            {(detailUni.degreeCommissions || []).map((row) => (
+                              <tr key={`${row.degree}-${row.commissionKind}`}>
+                                <td className="px-3 py-2">{translateDegree(row.degree)}</td>
+                                <td className="px-3 py-2">{row.commissionKind === 'rate' ? 'Oran' : 'Sabit tutar'}</td>
+                                <td className="px-3 py-2">
+                                  {row.commissionKind === 'rate' ? `${row.commissionValue}%` : row.commissionValue}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
                 </section>
               )}
             </div>
@@ -811,6 +895,80 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                       />
                     </div>
                   </div>
+                  <div className="border-t border-amber-200 pt-4 space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <h4 className="text-sm font-bold text-amber-900">Derece komisyon oranları</h4>
+                        <p className="text-xs text-amber-800/80">Her satırda derece, komisyon türü ve tutar/oran zorunludur.</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setDegreeCommissionRows(prev => [...prev, { ...EMPTY_DEGREE_COMMISSION_ROW }])}
+                        className="inline-flex items-center gap-1 text-sm px-3 py-1.5 rounded-lg bg-amber-100 text-amber-900 hover:bg-amber-200"
+                      >
+                        <Plus size={14} />
+                        Satır Ekle
+                      </button>
+                    </div>
+                    {degreeCommissionRows.length === 0 ? (
+                      <p className="text-xs text-gray-500">Henüz derece komisyon satırı yok.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {degreeCommissionRows.map((row, idx) => (
+                          <div key={idx} className="grid grid-cols-1 sm:grid-cols-[1.2fr_1.2fr_1fr_auto] gap-2 items-end bg-white/80 rounded-xl p-2 border border-amber-100">
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">Derece *</label>
+                              <select
+                                required
+                                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+                                value={row.degree}
+                                onChange={(e) => setDegreeCommissionRows(prev => prev.map((r, i) => i === idx ? { ...r, degree: e.target.value as DegreeCommissionFormRow['degree'] } : r))}
+                              >
+                                <option value="">Seçiniz</option>
+                                {DEGREE_COMMISSION_OPTIONS.map((degree) => (
+                                  <option key={degree} value={degree}>{translateDegree(degree)}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">Komisyon türü *</label>
+                              <select
+                                required
+                                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+                                value={row.commissionKind}
+                                onChange={(e) => setDegreeCommissionRows(prev => prev.map((r, i) => i === idx ? { ...r, commissionKind: e.target.value as DegreeCommissionFormRow['commissionKind'] } : r))}
+                              >
+                                <option value="">Seçiniz</option>
+                                <option value="rate">Oran</option>
+                                <option value="amount">Sabit tutar</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">
+                                {row.commissionKind === 'rate' ? 'Oran (%) *' : row.commissionKind === 'amount' ? 'Tutar *' : 'Tutar / oran *'}
+                              </label>
+                              <input
+                                required
+                                type="number"
+                                step="any"
+                                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+                                value={row.commissionValue}
+                                onChange={(e) => setDegreeCommissionRows(prev => prev.map((r, i) => i === idx ? { ...r, commissionValue: e.target.value } : r))}
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setDegreeCommissionRows(prev => prev.filter((_, i) => i !== idx))}
+                              className="p-2 rounded-lg bg-red-50 text-red-600 hover:bg-red-100"
+                              title={t.delete}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -828,6 +986,17 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
           <p className="text-gray-500">{t.universities}</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
+          {isAdmin && (
+            <SavedQuickFilters
+              pageKey="universities"
+              userId={currentUser?.id}
+              isAdmin
+              getFilters={() => ({ searchQuery })}
+              onApply={(f) => {
+                setSearchQuery(typeof f.searchQuery === 'string' ? f.searchQuery : '');
+              }}
+            />
+          )}
           {/* Search + View toggle */}
           <div className="flex items-center gap-2 flex-1 min-w-[200px] max-w-md">
             <div className="relative flex-1">

@@ -348,26 +348,41 @@ export default function App() {
   const addStudent = async (stud: Student) => {
     try {
       const userIdToSend = stud.userId ?? state.currentUser?.id ?? '';
+      const actorUserId = state.currentUser?.id ?? '';
       const res = await fetch('/api/students', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...stud,
           role: state.currentUser?.role,
-          user_id: userIdToSend
+          user_id: userIdToSend,
+          actorUserId
         })
       });
-      let data: { id?: string; createdAt?: string; updatedAt?: string; message?: string; code?: string } = {};
+      let data: {
+        id?: string;
+        createdAt?: string;
+        updatedAt?: string;
+        createdBy?: string;
+        createdByName?: string | null;
+        message?: string;
+        code?: string;
+      } = {};
       try {
         data = await res.json();
       } catch {
         // non-JSON error body
       }
       if (res.ok) {
+        const creator = data.createdBy
+          ? state.users.find(u => u.id === data.createdBy)
+          : (actorUserId ? state.users.find(u => u.id === actorUserId) : undefined);
         const newStudent = {
           ...stud,
           id: data.id,
           userId: userIdToSend || undefined,
+          createdBy: data.createdBy || actorUserId || undefined,
+          createdByName: data.createdByName ?? creator?.name ?? undefined,
           ...(data.createdAt && { createdAt: data.createdAt }),
           ...(data.updatedAt && { updatedAt: data.updatedAt })
         };
@@ -543,6 +558,7 @@ export default function App() {
     if (app.responsibleId) formData.append('responsible_id', app.responsibleId);
     if (app.agencyCompanyId) formData.append('agency_company_id', app.agencyCompanyId);
     if (state.currentUser) formData.append('role', state.currentUser.role);
+    if (state.currentUser?.id) formData.append('actorUserId', state.currentUser.id);
     try {
       const res = await fetch('/api/applications', {
         method: 'POST',
@@ -556,6 +572,8 @@ export default function App() {
         const responsibleUser = app.responsibleId ? state.users.find(u => u.id === app.responsibleId) : null;
         const agencyCompany = app.agencyCompanyId ? state.agencyCompanies.find(c => c.id === app.agencyCompanyId) : null;
         const fromApi = data.application || {};
+        const creatorId = fromApi.createdBy || state.currentUser?.id;
+        const creatorUser = creatorId ? state.users.find(u => u.id === creatorId) : undefined;
         const newApp = {
           ...app,
           ...fromApi,
@@ -563,6 +581,8 @@ export default function App() {
           files: savedFiles,
           createdAt: data.createdAt != null ? data.createdAt : app.createdAt,
           updatedAt: data.updatedAt != null ? data.updatedAt : (data.createdAt != null ? data.createdAt : app.createdAt),
+          createdBy: creatorId,
+          createdByName: fromApi.createdByName ?? creatorUser?.name ?? undefined,
           ...(agentId && { userId: agentId }),
           ...(agentUser && {
             agentName: agentUser.name,
@@ -638,9 +658,13 @@ export default function App() {
     annualPayment?: number | null;
     educationVatRate?: number | null;
     abroadVatRate?: number | null;
+    grossCommissionKind?: 'amount' | 'rate';
+    grossCommissionRate?: number | null;
     grossCommission?: number | null;
     bonusMax?: number | null;
     bonusMin?: number | null;
+    agencyCommissionKind?: 'amount' | 'rate';
+    agencyCommissionRate?: number | null;
     agencyCommission?: number | null;
     agencyBonus?: number | null;
     depositSupport?: number | null;
@@ -683,9 +707,13 @@ export default function App() {
             ...(payload.annualPayment !== undefined && { annualPayment: payload.annualPayment ?? undefined }),
             ...(payload.educationVatRate !== undefined && { educationVatRate: payload.educationVatRate ?? undefined }),
             ...(payload.abroadVatRate !== undefined && { abroadVatRate: payload.abroadVatRate ?? undefined }),
+            ...(payload.grossCommissionKind !== undefined && { grossCommissionKind: payload.grossCommissionKind }),
+            ...(payload.grossCommissionRate !== undefined && { grossCommissionRate: payload.grossCommissionRate ?? undefined }),
             ...(payload.grossCommission !== undefined && { grossCommission: payload.grossCommission ?? undefined }),
             ...(payload.bonusMax !== undefined && { bonusMax: payload.bonusMax ?? undefined }),
             ...(payload.bonusMin !== undefined && { bonusMin: payload.bonusMin ?? undefined }),
+            ...(payload.agencyCommissionKind !== undefined && { agencyCommissionKind: payload.agencyCommissionKind }),
+            ...(payload.agencyCommissionRate !== undefined && { agencyCommissionRate: payload.agencyCommissionRate ?? undefined }),
             ...(payload.agencyCommission !== undefined && { agencyCommission: payload.agencyCommission ?? undefined }),
             ...(payload.agencyBonus !== undefined && { agencyBonus: payload.agencyBonus ?? undefined }),
             ...(payload.depositSupport !== undefined && { depositSupport: payload.depositSupport ?? undefined }),
@@ -695,9 +723,15 @@ export default function App() {
             ...(data.annualPayment !== undefined && { annualPayment: data.annualPayment ?? undefined }),
             ...(data.educationVatRate !== undefined && { educationVatRate: data.educationVatRate ?? undefined }),
             ...(data.educationVat !== undefined && { educationVat: data.educationVat ?? undefined }),
+            ...(data.grossCommissionKind !== undefined && { grossCommissionKind: data.grossCommissionKind || 'amount' }),
+            ...(data.grossCommissionRate !== undefined && { grossCommissionRate: data.grossCommissionRate ?? undefined }),
+            ...(data.grossCommission !== undefined && { grossCommission: data.grossCommission ?? undefined }),
             ...(data.abroadVatRate !== undefined && { abroadVatRate: data.abroadVatRate ?? undefined }),
             ...(data.abroadVat !== undefined && { abroadVat: data.abroadVat ?? undefined }),
             ...(data.netCommission !== undefined && { netCommission: data.netCommission ?? undefined }),
+            ...(data.agencyCommissionKind !== undefined && { agencyCommissionKind: data.agencyCommissionKind || 'amount' }),
+            ...(data.agencyCommissionRate !== undefined && { agencyCommissionRate: data.agencyCommissionRate ?? undefined }),
+            ...(data.agencyCommission !== undefined && { agencyCommission: data.agencyCommission ?? undefined }),
             ...(data.depositSupport !== undefined && { depositSupport: data.depositSupport ?? undefined }),
             ...(data.agencyContractAmount !== undefined && { agencyContractAmount: data.agencyContractAmount ?? undefined }),
             ...(data.remainingMin !== undefined && { remainingMin: data.remainingMin ?? undefined }),

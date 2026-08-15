@@ -3,6 +3,7 @@ import { FileEdit, X } from 'lucide-react';
 import { useTranslation } from '../hooks/useTranslation';
 
 export type MassEditFieldType = 'select' | 'number' | 'boolean' | 'text';
+export type MassEditValueMode = 'amount' | 'rate';
 
 export interface MassEditFieldDef {
   key: string;
@@ -11,14 +12,20 @@ export interface MassEditFieldDef {
   options?: { value: string; label: string }[];
   nullable?: boolean;
   placeholder?: string;
+  /** Show amount/rate toggle for number fields (e.g. commissions) */
+  supportsRateMode?: boolean;
 }
+
+export type MassEditApplyOptions = {
+  valueMode?: MassEditValueMode;
+};
 
 interface MassEditModalProps {
   open: boolean;
   onClose: () => void;
   selectedCount: number;
   fields: MassEditFieldDef[];
-  onApply: (fieldKey: string, value: unknown) => Promise<void>;
+  onApply: (fieldKey: string, value: unknown, options?: MassEditApplyOptions) => Promise<void>;
   applying?: boolean;
 }
 
@@ -33,23 +40,27 @@ export const MassEditModal: React.FC<MassEditModalProps> = ({
   const { t } = useTranslation();
   const [fieldKey, setFieldKey] = useState('');
   const [rawValue, setRawValue] = useState('');
+  const [valueMode, setValueMode] = useState<MassEditValueMode>('amount');
   const [error, setError] = useState('');
 
   const activeField = useMemo(
     () => fields.find((f) => f.key === fieldKey) ?? null,
     [fields, fieldKey]
   );
+  const showRateMode = !!(activeField?.supportsRateMode && activeField.type === 'number');
 
   useEffect(() => {
     if (!open) {
       setFieldKey('');
       setRawValue('');
+      setValueMode('amount');
       setError('');
     }
   }, [open]);
 
   useEffect(() => {
     setRawValue('');
+    setValueMode('amount');
     setError('');
   }, [fieldKey]);
 
@@ -86,7 +97,7 @@ export const MassEditModal: React.FC<MassEditModalProps> = ({
     const value = parseValue();
     if (value === null && activeField.type !== 'select') {
       if (activeField.type === 'number' && activeField.nullable && rawValue.trim() === '') {
-        await onApply(activeField.key, null);
+        await onApply(activeField.key, null, showRateMode ? { valueMode } : undefined);
         return;
       }
       if (activeField.type === 'select' && activeField.nullable && rawValue === '') {
@@ -100,7 +111,11 @@ export const MassEditModal: React.FC<MassEditModalProps> = ({
       setError(t.massEditValueRequired);
       return;
     }
-    await onApply(activeField.key, value);
+    if (showRateMode && valueMode === 'rate' && typeof value === 'number' && value < 0) {
+      setError(t.massEditValueRequired);
+      return;
+    }
+    await onApply(activeField.key, value, showRateMode ? { valueMode } : undefined);
   };
 
   if (!open) return null;
@@ -139,9 +154,35 @@ export const MassEditModal: React.FC<MassEditModalProps> = ({
             </select>
           </div>
 
+          {activeField && showRateMode && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t.massEditValueType}</label>
+              <select
+                value={valueMode}
+                onChange={(e) => setValueMode(e.target.value as MassEditValueMode)}
+                disabled={applying}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+              >
+                <option value="amount">{t.massEditFixedAmount}</option>
+                <option value="rate">{t.massEditRate}</option>
+              </select>
+              {valueMode === 'rate' && (
+                <p className="mt-1.5 text-xs text-gray-500">
+                  {activeField.key === 'grossCommission'
+                    ? t.massEditGrossRateHint
+                    : activeField.key === 'agencyCommission'
+                      ? t.massEditAgencyRateHint
+                      : ''}
+                </p>
+              )}
+            </div>
+          )}
+
           {activeField && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t.massEditNewValue}</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {showRateMode && valueMode === 'rate' ? t.massEditRateValue : t.massEditNewValue}
+              </label>
               {activeField.type === 'select' && (
                 <select
                   value={rawValue}
@@ -174,7 +215,11 @@ export const MassEditModal: React.FC<MassEditModalProps> = ({
                   value={rawValue}
                   onChange={(e) => setRawValue(e.target.value)}
                   disabled={applying}
-                  placeholder={activeField.placeholder}
+                  placeholder={
+                    showRateMode && valueMode === 'rate'
+                      ? t.massEditRatePlaceholder
+                      : activeField.placeholder
+                  }
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                 />
               )}
@@ -199,15 +244,15 @@ export const MassEditModal: React.FC<MassEditModalProps> = ({
             type="button"
             onClick={onClose}
             disabled={applying}
-            className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+            className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 disabled:opacity-50"
           >
             {t.cancel}
           </button>
           <button
             type="button"
-            onClick={handleApply}
+            onClick={() => void handleApply()}
             disabled={applying || !fieldKey}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+            className="px-4 py-2 text-sm font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40"
           >
             {applying ? t.loading : t.massEditApply}
           </button>

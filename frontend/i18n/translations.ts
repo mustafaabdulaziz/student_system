@@ -53,12 +53,13 @@ export interface Translations {
     totalApplications: string;
     totalPrograms: string;
     totalUniversities: string;
-    totalOfferLetterPipeline: string;
-    totalDepositPaidPipeline: string;
-    totalFinalRegistration: string;
-    totalAnnualPaymentCompleted: string;
     totalNewApplications: string;
     totalOfferLetterWaiting: string;
+    totalDepositPaymentWaiting: string;
+    totalStudentDocumentWaiting: string;
+    totalAnnualPaymentCompleted: string;
+    totalPaidApplications: string;
+    totalFinalRegistration: string;
     pendingApplications: string;
     approvedApplications: string;
     rejectedApplications: string;
@@ -100,6 +101,7 @@ export interface Translations {
     totals: string;
     financialTable: string;
     groupBy: string;
+    applicationCount: string;
     totalCost: string;
 
     // News and Updates
@@ -110,6 +112,7 @@ export interface Translations {
     newsContent: string;
     noNews: string;
     createdBy: string;
+    createdByUser: string;
 
     // Universities
     universitiesTitle: string;
@@ -197,13 +200,35 @@ export interface Translations {
     massEditNewValue: string;
     massEditApply: string;
     massEditValueRequired: string;
+    massEditValueType: string;
+    massEditFixedAmount: string;
+    massEditRate: string;
+    massEditRateValue: string;
+    massEditRatePlaceholder: string;
+    massEditGrossRateHint: string;
+    massEditAgencyRateHint: string;
     selectField: string;
     massEditPartialResult: string;
     selectAllMatching: string;
     clearSelection: string;
+    filterSelectAll: string;
+    pinColumns: string;
+    pinColumnsHint: string;
+    unpinAllColumns: string;
+    scrollTableLeft: string;
+    scrollTableRight: string;
+    filterInclude: string;
+    filterExclude: string;
+    filterExcludeHint: string;
     searchProgramNamePlaceholder: string;
     filterAll: string;
     clearFilters: string;
+    quickFilters: string;
+    selectQuickFilter: string;
+    saveCurrentFilter: string;
+    savedFilterNamePlaceholder: string;
+    deleteSavedFilter: string;
+    deleteSavedFilterConfirm: string;
     filterCreatedFrom: string;
     filterCreatedTo: string;
     number: string;
@@ -387,6 +412,7 @@ export interface Translations {
     invalidImageFile: string;
     invalidEmail: string;
     passwordMismatch: string;
+    agentCommissionDuplicate: string;
 
     // Language
     language: string;
@@ -449,12 +475,13 @@ export const translations: Record<Language, Translations> = {
         totalApplications: 'إجمالي الطلبات',
         totalPrograms: 'إجمالي البرامج',
         totalUniversities: 'إجمالي الجامعات',
-        totalOfferLetterPipeline: 'إجمالي خطابات العرض',
-        totalDepositPaidPipeline: 'إجمالي دفع العربون',
-        totalFinalRegistration: 'إجمالي التسجيل النهائي',
-        totalAnnualPaymentCompleted: 'إجمالي إتمام الدفع السنوي',
         totalNewApplications: 'إجمالي الطلبات الجديدة',
-        totalOfferLetterWaiting: 'إجمالي الطلبات بانتظار خطاب العرض',
+        totalOfferLetterWaiting: 'إجمالي بانتظار خطاب العرض',
+        totalDepositPaymentWaiting: 'إجمالي بانتظار دفع العربون',
+        totalStudentDocumentWaiting: 'إجمالي بانتظار وثيقة الطالب',
+        totalAnnualPaymentCompleted: 'إجمالي إتمام الدفع السنوي',
+        totalPaidApplications: 'إجمالي المدفوع',
+        totalFinalRegistration: 'إجمالي التسجيل النهائي',
         pendingApplications: 'طلبات قيد الانتظار',
         approvedApplications: 'طلبات مقبولة',
         rejectedApplications: 'طلبات مرفوضة',
@@ -495,6 +522,7 @@ export const translations: Record<Language, Translations> = {
         totals: 'المجاميع',
         financialTable: 'الجدول المالي',
         groupBy: 'تجميع حسب',
+        applicationCount: 'عدد الطلبات',
         totalCost: 'إجمالي التكلفة',
         newsAndUpdates: 'الأخبار والتحديثات',
         newsAndUpdatesSubtitle: 'آخر الأخبار والإعلانات من الإدارة',
@@ -503,6 +531,7 @@ export const translations: Record<Language, Translations> = {
         newsContent: 'المحتوى',
         noNews: 'لا توجد أخبار بعد',
         createdBy: 'نشر بواسطة',
+        createdByUser: 'أنشئ بواسطة',
 
         // Universities
         universitiesTitle: 'إدارة الجامعات',
@@ -588,13 +617,35 @@ export const translations: Record<Language, Translations> = {
         massEditNewValue: 'القيمة الجديدة',
         massEditApply: 'تطبيق',
         massEditValueRequired: 'أدخل قيمة',
+        massEditValueType: 'نوع القيمة',
+        massEditFixedAmount: 'مبلغ ثابت',
+        massEditRate: 'نسبة',
+        massEditRateValue: 'النسبة (%)',
+        massEditRatePlaceholder: 'مثال: 10',
+        massEditGrossRateHint: '(الدفعة السنوية − ضريبة التعليم) × (النسبة / 100)',
+        massEditAgencyRateHint: 'صافي العمولة × (النسبة / 100)',
         selectField: 'اختر حقلًا',
         massEditPartialResult: 'تم تحديث {ok}، فشل {fail}',
         selectAllMatching: 'تحديد الكل ({count})',
         clearSelection: 'إلغاء التحديد',
+        filterSelectAll: 'تحديد الكل',
+        pinColumns: 'تثبيت الأعمدة',
+        pinColumnsHint: 'تبقى الأعمدة المثبتة ظاهرة عند التمرير الأفقي',
+        unpinAllColumns: 'إلغاء تثبيت الكل',
+        scrollTableLeft: 'تمرير لليسار',
+        scrollTableRight: 'تمرير لليمين',
+        filterInclude: 'تضمين',
+        filterExclude: 'استثناء',
+        filterExcludeHint: 'عرض الكل ما عدا العناصر المحددة',
         searchProgramNamePlaceholder: 'بحث باسم البرنامج أو الاسم بالعربية...',
         filterAll: 'الكل',
         clearFilters: 'مسح الفلاتر',
+        quickFilters: 'فلاتر سريعة',
+        selectQuickFilter: 'اختر فلترًا سريعًا',
+        saveCurrentFilter: 'حفظ الفلتر',
+        savedFilterNamePlaceholder: 'اسم الفلتر',
+        deleteSavedFilter: 'حذف الفلتر',
+        deleteSavedFilterConfirm: 'حذف الفلتر "{name}"؟',
         filterCreatedFrom: 'تاريخ بداية الإنشاء',
         filterCreatedTo: 'تاريخ نهاية الإنشاء',
         number: 'الرقم',
@@ -778,6 +829,7 @@ export const translations: Record<Language, Translations> = {
         invalidImageFile: 'يرجى اختيار ملف صورة صالح',
         invalidEmail: 'البريد الإلكتروني غير صالح',
         passwordMismatch: 'كلمات المرور غير متطابقة',
+        agentCommissionDuplicate: 'لا يمكن إضافة صفين لنفس الجامعة والدرجة',
 
         // Language
         language: 'اللغة',
@@ -839,12 +891,13 @@ export const translations: Record<Language, Translations> = {
         totalApplications: 'Total Applications',
         totalPrograms: 'Total Programs',
         totalUniversities: 'Total Universities',
-        totalOfferLetterPipeline: 'Total Offer Letters',
-        totalDepositPaidPipeline: 'Total Deposit Paid',
-        totalFinalRegistration: 'Total Final Registration',
-        totalAnnualPaymentCompleted: 'Total Annual Payment Completed',
         totalNewApplications: 'Total New Applications',
         totalOfferLetterWaiting: 'Total Awaiting Offer Letter',
+        totalDepositPaymentWaiting: 'Total Awaiting Deposit Payment',
+        totalStudentDocumentWaiting: 'Total Awaiting Student Document',
+        totalAnnualPaymentCompleted: 'Total Annual Payment Completed',
+        totalPaidApplications: 'Total Paid',
+        totalFinalRegistration: 'Total Final Registrations',
         pendingApplications: 'Pending Applications',
         approvedApplications: 'Approved Applications',
         rejectedApplications: 'Rejected Applications',
@@ -885,6 +938,7 @@ export const translations: Record<Language, Translations> = {
         totals: 'Totals',
         financialTable: 'Financial Table',
         groupBy: 'Group by',
+        applicationCount: 'Application count',
         totalCost: 'Total cost',
         newsAndUpdates: 'News and Updates',
         newsAndUpdatesSubtitle: 'Latest news and announcements from the administration',
@@ -893,6 +947,7 @@ export const translations: Record<Language, Translations> = {
         newsContent: 'Content',
         noNews: 'No news yet',
         createdBy: 'Posted by',
+        createdByUser: 'Created by',
 
         // Universities
         universitiesTitle: 'University Management',
@@ -978,13 +1033,35 @@ export const translations: Record<Language, Translations> = {
         massEditNewValue: 'New value',
         massEditApply: 'Apply',
         massEditValueRequired: 'Enter a value',
+        massEditValueType: 'Value type',
+        massEditFixedAmount: 'Fixed amount',
+        massEditRate: 'Rate',
+        massEditRateValue: 'Rate (%)',
+        massEditRatePlaceholder: 'e.g. 10',
+        massEditGrossRateHint: '(Annual payment − education VAT) × (rate / 100)',
+        massEditAgencyRateHint: 'Net commission × (rate / 100)',
         selectField: 'Select field',
         massEditPartialResult: 'Updated {ok}, failed {fail}',
         selectAllMatching: 'Select all ({count})',
         clearSelection: 'Clear selection',
+        filterSelectAll: 'Select all',
+        pinColumns: 'Pin columns',
+        pinColumnsHint: 'Pinned columns stay visible while scrolling sideways',
+        unpinAllColumns: 'Unpin all',
+        scrollTableLeft: 'Scroll left',
+        scrollTableRight: 'Scroll right',
+        filterInclude: 'Include',
+        filterExclude: 'Exclude',
+        filterExcludeHint: 'Show all except the selected items',
         searchProgramNamePlaceholder: 'Search by program or Arabic name...',
         filterAll: 'All',
         clearFilters: 'Clear filters',
+        quickFilters: 'Quick filters',
+        selectQuickFilter: 'Select a quick filter',
+        saveCurrentFilter: 'Save filter',
+        savedFilterNamePlaceholder: 'Filter name',
+        deleteSavedFilter: 'Delete filter',
+        deleteSavedFilterConfirm: 'Delete filter "{name}"?',
         filterCreatedFrom: 'Start creation date',
         filterCreatedTo: 'End creation date',
         number: 'Number',
@@ -1168,6 +1245,7 @@ export const translations: Record<Language, Translations> = {
         invalidImageFile: 'Please select a valid image file',
         invalidEmail: 'Invalid email address',
         passwordMismatch: 'Passwords do not match',
+        agentCommissionDuplicate: 'Cannot add two rows for the same university and degree',
 
         // Language
         language: 'Language',
@@ -1229,12 +1307,13 @@ export const translations: Record<Language, Translations> = {
         totalApplications: 'Toplam Başvuru',
         totalPrograms: 'Toplam Program',
         totalUniversities: 'Toplam Üniversite',
-        totalOfferLetterPipeline: 'Toplam Teklif Mektubu',
-        totalDepositPaidPipeline: 'Toplam Depozito Ödemesi',
-        totalFinalRegistration: 'Toplam Kesin Kayıt',
-        totalAnnualPaymentCompleted: 'Toplam Yıllık Ödeme Tamamlanan',
         totalNewApplications: 'Toplam Yeni Başvuru',
         totalOfferLetterWaiting: 'Toplam Teklif Mektubu Bekleyen',
+        totalDepositPaymentWaiting: 'Toplam Depozito Ödemesi Bekleyen',
+        totalStudentDocumentWaiting: 'Toplam Öğrenci Belgesi Bekleyen',
+        totalAnnualPaymentCompleted: 'Toplam Yıllık Ödeme Tamamlanan',
+        totalPaidApplications: 'Toplam Ödenenler',
+        totalFinalRegistration: 'Toplam Kesin Kayıtlar',
         pendingApplications: 'Bekleyen Başvurular',
         approvedApplications: 'Onaylanan Başvurular',
         rejectedApplications: 'Reddedilen Başvurular',
@@ -1275,6 +1354,7 @@ export const translations: Record<Language, Translations> = {
         totals: 'Toplamlar',
         financialTable: 'Finansal Tablo',
         groupBy: 'Gruplama kriteri',
+        applicationCount: 'Başvuru sayısı',
         totalCost: 'Toplam maliyet',
         newsAndUpdates: 'Haberler ve Güncellemeler',
         newsAndUpdatesSubtitle: 'Yönetimden son haberler ve duyurular',
@@ -1283,6 +1363,7 @@ export const translations: Record<Language, Translations> = {
         newsContent: 'İçerik',
         noNews: 'Henüz haber yok',
         createdBy: 'Yayınlayan',
+        createdByUser: 'Oluşturan',
 
         // Universities
         universitiesTitle: 'Üniversite Yönetimi',
@@ -1368,13 +1449,35 @@ export const translations: Record<Language, Translations> = {
         massEditNewValue: 'Yeni değer',
         massEditApply: 'Uygula',
         massEditValueRequired: 'Bir değer girin',
+        massEditValueType: 'Değer türü',
+        massEditFixedAmount: 'Sabit tutar',
+        massEditRate: 'Oran',
+        massEditRateValue: 'Oran (%)',
+        massEditRatePlaceholder: 'örn. 10',
+        massEditGrossRateHint: '(Yıllık ödeme − eğitim KDV tutarı) × (oran / 100)',
+        massEditAgencyRateHint: 'Net komisyon × (oran / 100)',
         selectField: 'Alan seçin',
         massEditPartialResult: '{ok} güncellendi, {fail} başarısız',
         selectAllMatching: 'Hepsini seç ({count})',
         clearSelection: 'Seçimi temizle',
+        filterSelectAll: 'Tümünü seç',
+        pinColumns: 'Sütun sabitle',
+        pinColumnsHint: 'Sabitlenen sütunlar yatay kaydırmada görünür kalır',
+        unpinAllColumns: 'Sabitlemeyi kaldır',
+        scrollTableLeft: 'Sola kaydır',
+        scrollTableRight: 'Sağa kaydır',
+        filterInclude: 'Dahil',
+        filterExclude: 'Hariç',
+        filterExcludeHint: 'Seçilenler hariç hepsini göster',
         searchProgramNamePlaceholder: 'Program adı veya Arapça ad ile ara...',
         filterAll: 'Tümü',
         clearFilters: 'Filtreleri temizle',
+        quickFilters: 'Hızlı filtreler',
+        selectQuickFilter: 'Hızlı filtre seç',
+        saveCurrentFilter: 'Filtreyi kaydet',
+        savedFilterNamePlaceholder: 'Filtre adı',
+        deleteSavedFilter: 'Filtreyi sil',
+        deleteSavedFilterConfirm: '"{name}" filtresini silmek istiyor musunuz?',
         filterCreatedFrom: 'Başlangıç oluşturma tarihi',
         filterCreatedTo: 'Bitiş oluşturma tarihi',
         number: 'Numara',
@@ -1558,6 +1661,7 @@ export const translations: Record<Language, Translations> = {
         invalidImageFile: 'Lütfen geçerli bir resim dosyası seçin',
         invalidEmail: 'Geçersiz e-posta adresi',
         passwordMismatch: 'Şifreler eşleşmiyor',
+        agentCommissionDuplicate: 'Aynı üniversite ve derece için iki satır eklenemez',
 
         // Language
         language: 'Dil',

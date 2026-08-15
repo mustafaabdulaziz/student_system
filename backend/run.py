@@ -67,7 +67,8 @@ if __name__ == '__main__':
                 ('commission_kind', 'VARCHAR'),
                 ('commission_value', 'FLOAT'),
                 ('bonus_max', 'FLOAT'),
-                ('bonus_min', 'FLOAT')
+                ('bonus_min', 'FLOAT'),
+                ('degree_commissions', 'JSON')
             ]:
                 if col not in uni_cols2:
                     try:
@@ -144,6 +145,7 @@ if __name__ == '__main__':
                         'id VARCHAR PRIMARY KEY, '
                         'user_id VARCHAR NOT NULL, '
                         'university_id VARCHAR NOT NULL, '
+                        'degree VARCHAR, '
                         'commission_kind VARCHAR NOT NULL, '
                         'commission_value FLOAT NOT NULL, '
                         'deposit_support FLOAT)'
@@ -153,6 +155,9 @@ if __name__ == '__main__':
                     commission_cols = [c['name'] for c in inspector.get_columns('user_university_commissions')]
                     if 'deposit_support' not in commission_cols:
                         conn.execute(text('ALTER TABLE user_university_commissions ADD COLUMN deposit_support FLOAT'))
+                        conn.commit()
+                    if 'degree' not in commission_cols:
+                        conn.execute(text('ALTER TABLE user_university_commissions ADD COLUMN degree VARCHAR'))
                         conn.commit()
             except Exception as e:
                 print('User university commissions table check:', e)
@@ -181,12 +186,16 @@ if __name__ == '__main__':
                         ('annual_payment', 'FLOAT'),
                         ('education_vat_rate', 'FLOAT'),
                         ('education_vat', 'FLOAT'),
+                        ('gross_commission_kind', "VARCHAR NOT NULL DEFAULT 'amount'"),
+                        ('gross_commission_rate', 'FLOAT'),
                         ('gross_commission', 'FLOAT'),
                         ('abroad_vat_rate', 'FLOAT'),
                         ('abroad_vat', 'FLOAT'),
                         ('net_commission', 'FLOAT'),
                         ('bonus_max', 'FLOAT'),
                         ('bonus_min', 'FLOAT'),
+                        ('agency_commission_kind', "VARCHAR NOT NULL DEFAULT 'amount'"),
+                        ('agency_commission_rate', 'FLOAT'),
                         ('agency_commission', 'FLOAT'),
                         ('agency_bonus', 'FLOAT'),
                         ('deposit_support', 'FLOAT'),
@@ -202,6 +211,7 @@ if __name__ == '__main__':
                         ('payment_date', 'VARCHAR'),
                         ('payment_month', 'VARCHAR'),
                         ('internal_description', 'TEXT'),
+                        ('created_by', 'VARCHAR'),
                     ]
                     for col, typ in finance_cols:
                         if col not in app_cols:
@@ -212,12 +222,15 @@ if __name__ == '__main__':
                                 pass
             except Exception as e:
                 print('Applications period_id column check:', e)
-            # Ensure students table has created_at column
+            # Ensure students table has created_at / created_by columns
             try:
                 if 'students' in inspector.get_table_names():
                     student_cols = [c['name'] for c in inspector.get_columns('students')]
                     if 'created_at' not in student_cols:
                         conn.execute(text('ALTER TABLE students ADD COLUMN created_at VARCHAR'))
+                        conn.commit()
+                    if 'created_by' not in student_cols:
+                        conn.execute(text('ALTER TABLE students ADD COLUMN created_by VARCHAR'))
                         conn.commit()
             except Exception as e:
                 print('Students created_at column check:', e)

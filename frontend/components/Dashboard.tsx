@@ -1,13 +1,15 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Student, Application, Program, University, User, UserRole, ApplicationListFilters, Period, AgencyCompany } from '../types';
-import { Users, FileText, Filter, BarChart3, List, DollarSign, Mail, Wallet, UserCheck, CircleCheck, CirclePlus, Clock3, Download, Columns3 } from 'lucide-react';
+import { Users, FileText, Filter, BarChart3, List, DollarSign, Mail, Wallet, UserCheck, CircleCheck, CirclePlus, Download, Columns3 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useTranslation } from '../hooks/useTranslation';
 import { ApplicationStatus } from '../types';
 import { normalizeApplicationStatus } from '../utils/applicationStatus';
 import { ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis } from 'recharts';
 import { DATE_PRESETS, getDatePreset } from '../utils/datePresets';
+import { matchesMultiFilter, type MultiFilterMode } from '../utils/multiFilter';
 import { SearchableMultiSelect } from './SearchableMultiSelect';
+import { SavedQuickFilters } from './SavedQuickFilters';
 
 interface DashboardProps {
   students: Student[];
@@ -51,7 +53,7 @@ const FINANCIAL_TABLE_FIELDS: Array<{ key: keyof Application; label: string }> =
 
 const FINANCIAL_TABLE_COLUMN_KEYS = FINANCIAL_TABLE_FIELDS.map((field) => String(field.key));
 const FINANCIAL_TABLE_COLUMNS_STORAGE_KEY = 'dashboard.financialTable.visibleColumns';
-type DrilldownDimension = 'status' | 'university' | 'program' | 'country' | 'degree' | 'responsible' | 'agency' | 'agencyCompany';
+type DrilldownDimension = 'status' | 'university' | 'program' | 'country' | 'degree' | 'responsible' | 'agency' | 'agencyCompany' | 'period';
 
 function dateOnly(iso: string | undefined): string {
   if (!iso) return '';
@@ -276,6 +278,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [nationalityFilter, setNationalityFilter] = useState<string[]>([]);
   const [currencyFilter, setCurrencyFilter] = useState<string[]>([]);
   const [agencyCompanyFilter, setAgencyCompanyFilter] = useState<string[]>([]);
+  const [statusFilterMode, setStatusFilterMode] = useState<MultiFilterMode>('include');
+  const [universityFilterMode, setUniversityFilterMode] = useState<MultiFilterMode>('include');
+  const [programFilterMode, setProgramFilterMode] = useState<MultiFilterMode>('include');
+  const [degreeFilterMode, setDegreeFilterMode] = useState<MultiFilterMode>('include');
+  const [agentFilterMode, setAgentFilterMode] = useState<MultiFilterMode>('include');
+  const [responsibleFilterMode, setResponsibleFilterMode] = useState<MultiFilterMode>('include');
+  const [nationalityFilterMode, setNationalityFilterMode] = useState<MultiFilterMode>('include');
+  const [currencyFilterMode, setCurrencyFilterMode] = useState<MultiFilterMode>('include');
+  const [agencyCompanyFilterMode, setAgencyCompanyFilterMode] = useState<MultiFilterMode>('include');
   const [outgoingPayments, setOutgoingPayments] = useState<DashboardOutgoingPayment[]>([]);
   const [financialTableGroup, setFinancialTableGroup] = useState<FinancialTableGroup>('university');
   const [financialTableColumnsOpen, setFinancialTableColumnsOpen] = useState(false);
@@ -377,45 +388,35 @@ export const Dashboard: React.FC<DashboardProps> = ({
       const d = dateOnly(app.createdAt);
       if (filterActive && fromDate && toDate && (!d || d < fromDate || d > toDate)) return false;
       const program = programs.find((p) => p.id === app.programId);
-      if (statusFilter.length > 0 && !statusFilter.includes(normalizeApplicationStatus(app.status) as string)) return false;
-      if (universityFilter.length > 0 && (!program || !universityFilter.includes(program.universityId))) return false;
-      if (programFilter.length > 0 && !programFilter.includes(app.programId)) return false;
-      if (degreeFilter.length > 0 && (!program || !degreeFilter.includes(program.degree))) return false;
-      if (agentFilter.length > 0 && !agentFilter.includes(getAgentName(app))) return false;
-      if (responsibleFilter.length > 0 && !responsibleFilter.includes(getResponsibleName(app))) return false;
-      if (nationalityFilter.length > 0) {
-        const nationality = studentById.get(app.studentId)?.nationality;
-        if (!nationality || !nationalityFilter.includes(nationality)) return false;
-      }
-      if (currencyFilter.length > 0 && !currencyFilter.includes((app.currency || 'USD').toUpperCase())) return false;
-      if (canSeeAgencyCompany && agencyCompanyFilter.length > 0) {
-        if (!app.agencyCompanyId || !agencyCompanyFilter.includes(app.agencyCompanyId)) return false;
-      }
+      if (!matchesMultiFilter(normalizeApplicationStatus(app.status) as string, statusFilter.map((s) => normalizeApplicationStatus(s) as string), statusFilterMode)) return false;
+      if (!matchesMultiFilter(program?.universityId, universityFilter, universityFilterMode)) return false;
+      if (!matchesMultiFilter(app.programId, programFilter, programFilterMode)) return false;
+      if (!matchesMultiFilter(program?.degree, degreeFilter, degreeFilterMode)) return false;
+      if (!matchesMultiFilter(getAgentName(app), agentFilter, agentFilterMode)) return false;
+      if (!matchesMultiFilter(getResponsibleName(app), responsibleFilter, responsibleFilterMode)) return false;
+      if (!matchesMultiFilter(studentById.get(app.studentId)?.nationality, nationalityFilter, nationalityFilterMode)) return false;
+      if (!matchesMultiFilter((app.currency || 'USD').toUpperCase(), currencyFilter, currencyFilterMode)) return false;
+      if (canSeeAgencyCompany && !matchesMultiFilter(app.agencyCompanyId, agencyCompanyFilter, agencyCompanyFilterMode)) return false;
       return true;
     });
-  }, [scopedApplications, filterActive, fromDate, toDate, programs, statusFilter, universityFilter, programFilter, degreeFilter, agentFilter, responsibleFilter, nationalityFilter, currencyFilter, agencyCompanyFilter, canSeeAgencyCompany, studentById, users]);
+  }, [scopedApplications, filterActive, fromDate, toDate, programs, statusFilter, statusFilterMode, universityFilter, universityFilterMode, programFilter, programFilterMode, degreeFilter, degreeFilterMode, agentFilter, agentFilterMode, responsibleFilter, responsibleFilterMode, nationalityFilter, nationalityFilterMode, currencyFilter, currencyFilterMode, agencyCompanyFilter, agencyCompanyFilterMode, canSeeAgencyCompany, studentById, users]);
 
   const applicationsForPayableTotal = useMemo(() => {
     return scopedApplications.filter((app) => {
       const d = dateOnly(app.createdAt);
       if (filterActive && fromDate && toDate && (!d || d < fromDate || d > toDate)) return false;
       const program = programs.find((p) => p.id === app.programId);
-      if (universityFilter.length > 0 && (!program || !universityFilter.includes(program.universityId))) return false;
-      if (programFilter.length > 0 && !programFilter.includes(app.programId)) return false;
-      if (degreeFilter.length > 0 && (!program || !degreeFilter.includes(program.degree))) return false;
-      if (agentFilter.length > 0 && !agentFilter.includes(getAgentName(app))) return false;
-      if (responsibleFilter.length > 0 && !responsibleFilter.includes(getResponsibleName(app))) return false;
-      if (nationalityFilter.length > 0) {
-        const nationality = studentById.get(app.studentId)?.nationality;
-        if (!nationality || !nationalityFilter.includes(nationality)) return false;
-      }
-      if (currencyFilter.length > 0 && !currencyFilter.includes((app.currency || 'USD').toUpperCase())) return false;
-      if (canSeeAgencyCompany && agencyCompanyFilter.length > 0) {
-        if (!app.agencyCompanyId || !agencyCompanyFilter.includes(app.agencyCompanyId)) return false;
-      }
+      if (!matchesMultiFilter(program?.universityId, universityFilter, universityFilterMode)) return false;
+      if (!matchesMultiFilter(app.programId, programFilter, programFilterMode)) return false;
+      if (!matchesMultiFilter(program?.degree, degreeFilter, degreeFilterMode)) return false;
+      if (!matchesMultiFilter(getAgentName(app), agentFilter, agentFilterMode)) return false;
+      if (!matchesMultiFilter(getResponsibleName(app), responsibleFilter, responsibleFilterMode)) return false;
+      if (!matchesMultiFilter(studentById.get(app.studentId)?.nationality, nationalityFilter, nationalityFilterMode)) return false;
+      if (!matchesMultiFilter((app.currency || 'USD').toUpperCase(), currencyFilter, currencyFilterMode)) return false;
+      if (canSeeAgencyCompany && !matchesMultiFilter(app.agencyCompanyId, agencyCompanyFilter, agencyCompanyFilterMode)) return false;
       return true;
     });
-  }, [scopedApplications, filterActive, fromDate, toDate, programs, universityFilter, programFilter, degreeFilter, agentFilter, responsibleFilter, nationalityFilter, currencyFilter, agencyCompanyFilter, canSeeAgencyCompany, studentById, users]);
+  }, [scopedApplications, filterActive, fromDate, toDate, programs, universityFilter, universityFilterMode, programFilter, programFilterMode, degreeFilter, degreeFilterMode, agentFilter, agentFilterMode, responsibleFilter, responsibleFilterMode, nationalityFilter, nationalityFilterMode, currencyFilter, currencyFilterMode, agencyCompanyFilter, agencyCompanyFilterMode, canSeeAgencyCompany, studentById, users]);
 
   const filteredStudents = useMemo(() => {
     const hasAppFilters =
@@ -480,6 +481,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
     setNationalityFilter([]);
     setCurrencyFilter([]);
     setAgencyCompanyFilter([]);
+    setStatusFilterMode('include');
+    setUniversityFilterMode('include');
+    setProgramFilterMode('include');
+    setDegreeFilterMode('include');
+    setAgentFilterMode('include');
+    setResponsibleFilterMode('include');
+    setNationalityFilterMode('include');
+    setCurrencyFilterMode('include');
+    setAgencyCompanyFilterMode('include');
   };
 
   const getProgramName = (progId: string) => programs.find((p) => p.id === progId)?.name || t.noPrograms;
@@ -703,7 +713,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   }, [applicationsForPayableTotal]);
 
   const financialTableRows = useMemo(() => {
-    const grouped = new Map<string, Record<string, number>>();
+    const grouped = new Map<string, { values: Record<string, number>; count: number }>();
     filteredApplications.forEach((app) => {
       const program = programById.get(app.programId);
       let groupLabel = '—';
@@ -718,18 +728,20 @@ export const Dashboard: React.FC<DashboardProps> = ({
         groupLabel = studentById.get(app.studentId)?.nationality || '—';
       }
 
-      const current = grouped.get(groupLabel) || Object.fromEntries(
-        FINANCIAL_TABLE_FIELDS.map(field => [String(field.key), 0])
-      );
+      const current = grouped.get(groupLabel) || {
+        values: Object.fromEntries(FINANCIAL_TABLE_FIELDS.map(field => [String(field.key), 0])),
+        count: 0
+      };
       FINANCIAL_TABLE_FIELDS.forEach(field => {
         const key = String(field.key);
-        current[key] = (current[key] || 0) + (Number(app[field.key]) || 0);
+        current.values[key] = (current.values[key] || 0) + (Number(app[field.key]) || 0);
       });
+      current.count += 1;
       grouped.set(groupLabel, current);
     });
 
     return Array.from(grouped.entries())
-      .map(([group, values]) => ({ group, values }))
+      .map(([group, data]) => ({ group, values: data.values, count: data.count }))
       .sort((a, b) => (b.values.annualPayment || 0) - (a.values.annualPayment || 0));
   }, [filteredApplications, financialTableGroup, programById, periodById, studentById, universities, users]);
 
@@ -742,6 +754,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
     return result;
   }, [financialTableRows]);
 
+  const financialTableTotalCount = useMemo(
+    () => financialTableRows.reduce((sum, row) => sum + row.count, 0),
+    [financialTableRows]
+  );
+
   const financialTableGroupLabel = {
     university: t.university,
     agent: t.agent,
@@ -753,6 +770,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     const rows = financialTableRows.map(row => {
       const exported: Record<string, string | number> = {
         [financialTableGroupLabel]: row.group,
+        [t.applicationCount]: row.count,
       };
       visibleFinancialTableFields.forEach(field => {
         exported[field.label] = row.values[String(field.key)] || 0;
@@ -761,6 +779,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     });
     const totalRow: Record<string, string | number> = {
       [financialTableGroupLabel]: t.totals,
+      [t.applicationCount]: financialTableTotalCount,
     };
     visibleFinancialTableFields.forEach(field => {
       totalRow[field.label] = financialTableTotals[String(field.key)] || 0;
@@ -769,6 +788,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     const worksheet = XLSX.utils.json_to_sheet(rows);
     worksheet['!cols'] = [
       { wch: 32 },
+      { wch: 16 },
       ...visibleFinancialTableFields.map(() => ({ wch: 20 })),
     ];
     const workbook = XLSX.utils.book_new();
@@ -817,6 +837,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     let agents = [...agentFilter];
     let currencies = [...currencyFilter];
     let agencyCompanyIds = [...agencyCompanyFilter];
+    let periodIds: string[] = [];
 
     switch (dimension) {
       case 'status':
@@ -854,6 +875,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
         else if (value === '—') agencyCompanyIds = [];
         break;
       }
+      case 'period': {
+        const id = periods.find((p) => p.name === value)?.id;
+        if (id) periodIds = [id];
+        break;
+      }
     }
 
     onDrilldownToApplications({
@@ -868,13 +894,22 @@ export const Dashboard: React.FC<DashboardProps> = ({
       ...(agents.length > 0 ? { agents } : {}),
       ...(currencies.length > 0 ? { currencies } : {}),
       ...(agencyCompanyIds.length > 0 ? { agencyCompanyIds } : {}),
+      ...(periodIds.length > 0 ? { periodIds } : {}),
     });
   };
 
-  const stats = [
-    { label: t.totalStudents, value: filteredStudents.length, icon: Users, color: 'bg-blue-500' },
-    { label: t.totalApplications, value: filteredApplications.length, icon: FileText, color: 'bg-emerald-500' },
-  ];
+  const handleFinancialRowDrilldown = (groupLabel: string) => {
+    if (!groupLabel || groupLabel === '—') return;
+    const dimension: DrilldownDimension =
+      financialTableGroup === 'university'
+        ? 'university'
+        : financialTableGroup === 'agent'
+          ? 'agency'
+          : financialTableGroup === 'nationality'
+            ? 'country'
+            : 'period';
+    handleDrilldown(dimension, groupLabel);
+  };
 
   const countApplicationsWithStatuses = (statuses: ApplicationStatus[]) => {
     const statusSet = new Set<ApplicationStatus>(statuses);
@@ -883,19 +918,75 @@ export const Dashboard: React.FC<DashboardProps> = ({
     ).length;
   };
 
-  const pipelineStats = [
+  /** Keep the dashboard status filter in effect while narrowing to the card's statuses. */
+  const resolveCardStatuses = (cardStatuses: ApplicationStatus[]) => {
+    const base = cardStatuses.map((status) => String(normalizeApplicationStatus(status)));
+    if (base.length === 0) return statusFilter.length > 0 ? [...statusFilter] : [];
+    if (statusFilter.length === 0) return base;
+    const selected = statusFilter.map((status) => String(normalizeApplicationStatus(status)));
+    return statusFilterMode === 'exclude'
+      ? base.filter((status) => !selected.includes(status))
+      : base.filter((status) => selected.includes(status));
+  };
+
+  const handleStatusCardDrilldown = (cardStatuses: ApplicationStatus[]) => {
+    const statuses = resolveCardStatuses(cardStatuses);
+    if (cardStatuses.length > 0 && statuses.length === 0) return;
+    onDrilldownToApplications({
+      ...(filterActive && fromDate ? { createdFrom: fromDate } : {}),
+      ...(filterActive && toDate ? { createdTo: toDate } : {}),
+      ...(statuses.length > 0 ? { statuses } : {}),
+      ...(universityFilter.length > 0 ? { universityIds: [...universityFilter] } : {}),
+      ...(programFilter.length > 0 ? { programIds: [...programFilter] } : {}),
+      ...(degreeFilter.length > 0 ? { degrees: [...degreeFilter] } : {}),
+      ...(nationalityFilter.length > 0 ? { nationalities: [...nationalityFilter] } : {}),
+      ...(responsibleFilter.length > 0 ? { responsibles: [...responsibleFilter] } : {}),
+      ...(agentFilter.length > 0 ? { agents: [...agentFilter] } : {}),
+      ...(currencyFilter.length > 0 ? { currencies: [...currencyFilter] } : {}),
+      ...(agencyCompanyFilter.length > 0 ? { agencyCompanyIds: [...agencyCompanyFilter] } : {}),
+    });
+  };
+
+  const statusCards: Array<{
+    label: string;
+    statuses: ApplicationStatus[];
+    icon: typeof Users;
+    color: string;
+  }> = [
     {
-      label: t.totalOfferLetterPipeline,
-      value: countApplicationsWithStatuses([
-        ApplicationStatus.OFFER_LETTER_SEND_TO_COMPANY_WAITING,
-        ApplicationStatus.DEPOSIT_PAYMENT_WAITING,
-      ]),
+      label: t.totalNewApplications,
+      statuses: [ApplicationStatus.NEW],
+      icon: CirclePlus,
+      color: 'bg-blue-500',
+    },
+    {
+      label: t.totalOfferLetterWaiting,
+      statuses: [ApplicationStatus.OFFER_LETTER_WAITING],
       icon: Mail,
       color: 'bg-amber-500',
     },
     {
-      label: t.totalDepositPaidPipeline,
-      value: countApplicationsWithStatuses([
+      label: t.totalDepositPaymentWaiting,
+      statuses: [ApplicationStatus.DEPOSIT_PAYMENT_WAITING],
+      icon: Wallet,
+      color: 'bg-teal-500',
+    },
+    {
+      label: t.totalStudentDocumentWaiting,
+      statuses: [ApplicationStatus.STUDENT_DOCUMENT_WAITING],
+      icon: FileText,
+      color: 'bg-sky-500',
+    },
+    {
+      label: t.totalAnnualPaymentCompleted,
+      statuses: [ApplicationStatus.UNIVERSITY_ACCOUNTING_APPROVAL_WAITING],
+      icon: CircleCheck,
+      color: 'bg-rose-500',
+    },
+    {
+      label: t.totalPaidApplications,
+      statuses: [
+        ApplicationStatus.DEPOSIT_PAYMENT_WAITING,
         ApplicationStatus.DEPOSIT_PAYMENT_UPLOAD_WAITING,
         ApplicationStatus.ACCEPTANCE_LETTER_WAITING,
         ApplicationStatus.ACCEPTANCE_LETTER_SEND_TO_COMPANY_WAITING,
@@ -904,46 +995,45 @@ export const Dashboard: React.FC<DashboardProps> = ({
         ApplicationStatus.ANNUAL_PAYMENT_RECEIPT_WAITING,
         ApplicationStatus.UNIVERSITY_ACCOUNTING_APPROVAL_WAITING,
         ApplicationStatus.COMPLETED,
-      ]),
-      icon: Wallet,
-      color: 'bg-teal-500',
+      ],
+      icon: DollarSign,
+      color: 'bg-emerald-500',
     },
     {
       label: t.totalFinalRegistration,
-      value: countApplicationsWithStatuses([
+      statuses: [
+        ApplicationStatus.STUDENT_DOCUMENT_DELIVERED,
         ApplicationStatus.ANNUAL_PAYMENT_RECEIPT_WAITING,
         ApplicationStatus.UNIVERSITY_ACCOUNTING_APPROVAL_WAITING,
         ApplicationStatus.COMPLETED,
-      ]),
+      ],
       icon: UserCheck,
       color: 'bg-indigo-500',
     },
+  ];
+
+  const overviewCards: Array<{
+    label: string;
+    value: number;
+    icon: typeof Users;
+    color: string;
+    onClick?: () => void;
+  }> = [
+    { label: t.totalStudents, value: filteredStudents.length, icon: Users, color: 'bg-blue-500' },
     {
-      label: t.totalAnnualPaymentCompleted,
-      value: countApplicationsWithStatuses([
-        ApplicationStatus.UNIVERSITY_ACCOUNTING_APPROVAL_WAITING,
-        ApplicationStatus.COMPLETED,
-      ]),
-      icon: CircleCheck,
-      color: 'bg-rose-500',
+      label: t.totalApplications,
+      value: filteredApplications.length,
+      icon: FileText,
+      color: 'bg-emerald-500',
+      onClick: () => handleStatusCardDrilldown([]),
     },
-    {
-      label: t.totalNewApplications,
-      value: countApplicationsWithStatuses([
-        ApplicationStatus.NEW,
-      ]),
-      icon: CirclePlus,
-      color: 'bg-blue-500',
-    },
-    {
-      label: t.totalOfferLetterWaiting,
-      value: countApplicationsWithStatuses([
-        ApplicationStatus.NEW,
-        ApplicationStatus.OFFER_LETTER_WAITING,
-      ]),
-      icon: Clock3,
-      color: 'bg-sky-500',
-    },
+    ...statusCards.map((card) => ({
+      label: card.label,
+      value: countApplicationsWithStatuses(card.statuses),
+      icon: card.icon,
+      color: card.color,
+      onClick: () => handleStatusCardDrilldown(card.statuses),
+    })),
   ];
 
   return (
@@ -1005,7 +1095,59 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
         </div>
       </div>
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 space-y-3">
+        <SavedQuickFilters
+          pageKey="dashboard"
+          userId={currentUser?.id}
+          isAdmin={!!isAdmin}
+          canSave
+          getFilters={() => ({
+            fromDate,
+            toDate,
+            filterActive,
+            statusFilter,
+            universityFilter,
+            programFilter,
+            degreeFilter,
+            agentFilter,
+            responsibleFilter,
+            nationalityFilter,
+            currencyFilter,
+            agencyCompanyFilter,
+            statusFilterMode,
+            universityFilterMode,
+            programFilterMode,
+            degreeFilterMode,
+            agentFilterMode,
+            responsibleFilterMode,
+            nationalityFilterMode,
+            currencyFilterMode,
+            agencyCompanyFilterMode
+          })}
+          onApply={(f) => {
+            if (typeof f.fromDate === 'string') setFromDate(f.fromDate);
+            if (typeof f.toDate === 'string') setToDate(f.toDate);
+            if (typeof f.filterActive === 'boolean') setFilterActive(f.filterActive);
+            setStatusFilter(Array.isArray(f.statusFilter) ? f.statusFilter as string[] : []);
+            setUniversityFilter(Array.isArray(f.universityFilter) ? f.universityFilter as string[] : []);
+            setProgramFilter(Array.isArray(f.programFilter) ? f.programFilter as string[] : []);
+            setDegreeFilter(Array.isArray(f.degreeFilter) ? f.degreeFilter as string[] : []);
+            setAgentFilter(Array.isArray(f.agentFilter) ? f.agentFilter as string[] : []);
+            setResponsibleFilter(Array.isArray(f.responsibleFilter) ? f.responsibleFilter as string[] : []);
+            setNationalityFilter(Array.isArray(f.nationalityFilter) ? f.nationalityFilter as string[] : []);
+            setCurrencyFilter(Array.isArray(f.currencyFilter) ? f.currencyFilter as string[] : []);
+            setAgencyCompanyFilter(Array.isArray(f.agencyCompanyFilter) ? f.agencyCompanyFilter as string[] : []);
+            setStatusFilterMode((f.statusFilterMode as MultiFilterMode) || 'include');
+            setUniversityFilterMode((f.universityFilterMode as MultiFilterMode) || 'include');
+            setProgramFilterMode((f.programFilterMode as MultiFilterMode) || 'include');
+            setDegreeFilterMode((f.degreeFilterMode as MultiFilterMode) || 'include');
+            setAgentFilterMode((f.agentFilterMode as MultiFilterMode) || 'include');
+            setResponsibleFilterMode((f.responsibleFilterMode as MultiFilterMode) || 'include');
+            setNationalityFilterMode((f.nationalityFilterMode as MultiFilterMode) || 'include');
+            setCurrencyFilterMode((f.currencyFilterMode as MultiFilterMode) || 'include');
+            setAgencyCompanyFilterMode((f.agencyCompanyFilterMode as MultiFilterMode) || 'include');
+          }}
+        />
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
           <SearchableMultiSelect
             options={Object.values(ApplicationStatus).map((status) => ({
@@ -1014,6 +1156,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
             }))}
             selected={statusFilter}
             onChange={setStatusFilter}
+            mode={statusFilterMode}
+            onModeChange={setStatusFilterMode}
             placeholder={`${t.applicationStatus} (${t.filterAll})`}
             searchPlaceholder={t.search}
             noResultsText={t.searchNoResults}
@@ -1022,16 +1166,20 @@ export const Dashboard: React.FC<DashboardProps> = ({
             options={universities.map((u) => ({ value: u.id, label: u.name }))}
             selected={universityFilter}
             onChange={setUniversityFilter}
+            mode={universityFilterMode}
+            onModeChange={setUniversityFilterMode}
             placeholder={`${t.university} (${t.filterAll})`}
             searchPlaceholder={t.searchUniversities}
             noResultsText={t.searchNoResults}
           />
           <SearchableMultiSelect
             options={programs
-              .filter((p) => universityFilter.length === 0 || universityFilter.includes(p.universityId))
+              .filter((p) => matchesMultiFilter(p.universityId, universityFilter, universityFilterMode))
               .map((p) => ({ value: p.id, label: p.name }))}
             selected={programFilter}
             onChange={setProgramFilter}
+            mode={programFilterMode}
+            onModeChange={setProgramFilterMode}
             placeholder={`${t.program} (${t.filterAll})`}
             searchPlaceholder={t.searchProgramNamePlaceholder}
             noResultsText={t.searchNoResults}
@@ -1040,6 +1188,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
             options={uniqueDegrees.map((d) => ({ value: d, label: d }))}
             selected={degreeFilter}
             onChange={setDegreeFilter}
+            mode={degreeFilterMode}
+            onModeChange={setDegreeFilterMode}
             placeholder={`${t.programDegree} (${t.filterAll})`}
             searchPlaceholder={t.search}
             noResultsText={t.searchNoResults}
@@ -1049,6 +1199,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
               options={uniqueNationalities}
               selected={nationalityFilter}
               onChange={setNationalityFilter}
+              mode={nationalityFilterMode}
+              onModeChange={setNationalityFilterMode}
               placeholder={`${t.nationality} (${t.filterAll})`}
               searchPlaceholder={t.search}
               noResultsText={t.searchNoResults}
@@ -1059,6 +1211,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
               options={uniqueAgents}
               selected={agentFilter}
               onChange={setAgentFilter}
+              mode={agentFilterMode}
+              onModeChange={setAgentFilterMode}
               placeholder={`${t.agent} (${t.filterAll})`}
               searchPlaceholder={t.search}
               noResultsText={t.searchNoResults}
@@ -1069,6 +1223,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
               options={uniqueResponsibles}
               selected={responsibleFilter}
               onChange={setResponsibleFilter}
+              mode={responsibleFilterMode}
+              onModeChange={setResponsibleFilterMode}
               placeholder={`${t.responsible} (${t.filterAll})`}
               searchPlaceholder={t.search}
               noResultsText={t.searchNoResults}
@@ -1079,6 +1235,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
               options={uniqueCurrencies}
               selected={currencyFilter}
               onChange={setCurrencyFilter}
+              mode={currencyFilterMode}
+              onModeChange={setCurrencyFilterMode}
               placeholder={`${t.currency} (${t.filterAll})`}
               searchPlaceholder={t.search}
               noResultsText={t.searchNoResults}
@@ -1089,6 +1247,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
               options={agencyCompanies.map((c) => ({ value: c.id, label: c.name }))}
               selected={agencyCompanyFilter}
               onChange={setAgencyCompanyFilter}
+              mode={agencyCompanyFilterMode}
+              onModeChange={setAgencyCompanyFilterMode}
               placeholder={`${t.agencyCompany} (${t.filterAll})`}
               searchPlaceholder={t.search}
               noResultsText={t.searchNoResults}
@@ -1098,32 +1258,36 @@ export const Dashboard: React.FC<DashboardProps> = ({
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {stats.map((stat, idx) => (
-          <div key={idx} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center gap-5">
-            <div className={`p-4 rounded-lg text-white shrink-0 ${stat.color}`}>
-              <stat.icon size={24} />
-            </div>
-            <div className="min-w-0">
-              <p className="text-gray-500 text-sm">{stat.label}</p>
-              <h3 className="text-2xl font-bold text-gray-800">{stat.value}</h3>
-            </div>
-          </div>
-        ))}
-      </div>
-
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-        {pipelineStats.map((stat, idx) => (
-          <div key={idx} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center gap-5">
-            <div className={`p-4 rounded-lg text-white shrink-0 ${stat.color}`}>
-              <stat.icon size={24} />
+        {overviewCards.map((stat, idx) => {
+          const content = (
+            <>
+              <div className={`p-4 rounded-lg text-white shrink-0 ${stat.color}`}>
+                <stat.icon size={24} />
+              </div>
+              <div className="min-w-0">
+                <p className="text-gray-500 text-sm leading-snug">{stat.label}</p>
+                <h3 className="text-2xl font-bold text-gray-800">{stat.value}</h3>
+              </div>
+            </>
+          );
+          const baseClass = 'bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center gap-5 h-full';
+          return stat.onClick ? (
+            <button
+              key={idx}
+              type="button"
+              onClick={stat.onClick}
+              title={t.viewDetails}
+              className={`${baseClass} text-left transition-all hover:border-blue-200 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500`}
+            >
+              {content}
+            </button>
+          ) : (
+            <div key={idx} className={baseClass}>
+              {content}
             </div>
-            <div className="min-w-0">
-              <p className="text-gray-500 text-sm leading-snug">{stat.label}</p>
-              <h3 className="text-2xl font-bold text-gray-800">{stat.value}</h3>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {isAdmin && (
@@ -1220,6 +1384,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   <th className="sticky left-0 z-10 bg-gray-50 px-4 py-3 text-left font-semibold min-w-56">
                     {financialTableGroupLabel}
                   </th>
+                  <th className="px-4 py-3 text-right font-semibold min-w-32 whitespace-nowrap">
+                    {t.applicationCount}
+                  </th>
                   {visibleFinancialTableFields.map(field => (
                     <th key={String(field.key)} className="px-4 py-3 text-right font-semibold min-w-36">
                       {field.label}
@@ -1230,7 +1397,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <tbody className="divide-y divide-gray-100">
                 {financialTableRows.length === 0 ? (
                   <tr>
-                    <td colSpan={visibleFinancialTableFields.length + 1} className="px-4 py-8 text-center text-gray-400">
+                    <td colSpan={visibleFinancialTableFields.length + 2} className="px-4 py-8 text-center text-gray-400">
                       {t.noApplications}
                     </td>
                   </tr>
@@ -1238,7 +1405,20 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   financialTableRows.map(row => (
                     <tr key={row.group} className="hover:bg-blue-50/40">
                       <td className="sticky left-0 bg-white px-4 py-3 font-semibold text-gray-800 border-r border-gray-100">
-                        {row.group}
+                        {row.group !== '—' ? (
+                          <button
+                            type="button"
+                            onClick={() => handleFinancialRowDrilldown(row.group)}
+                            className="text-left text-blue-700 hover:text-blue-900 hover:underline"
+                          >
+                            {row.group}
+                          </button>
+                        ) : (
+                          row.group
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums font-semibold text-gray-800">
+                        {row.count.toLocaleString()}
                       </td>
                       {visibleFinancialTableFields.map(field => (
                         <td key={String(field.key)} className="px-4 py-3 text-right tabular-nums text-gray-700">
@@ -1253,6 +1433,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <tfoot className="bg-slate-100 border-t-2 border-slate-200">
                   <tr>
                     <td className="sticky left-0 bg-slate-100 px-4 py-3 font-bold text-gray-900">{t.totals}</td>
+                    <td className="px-4 py-3 text-right font-bold tabular-nums text-gray-900">
+                      {financialTableTotalCount.toLocaleString()}
+                    </td>
                     {visibleFinancialTableFields.map(field => (
                       <td key={String(field.key)} className="px-4 py-3 text-right font-bold tabular-nums text-gray-900">
                         {(financialTableTotals[String(field.key)] || 0).toLocaleString()}

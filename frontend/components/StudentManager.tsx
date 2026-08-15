@@ -4,6 +4,7 @@ import { Plus, User, Search, Eye, X, List, LayoutGrid, Pencil, ArrowLeft, Chevro
 import { useTranslation } from '../hooks/useTranslation';
 import { COUNTRIES } from '../constants/countries';
 import { matchesCreatedAtRange } from '../utils/createdAtRangeFilter';
+import { matchesMultiFilter, type MultiFilterMode } from '../utils/multiFilter';
 import { getApplicationStatusBadgeClass } from '../utils/applicationStatusStyles';
 import { ApplicationManager } from './ApplicationManager';
 import { useNotifications } from '../contexts/NotificationContext';
@@ -12,6 +13,7 @@ import { NotificationUnreadDot } from './NotificationUnreadDot';
 import { CreatedAtRangeFilter } from './CreatedAtRangeFilter';
 import { SearchableMultiSelect } from './SearchableMultiSelect';
 import { SearchableSelect } from './SearchableSelect';
+import { SavedQuickFilters } from './SavedQuickFilters';
 import { StaffTypedFileUpload } from './StaffTypedFileUpload';
 import { getStudentFileTypeLabel, type StudentFileTypeCode } from '../constants/studentFileTypes';
 
@@ -108,6 +110,8 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
   const [filterNationalities, setFilterNationalities] = useState<string[]>([]);
   const [filterGender, setFilterGender] = useState('');
   const [filterAgents, setFilterAgents] = useState<string[]>([]);
+  const [filterNationalitiesMode, setFilterNationalitiesMode] = useState<MultiFilterMode>('include');
+  const [filterAgentsMode, setFilterAgentsMode] = useState<MultiFilterMode>('include');
   const [filterStudentCreatedFrom, setFilterStudentCreatedFrom] = useState('');
   const [filterStudentCreatedTo, setFilterStudentCreatedTo] = useState('');
   const [viewMode, setViewMode] = useState<'tree' | 'kanban'>('tree');
@@ -117,7 +121,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
   const [kanbanPage, setKanbanPage] = useState(1);
   const [columnsOpen, setColumnsOpen] = useState(false);
   const columnsRef = useRef<HTMLDivElement>(null);
-  const studentColumnKeys = useMemo(() => ['name', 'passport', 'nationality', 'gender', 'email', 'agent', 'createdAt', 'updatedAt'], []);
+  const studentColumnKeys = useMemo(() => ['name', 'passport', 'nationality', 'gender', 'email', 'agent', 'createdBy', 'createdAt', 'updatedAt'], []);
   const [visibleTreeColumns, setVisibleTreeColumns] = useState<string[]>(studentColumnKeys);
   const [isModalOpen, setModalOpen] = useState(false);
   const [selectedStudentForEdit, setSelectedStudentForEdit] = useState<Student | null>(null);
@@ -179,6 +183,8 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
   const isAgent = currentUser && (currentUser.role || '').toString().toLowerCase() === 'agent';
   const canEditStudent = !isAgent;
   const getAgentName = (student: Student) => (student.userId && users.find(u => u.id === student.userId)?.name) || '—';
+  const getCreatedByName = (student: Student) =>
+    student.createdByName || (student.createdBy && users.find(u => u.id === student.createdBy)?.name) || '—';
   const uniqueAgents = useMemo(() => {
     const names = new Set<string>();
     agentUsers.forEach(u => {
@@ -198,6 +204,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
     { key: 'gender', label: t.gender },
     { key: 'email', label: t.email },
     { key: 'agent', label: t.agent },
+    { key: 'createdBy', label: t.createdByUser },
     { key: 'createdAt', label: t.createdAt },
     { key: 'updatedAt', label: t.lastUpdatedAt }
   ];
@@ -599,13 +606,13 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
       student.firstName.toLowerCase().includes(searchTerm.trim().toLowerCase()) ||
       student.lastName.toLowerCase().includes(searchTerm.trim().toLowerCase()) ||
       student.passportNumber.includes(searchTerm.trim());
-    const matchNationality = filterNationalities.length === 0 || filterNationalities.includes(student.nationality);
+    const matchNationality = matchesMultiFilter(student.nationality, filterNationalities, filterNationalitiesMode);
     const matchGender = !filterGender || student.gender === filterGender;
     const matchCreated = matchesCreatedAtRange(student.createdAt, filterStudentCreatedFrom, filterStudentCreatedTo);
     const agentName = getAgentName(student);
-    const matchAgent = filterAgents.length === 0 || filterAgents.includes(agentName);
+    const matchAgent = matchesMultiFilter(agentName, filterAgents, filterAgentsMode);
     return matchSearch && matchNationality && matchGender && matchCreated && matchAgent;
-  }), [students, searchTerm, filterNationalities, filterGender, filterStudentCreatedFrom, filterStudentCreatedTo, filterAgents, users]);
+  }), [students, searchTerm, filterNationalities, filterNationalitiesMode, filterGender, filterStudentCreatedFrom, filterStudentCreatedTo, filterAgents, filterAgentsMode, users]);
 
   const sortedStudents = useMemo(() => {
     const list = [...filteredStudents];
@@ -638,6 +645,9 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
           break;
         case 'agent':
           cmp = d * getAgentName(a).toLowerCase().localeCompare(getAgentName(b).toLowerCase());
+          break;
+        case 'createdBy':
+          cmp = d * getCreatedByName(a).toLowerCase().localeCompare(getCreatedByName(b).toLowerCase());
           break;
         default:
           cmp = 0;
@@ -816,6 +826,8 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
     setFilterNationalities([]);
     setFilterGender('');
     setFilterAgents([]);
+    setFilterNationalitiesMode('include');
+    setFilterAgentsMode('include');
     setFilterStudentCreatedFrom('');
     setFilterStudentCreatedTo('');
   };
@@ -1340,6 +1352,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
               </div>
             </div>
             <div className="text-sm text-gray-500 shrink-0 text-right space-y-0.5">
+              <div>{t.createdByUser}: {getCreatedByName(selectedStudentForDetails)}</div>
               {selectedStudentForDetails.createdAt && (
                 <div>{t.createdAt}: {new Date(selectedStudentForDetails.createdAt).toLocaleString(dateLocale, { dateStyle: 'medium', timeStyle: 'short' })}</div>
               )}
@@ -1436,6 +1449,11 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                     )}
                   </section>
                 )}
+
+                <section className="bg-white rounded-2xl p-6 border border-gray-100">
+                  <h3 className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2">{t.createdByUser}</h3>
+                  <p className="text-lg font-bold text-gray-800">{getCreatedByName(selectedStudentForDetails)}</p>
+                </section>
 
                 <section className="bg-white rounded-2xl p-6 border border-gray-100">
                   <div className="flex items-center gap-2 mb-1">
@@ -1657,6 +1675,33 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                     {t.clearFilters}
                   </button>
                 )}
+                {isAdmin && (
+                  <SavedQuickFilters
+                    pageKey="students"
+                    userId={currentUser?.id}
+                    isAdmin
+                    getFilters={() => ({
+                      searchTerm,
+                      filterNationalities,
+                      filterGender,
+                      filterAgents,
+                      filterNationalitiesMode,
+                      filterAgentsMode,
+                      filterStudentCreatedFrom,
+                      filterStudentCreatedTo
+                    })}
+                    onApply={(f) => {
+                      setSearchTerm(typeof f.searchTerm === 'string' ? f.searchTerm : '');
+                      setFilterNationalities(Array.isArray(f.filterNationalities) ? f.filterNationalities as string[] : []);
+                      setFilterGender(typeof f.filterGender === 'string' ? f.filterGender : '');
+                      setFilterAgents(Array.isArray(f.filterAgents) ? f.filterAgents as string[] : []);
+                      setFilterNationalitiesMode((f.filterNationalitiesMode as MultiFilterMode) || 'include');
+                      setFilterAgentsMode((f.filterAgentsMode as MultiFilterMode) || 'include');
+                      setFilterStudentCreatedFrom(typeof f.filterStudentCreatedFrom === 'string' ? f.filterStudentCreatedFrom : '');
+                      setFilterStudentCreatedTo(typeof f.filterStudentCreatedTo === 'string' ? f.filterStudentCreatedTo : '');
+                    }}
+                  />
+                )}
               </div>
               <div className="flex rounded-lg border border-gray-200 p-0.5 bg-gray-50">
                 <div className="relative mr-2" ref={columnsRef}>
@@ -1723,6 +1768,8 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                 <SearchableMultiSelect
                   selected={filterNationalities}
                   onChange={setFilterNationalities}
+                  mode={filterNationalitiesMode}
+                  onModeChange={setFilterNationalitiesMode}
                   options={Array.from(new Set([...filterNationalities.filter(s => !COUNTRIES.includes(s)), ...COUNTRIES]))}
                   placeholder={`${t.nationality} (${t.filterAll})`}
                   searchPlaceholder={t.search}
@@ -1754,6 +1801,8 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                     <SearchableMultiSelect
                       selected={filterAgents}
                       onChange={setFilterAgents}
+                      mode={filterAgentsMode}
+                      onModeChange={setFilterAgentsMode}
                       options={uniqueAgents}
                       placeholder={`${t.agent} (${t.filterAll})`}
                       searchPlaceholder={t.search}
@@ -1827,6 +1876,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                       {visibleTreeColumns.includes('gender') && <SortTh colKey="gender" label={t.gender} />}
                       {visibleTreeColumns.includes('email') && <SortTh colKey="email" label={t.email} />}
                       {isAdminOrUser && visibleTreeColumns.includes('agent') && <SortTh colKey="agent" label={t.agent} />}
+                      {visibleTreeColumns.includes('createdBy') && <SortTh colKey="createdBy" label={t.createdByUser} />}
                       {visibleTreeColumns.includes('createdAt') && <SortTh colKey="createdAt" label={t.createdAt} />}
                       {!isAgent && visibleTreeColumns.includes('updatedAt') && <SortTh colKey="updatedAt" label={t.lastUpdatedAt} />}
                       <th className="px-4 py-3 font-bold w-[110px] text-right">{t.actions || 'Actions'}</th>
@@ -1867,6 +1917,11 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                         {visibleTreeColumns.includes('gender') && <td className="px-4 py-3 text-gray-900">{student.gender === 'Female' ? t.female : t.male}</td>}
                         {visibleTreeColumns.includes('email') && <td className="px-4 py-3 text-gray-900">{student.email}</td>}
                         {isAdminOrUser && visibleTreeColumns.includes('agent') && <td className="px-4 py-3 text-gray-900">{getAgentName(student)}</td>}
+                        {visibleTreeColumns.includes('createdBy') && (
+                          <td className="px-4 py-3 text-gray-900 whitespace-nowrap text-xs">
+                            {getCreatedByName(student)}
+                          </td>
+                        )}
                         {visibleTreeColumns.includes('createdAt') && (
                           <td className="px-4 py-3 text-gray-600 whitespace-nowrap text-xs">
                             {student.createdAt ? new Date(student.createdAt).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
@@ -1950,6 +2005,10 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                   <h3 className="text-lg font-bold text-gray-800 mb-2">{student.firstName} {student.lastName}</h3>
 
                   <div className="space-y-2 text-sm text-gray-600 mb-6">
+                    <div className="flex justify-between gap-2">
+                      <span>{t.createdByUser}:</span>
+                      <span className="text-right">{getCreatedByName(student)}</span>
+                    </div>
                     {student.createdAt && (
                       <div className="flex justify-between">
                         <span>{t.createdAt}:</span>

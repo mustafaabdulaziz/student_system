@@ -4,12 +4,13 @@ import {
   Plus, Filter, FileText,
   MessageSquare, User as UserIcon, GraduationCap,
   Send, Upload, Paperclip, ChevronLeft, MapPin, Trash2, Mail, Phone, FileEdit,
-  List, LayoutGrid, Search, X, ChevronDown, ChevronUp, ChevronRight, DollarSign, Download
+  List, LayoutGrid, Search, X, ChevronDown, ChevronUp, ChevronRight, DollarSign, Download, Pin
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useTranslation } from '../hooks/useTranslation';
 import { useLanguage } from '../contexts/LanguageContext';
 import { matchesCreatedAtRange } from '../utils/createdAtRangeFilter';
+import { matchesMultiFilter, type MultiFilterMode } from '../utils/multiFilter';
 import { getApplicationStatusBadgeClass } from '../utils/applicationStatusStyles';
 import { normalizeApplicationStatus } from '../utils/applicationStatus';
 import { useNotifications } from '../contexts/NotificationContext';
@@ -18,9 +19,10 @@ import { NotificationUnreadDot } from './NotificationUnreadDot';
 import { CreatedAtRangeFilter } from './CreatedAtRangeFilter';
 import { StaffTypedFileUpload } from './StaffTypedFileUpload';
 import { getStudentFileTypeLabel, type StudentFileTypeCode } from '../constants/studentFileTypes';
-import { MassEditModal, type MassEditFieldDef } from './MassEditModal';
+import { MassEditModal, type MassEditApplyOptions, type MassEditFieldDef } from './MassEditModal';
 import { SearchableMultiSelect } from './SearchableMultiSelect';
 import { SearchableSelect } from './SearchableSelect';
+import { SavedQuickFilters } from './SavedQuickFilters';
 import {
   extractMentionIds,
   getActiveMentionQuery,
@@ -136,7 +138,9 @@ function MultiSelectFilter({
   optionLabels,
   placeholder,
   searchPlaceholder,
-  className = ''
+  className = '',
+  mode,
+  onModeChange
 }: {
   selected: string[];
   onChange: (v: string[]) => void;
@@ -145,6 +149,8 @@ function MultiSelectFilter({
   placeholder: string;
   searchPlaceholder?: string;
   className?: string;
+  mode?: MultiFilterMode;
+  onModeChange?: (mode: MultiFilterMode) => void;
 }) {
   const { t } = useTranslation();
   return (
@@ -157,6 +163,8 @@ function MultiSelectFilter({
       searchPlaceholder={searchPlaceholder ?? t.search}
       noResultsText={t.searchNoResults}
       className={className}
+      mode={mode}
+      onModeChange={onModeChange}
     />
   );
 }
@@ -180,9 +188,13 @@ interface ApplicationManagerProps {
     annualPayment?: number | null;
     educationVatRate?: number | null;
     abroadVatRate?: number | null;
+    grossCommissionKind?: 'amount' | 'rate';
+    grossCommissionRate?: number | null;
     grossCommission?: number | null;
     bonusMax?: number | null;
     bonusMin?: number | null;
+    agencyCommissionKind?: 'amount' | 'rate';
+    agencyCommissionRate?: number | null;
     agencyCommission?: number | null;
     agencyBonus?: number | null;
     depositSupport?: number | null;
@@ -250,6 +262,16 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const [filterAgencyCompanies, setFilterAgencyCompanies] = useState<string[]>([]);
   const [filterStatuses, setFilterStatuses] = useState<string[]>([]);
   const [filterDegrees, setFilterDegrees] = useState<string[]>([]);
+  const [filterPeriods, setFilterPeriods] = useState<string[]>([]);
+  const [filterAgentsMode, setFilterAgentsMode] = useState<MultiFilterMode>('include');
+  const [filterResponsiblesMode, setFilterResponsiblesMode] = useState<MultiFilterMode>('include');
+  const [filterUniversitiesMode, setFilterUniversitiesMode] = useState<MultiFilterMode>('include');
+  const [filterProgramsMode, setFilterProgramsMode] = useState<MultiFilterMode>('include');
+  const [filterNationalitiesMode, setFilterNationalitiesMode] = useState<MultiFilterMode>('include');
+  const [filterCurrenciesMode, setFilterCurrenciesMode] = useState<MultiFilterMode>('include');
+  const [filterAgencyCompaniesMode, setFilterAgencyCompaniesMode] = useState<MultiFilterMode>('include');
+  const [filterStatusesMode, setFilterStatusesMode] = useState<MultiFilterMode>('include');
+  const [filterDegreesMode, setFilterDegreesMode] = useState<MultiFilterMode>('include');
   const [filterAppCreatedFrom, setFilterAppCreatedFrom] = useState('');
   const [filterAppCreatedTo, setFilterAppCreatedTo] = useState('');
   const [expandedAppIds, setExpandedAppIds] = useState<Set<string>>(() => new Set());
@@ -260,11 +282,20 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const [columnsOpen, setColumnsOpen] = useState(false);
   const columnsRef = useRef<HTMLDivElement>(null);
   const applicationColumnKeys = useMemo(
-    () => ['number', 'status', 'agent', 'responsible', 'student', 'nationality', 'program', 'university', 'degree', 'agencyCompany', 'description', 'createdAt', 'updatedAt'],
+    () => ['number', 'status', 'agent', 'responsible', 'student', 'nationality', 'program', 'university', 'degree', 'agencyCompany', 'description', 'createdBy', 'createdAt', 'updatedAt'],
     []
   );
   const [visibleTreeColumns, setVisibleTreeColumns] = useState<string[]>(applicationColumnKeys);
   const [visibleFinancialColumns, setVisibleFinancialColumns] = useState<string[]>(FINANCIAL_TREE_COLUMN_KEYS);
+  const [pinnedTreeColumns, setPinnedTreeColumns] = useState<string[]>([]);
+  const [pinnedFinancialColumns, setPinnedFinancialColumns] = useState<string[]>([]);
+  const [pinsOpen, setPinsOpen] = useState(false);
+  const pinsRef = useRef<HTMLDivElement>(null);
+  const treeScrollRef = useRef<HTMLDivElement>(null);
+  const treeScrollProxyRef = useRef<HTMLDivElement>(null);
+  const syncingScrollRef = useRef(false);
+  const [treeScrollMetrics, setTreeScrollMetrics] = useState({ scrollWidth: 0, clientWidth: 0 });
+  const [pinOffsets, setPinOffsets] = useState<Record<string, number>>({});
 
   const [messages, setMessages] = React.useState<ApplicationChatMessage[]>([]);
   const [newMessage, setNewMessage] = React.useState('');
@@ -293,11 +324,15 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     annualPayment: '',
     educationVatRate: '',
     abroadVatRate: '10',
+    grossCommissionKind: 'amount' as 'amount' | 'rate',
+    grossCommissionRate: '',
     grossCommission: '',
     abroadVat: '',
     netCommission: '',
     bonusMax: '',
     bonusMin: '',
+    agencyCommissionKind: 'amount' as 'amount' | 'rate',
+    agencyCommissionRate: '',
     agencyCommission: '',
     agencyBonus: '',
     depositSupport: '',
@@ -376,11 +411,15 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     annualPayment: app.annualPayment != null ? String(app.annualPayment) : '',
     educationVatRate: app.educationVatRate != null ? String(app.educationVatRate) : '',
     abroadVatRate: app.abroadVatRate != null ? String(app.abroadVatRate) : '10',
+    grossCommissionKind: app.grossCommissionKind === 'rate' ? 'rate' as const : 'amount' as const,
+    grossCommissionRate: app.grossCommissionRate != null ? String(app.grossCommissionRate) : '',
     grossCommission: app.grossCommission != null ? String(app.grossCommission) : '',
     abroadVat: app.abroadVat != null ? String(app.abroadVat) : '',
     netCommission: app.netCommission != null ? String(app.netCommission) : '',
     bonusMax: app.bonusMax != null ? String(app.bonusMax) : '',
     bonusMin: app.bonusMin != null ? String(app.bonusMin) : '',
+    agencyCommissionKind: app.agencyCommissionKind === 'rate' ? 'rate' as const : 'amount' as const,
+    agencyCommissionRate: app.agencyCommissionRate != null ? String(app.agencyCommissionRate) : '',
     agencyCommission: app.agencyCommission != null ? String(app.agencyCommission) : '',
     agencyBonus: app.agencyBonus != null ? String(app.agencyBonus) : '',
     depositSupport: app.depositSupport != null ? String(app.depositSupport) : '',
@@ -402,20 +441,46 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     if (Number.isNaN(annual) || Number.isNaN(rate)) return '';
     return String((annual * rate) / 100);
   }, [detailFinance.annualPayment, detailFinance.educationVatRate]);
-  const computedAgencyContractAmount = useMemo(() => {
-    const total = numOrZero(detailFinance.agencyCommission) + numOrZero(detailFinance.agencyBonus);
-    return String(total);
-  }, [detailFinance.agencyCommission, detailFinance.agencyBonus]);
+  const computedGrossCommission = useMemo(() => {
+    if (detailFinance.grossCommissionKind === 'amount') return detailFinance.grossCommission;
+    const annual = parseFloat(detailFinance.annualPayment);
+    const educationVat = parseFloat(computedEducationVatAmount);
+    const rate = parseFloat(detailFinance.grossCommissionRate);
+    if (Number.isNaN(annual) || Number.isNaN(educationVat) || Number.isNaN(rate)) return '';
+    return String((annual - educationVat) * (rate / 100));
+  }, [
+    detailFinance.grossCommissionKind,
+    detailFinance.grossCommission,
+    detailFinance.annualPayment,
+    detailFinance.grossCommissionRate,
+    computedEducationVatAmount
+  ]);
   const computedAbroadVatAmount = useMemo(() => {
-    const gross = numOrZero(detailFinance.grossCommission);
+    const gross = numOrZero(computedGrossCommission);
     const rate = numOrZero(detailFinance.abroadVatRate);
     return String((gross * rate) / 100);
-  }, [detailFinance.grossCommission, detailFinance.abroadVatRate]);
+  }, [computedGrossCommission, detailFinance.abroadVatRate]);
   const computedNetCommission = useMemo(() => {
-    const gross = numOrZero(detailFinance.grossCommission);
+    const gross = numOrZero(computedGrossCommission);
     const abroad = numOrZero(computedAbroadVatAmount);
     return String(gross - abroad);
-  }, [detailFinance.grossCommission, computedAbroadVatAmount]);
+  }, [computedGrossCommission, computedAbroadVatAmount]);
+  const computedAgencyCommission = useMemo(() => {
+    if (detailFinance.agencyCommissionKind === 'amount') return detailFinance.agencyCommission;
+    const net = parseFloat(computedNetCommission);
+    const rate = parseFloat(detailFinance.agencyCommissionRate);
+    if (Number.isNaN(net) || Number.isNaN(rate)) return '';
+    return String(net * (rate / 100));
+  }, [
+    detailFinance.agencyCommissionKind,
+    detailFinance.agencyCommission,
+    detailFinance.agencyCommissionRate,
+    computedNetCommission
+  ]);
+  const computedAgencyContractAmount = useMemo(() => {
+    const total = numOrZero(computedAgencyCommission) + numOrZero(detailFinance.agencyBonus);
+    return String(total);
+  }, [computedAgencyCommission, detailFinance.agencyBonus]);
   const computedRemainingMin = useMemo(() => {
     const net = numOrZero(computedNetCommission);
     const bonusMin = numOrZero(detailFinance.bonusMin);
@@ -637,6 +702,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     setFilterNationalities(initialListFilters.nationalities ?? []);
     setFilterStatuses(initialListFilters.statuses ?? []);
     setFilterDegrees(initialListFilters.degrees ?? []);
+    setFilterPeriods(initialListFilters.periodIds ?? []);
     setFilterAppCreatedFrom(initialListFilters.createdFrom ?? '');
     setFilterAppCreatedTo(initialListFilters.createdTo ?? '');
     scrollContentTop();
@@ -742,6 +808,9 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const getUni = (id: string) => universities.find(u => u.id === id);
 
   const getAgentName = (app: Application) => app.agentName || (app.userId && users.find(u => u.id === app.userId)?.name) || '—';
+
+  const getCreatedByName = (app: Application) =>
+    app.createdByName || (app.createdBy && users.find(u => u.id === app.createdBy)?.name) || '—';
 
   const getResponsibleLabel = (app: Application) =>
     (app.responsibleName && app.responsibleName.trim()) ||
@@ -858,22 +927,23 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
         ((s?.firstName || '').toLowerCase().includes(searchName) || (s?.lastName || '').toLowerCase().includes(searchName));
       const agentName = getAgentName(app);
       const responsibleName = getResponsibleLabel(app);
-      const matchAgent = filterAgents.length === 0 || filterAgents.includes(agentName);
-      const matchResponsible = filterResponsibles.length === 0 || filterResponsibles.includes(responsibleName);
-      const matchUniversity = filterUniversities.length === 0 || (p?.universityId && filterUniversities.includes(p.universityId));
-      const matchProgram = filterPrograms.length === 0 || filterPrograms.includes(app.programId);
-      const matchNationality = filterNationalities.length === 0 || (s?.nationality && filterNationalities.includes(s.nationality));
-      const matchCurrency = filterCurrencies.length === 0 || filterCurrencies.includes((app.currency || 'USD').toUpperCase());
-      const matchAgencyCompany = filterAgencyCompanies.length === 0 || (!!app.agencyCompanyId && filterAgencyCompanies.includes(app.agencyCompanyId));
+      const matchAgent = matchesMultiFilter(agentName, filterAgents, filterAgentsMode);
+      const matchResponsible = matchesMultiFilter(responsibleName, filterResponsibles, filterResponsiblesMode);
+      const matchUniversity = matchesMultiFilter(p?.universityId, filterUniversities, filterUniversitiesMode);
+      const matchProgram = matchesMultiFilter(app.programId, filterPrograms, filterProgramsMode);
+      const matchNationality = matchesMultiFilter(s?.nationality, filterNationalities, filterNationalitiesMode);
+      const matchCurrency = matchesMultiFilter((app.currency || 'USD').toUpperCase(), filterCurrencies, filterCurrenciesMode);
+      const matchAgencyCompany = matchesMultiFilter(app.agencyCompanyId, filterAgencyCompanies, filterAgencyCompaniesMode);
       const appStatusNorm = normalizeApplicationStatus(app.status);
-      const selectedNorm = filterStatuses.map((s) => normalizeApplicationStatus(s));
-      const matchStatus = filterStatuses.length === 0 || selectedNorm.includes(appStatusNorm);
-      const matchDegree = filterDegrees.length === 0 || (p?.degree && filterDegrees.includes(p.degree));
+      const selectedNorm = filterStatuses.map((st) => normalizeApplicationStatus(st));
+      const matchStatus = matchesMultiFilter(appStatusNorm, selectedNorm, filterStatusesMode);
+      const matchDegree = matchesMultiFilter(p?.degree, filterDegrees, filterDegreesMode);
+      const matchPeriod = matchesMultiFilter(app.periodId || p?.periodId, filterPeriods, 'include');
       const matchCreated = matchesCreatedAtRange(app.createdAt, filterAppCreatedFrom, filterAppCreatedTo);
-      return matchNumber && matchName && matchAgent && matchResponsible && matchUniversity && matchProgram && matchNationality && matchCurrency && matchAgencyCompany && matchStatus && matchDegree && matchCreated;
+      return matchNumber && matchName && matchAgent && matchResponsible && matchUniversity && matchProgram && matchNationality && matchCurrency && matchAgencyCompany && matchStatus && matchDegree && matchPeriod && matchCreated;
     });
     return list;
-  }, [applications, students, programs, universities, users, searchApplicationNumber, searchStudentName, filterAgents, filterResponsibles, filterUniversities, filterPrograms, filterNationalities, filterCurrencies, filterAgencyCompanies, filterStatuses, filterDegrees, filterAppCreatedFrom, filterAppCreatedTo]);
+  }, [applications, students, programs, universities, users, searchApplicationNumber, searchStudentName, filterAgents, filterAgentsMode, filterResponsibles, filterResponsiblesMode, filterUniversities, filterUniversitiesMode, filterPrograms, filterProgramsMode, filterNationalities, filterNationalitiesMode, filterCurrencies, filterCurrenciesMode, filterAgencyCompanies, filterAgencyCompaniesMode, filterStatuses, filterStatusesMode, filterDegrees, filterDegreesMode, filterPeriods, filterAppCreatedFrom, filterAppCreatedTo]);
 
   const sortedApplications = useMemo(() => {
     const list = [...filteredApplications];
@@ -901,6 +971,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
         case 'degree': va = (pA?.degree || '').toLowerCase(); vb = (pB?.degree || '').toLowerCase(); return dir * (va as string).localeCompare(vb as string);
         case 'agencyCompany': va = (a.agencyCompanyName || '').toLowerCase(); vb = (b.agencyCompanyName || '').toLowerCase(); return dir * (va as string).localeCompare(vb as string);
         case 'description': va = (a.internalDescription || '').toLowerCase(); vb = (b.internalDescription || '').toLowerCase(); return dir * (va as string).localeCompare(vb as string);
+        case 'createdBy': va = getCreatedByName(a).toLowerCase(); vb = getCreatedByName(b).toLowerCase(); return dir * (va as string).localeCompare(vb as string);
         case 'createdAt': va = new Date(a.createdAt || 0).getTime(); vb = new Date(b.createdAt || 0).getTime(); return dir * ((va as number) - (vb as number));
         case 'updatedAt': va = new Date(a.updatedAt || a.createdAt || 0).getTime(); vb = new Date(b.updatedAt || b.createdAt || 0).getTime(); return dir * ((va as number) - (vb as number));
         case 'status': va = (a.status || '').toLowerCase(); vb = (b.status || '').toLowerCase(); return dir * (va as string).localeCompare(vb as string);
@@ -923,9 +994,11 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const visibleFinancialFields = FINANCIAL_TREE_FIELDS.filter((field) =>
     visibleFinancialColumns.includes(String(field.key))
   );
-  const visibleFinancialBaseCount = FINANCIAL_TREE_BASE_COLUMN_KEYS.filter((key) =>
-    visibleFinancialColumns.includes(key)
-  ).length;
+  const visibleFinancialBaseKeys = FINANCIAL_TREE_BASE_COLUMN_KEYS.filter((key) => {
+    if (!visibleFinancialColumns.includes(key)) return false;
+    if (!isAdminOrUser && (key === 'agencyCompany' || key === 'description')) return false;
+    return true;
+  });
 
   const TREE_PAGE_SIZE = 80;
   const totalTreePages = Math.max(1, Math.ceil(sortedApplications.length / TREE_PAGE_SIZE));
@@ -1042,11 +1115,11 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
       { key: 'paymentDeserved', label: fin('paymentDeserved'), type: 'boolean' },
       { key: 'annualPayment', label: fin('annualPayment'), type: 'number', nullable: true },
       { key: 'educationVatRate', label: 'Eğitim KDV %', type: 'number', nullable: true },
-      { key: 'grossCommission', label: fin('grossCommission'), type: 'number', nullable: true },
+      { key: 'grossCommission', label: fin('grossCommission'), type: 'number', nullable: true, supportsRateMode: true },
       { key: 'abroadVatRate', label: 'Yurtdışı KDV %', type: 'number', nullable: true },
       { key: 'bonusMax', label: fin('bonusMax'), type: 'number', nullable: true },
       { key: 'bonusMin', label: fin('bonusMin'), type: 'number', nullable: true },
-      { key: 'agencyCommission', label: fin('agencyCommission'), type: 'number', nullable: true },
+      { key: 'agencyCommission', label: fin('agencyCommission'), type: 'number', nullable: true, supportsRateMode: true },
       { key: 'agencyBonus', label: fin('agencyBonus'), type: 'number', nullable: true },
       { key: 'depositSupport', label: fin('depositSupport'), type: 'number', nullable: true }
     ];
@@ -1080,14 +1153,51 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     return fields;
   }, [isAdminOrUser, agentUsers, responsibleUsers, agencyCompanies, t, translateStatus]);
 
-  const handleApplicationMassEditApply = async (fieldKey: string, value: unknown) => {
+  const handleApplicationMassEditApply = async (
+    fieldKey: string,
+    value: unknown,
+    options?: MassEditApplyOptions
+  ) => {
     if (!onUpdateApplication || selectedApplicationIds.size === 0) return;
     setMassEditApplying(true);
     let ok = 0;
     let fail = 0;
+    const useRate =
+      options?.valueMode === 'rate' &&
+      typeof value === 'number' &&
+      (fieldKey === 'grossCommission' || fieldKey === 'agencyCommission');
     try {
-      const payload = { [fieldKey]: value } as Parameters<NonNullable<typeof onUpdateApplication>>[1];
       for (const id of Array.from(selectedApplicationIds)) {
+        let payloadValue: unknown = value;
+        if (useRate) {
+          const app = applications.find((a) => a.id === id);
+          if (!app) {
+            fail++;
+            continue;
+          }
+          const rate = value as number;
+          if (fieldKey === 'grossCommission') {
+            const annual = Number(app.annualPayment) || 0;
+            const eduVat =
+              app.educationVat != null
+                ? Number(app.educationVat)
+                : app.educationVatRate != null && app.annualPayment != null
+                  ? (Number(app.annualPayment) * Number(app.educationVatRate)) / 100
+                  : 0;
+            payloadValue = (annual - eduVat) * (rate / 100);
+          } else {
+            const net = Number(app.netCommission) || 0;
+            payloadValue = net * (rate / 100);
+          }
+        }
+        const payload = { [fieldKey]: payloadValue } as Parameters<NonNullable<typeof onUpdateApplication>>[1];
+        if (fieldKey === 'grossCommission') {
+          payload.grossCommissionKind = useRate ? 'rate' : 'amount';
+          payload.grossCommissionRate = useRate ? value as number : null;
+        } else if (fieldKey === 'agencyCommission') {
+          payload.agencyCommissionKind = useRate ? 'rate' : 'amount';
+          payload.agencyCommissionRate = useRate ? value as number : null;
+        }
         const success = await Promise.resolve(onUpdateApplication(id, payload, { silent: true }));
         if (success) ok++;
         else fail++;
@@ -1121,6 +1231,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     { key: 'degree', label: t.programDegree },
     { key: 'agencyCompany', label: t.agencyCompany },
     { key: 'description', label: t.internalDescription },
+    { key: 'createdBy', label: t.createdByUser },
     { key: 'createdAt', label: t.createdAt },
     { key: 'updatedAt', label: t.lastUpdatedAt }
   ];
@@ -1204,6 +1315,9 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
             break;
           case 'description':
             value = app.internalDescription || '—';
+            break;
+          case 'createdBy':
+            value = getCreatedByName(app);
             break;
           case 'createdAt':
             value = formatDate(app.createdAt);
@@ -1330,10 +1444,174 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
       if (columnsRef.current && !columnsRef.current.contains(e.target as Node)) {
         setColumnsOpen(false);
       }
+      if (pinsRef.current && !pinsRef.current.contains(e.target as Node)) {
+        setPinsOpen(false);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  const pinStorageKey = `tree-pins:applications:${currentUser?.id || 'guest'}`;
+  const financialPinStorageKey = `tree-pins:applications-financial:${currentUser?.id || 'guest'}`;
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const read = (key: string, allowed: string[]) => {
+      try {
+        const parsed = JSON.parse(window.localStorage.getItem(key) || 'null');
+        return Array.isArray(parsed) ? parsed.filter((k: string) => allowed.includes(k)) : [];
+      } catch {
+        return [];
+      }
+    };
+    setPinnedTreeColumns(read(pinStorageKey, applicationColumnKeys));
+    setPinnedFinancialColumns(read(financialPinStorageKey, FINANCIAL_TREE_COLUMN_KEYS));
+  }, [pinStorageKey, financialPinStorageKey, applicationColumnKeys]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(pinStorageKey, JSON.stringify(pinnedTreeColumns));
+  }, [pinStorageKey, pinnedTreeColumns]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(financialPinStorageKey, JSON.stringify(pinnedFinancialColumns));
+  }, [financialPinStorageKey, pinnedFinancialColumns]);
+
+  const isRtlTable = language === 'ar';
+  const activePinnedColumns = showFinancialTree ? pinnedFinancialColumns : pinnedTreeColumns;
+  const visibleActiveColumns = showFinancialTree ? visibleFinancialColumns : visibleTreeColumns;
+  const pinnedKeys = useMemo(() => {
+    const keys = new Set(activePinnedColumns.filter(key => visibleActiveColumns.includes(key)));
+    if (keys.size > 0) {
+      if (showBulkSelect) keys.add('__select');
+      if (!showFinancialTree) keys.add('__expand');
+    }
+    return keys;
+  }, [activePinnedColumns, visibleActiveColumns, showBulkSelect, showFinancialTree]);
+  const pinActive = pinnedKeys.size > 0;
+
+  const pinnableColumns = useMemo(() => {
+    const base = showFinancialTree ? financialColumnOptions : applicationColumnOptions;
+    return base.filter(col => {
+      if (!visibleActiveColumns.includes(col.key)) return false;
+      if (!canSeeAgentColumn && (col.key === 'agent' || col.key === 'responsible' || col.key === 'agencyCompany' || col.key === 'description')) return false;
+      if (isAgent && col.key === 'updatedAt') return false;
+      return true;
+    });
+  }, [showFinancialTree, financialColumnOptions, applicationColumnOptions, visibleActiveColumns, canSeeAgentColumn, isAgent]);
+
+  const togglePinnedColumn = (key: string) => {
+    const setter = showFinancialTree ? setPinnedFinancialColumns : setPinnedTreeColumns;
+    setter(prev => (prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]));
+  };
+
+  const clearPinnedColumns = () => {
+    (showFinancialTree ? setPinnedFinancialColumns : setPinnedTreeColumns)([]);
+  };
+
+  // Sticky offsets follow the rendered header order so pins stack on the leading edge
+  useEffect(() => {
+    const container = treeScrollRef.current;
+    if (!container || !pinActive) {
+      setPinOffsets(prev => (Object.keys(prev).length === 0 ? prev : {}));
+      return;
+    }
+    const measure = () => {
+      const cells = Array.from(container.querySelectorAll('thead [data-pin-key]')) as HTMLElement[];
+      let offset = 0;
+      const next: Record<string, number> = {};
+      cells.forEach((cell) => {
+        const key = cell.dataset.pinKey;
+        if (!key || !pinnedKeys.has(key)) return;
+        next[key] = offset;
+        offset += cell.getBoundingClientRect().width;
+      });
+      setPinOffsets(prev => {
+        const prevKeys = Object.keys(prev);
+        const sameSize = prevKeys.length === Object.keys(next).length;
+        if (sameSize && prevKeys.every(k => Math.abs((prev[k] ?? 0) - (next[k] ?? 0)) < 0.5)) return prev;
+        return next;
+      });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [pinActive, pinnedKeys, visibleActiveColumns, showFinancialTree, listViewMode, language, pagedApplications.length]);
+
+  const pinCellStyle = (key: string): React.CSSProperties | undefined => {
+    if (!pinnedKeys.has(key)) return undefined;
+    const offset = pinOffsets[key];
+    if (offset === undefined) return undefined;
+    return isRtlTable
+      ? { position: 'sticky', right: offset, zIndex: 2 }
+      : { position: 'sticky', left: offset, zIndex: 2 };
+  };
+
+  const pinHeadStyle = (key: string): React.CSSProperties | undefined => {
+    const style = pinCellStyle(key);
+    return style ? { ...style, zIndex: 3 } : undefined;
+  };
+
+  const pinCellClass = (key: string, variant: 'head' | 'body' = 'body') => {
+    if (!pinnedKeys.has(key) || pinOffsets[key] === undefined) return '';
+    return variant === 'head' ? 'bg-gray-50' : 'bg-inherit';
+  };
+
+  // Footer rows have no per-row background to inherit, so pinned cells need an opaque one
+  const pinFooterClass = (key: string) => {
+    if (!pinnedKeys.has(key) || pinOffsets[key] === undefined) return '';
+    return 'bg-blue-50';
+  };
+
+  const treeRowBgClass = (isSelected: boolean, hasUnread: boolean) => {
+    if (!pinActive) {
+      return `hover:bg-blue-50/30 ${hasUnread ? 'bg-blue-50/50' : ''} ${isSelected ? 'bg-blue-50/40' : ''}`;
+    }
+    return `hover:bg-blue-50 ${isSelected || hasUnread ? 'bg-blue-50' : 'bg-white'}`;
+  };
+
+  useEffect(() => {
+    const container = treeScrollRef.current;
+    if (!container) {
+      setTreeScrollMetrics(prev => (prev.scrollWidth === 0 && prev.clientWidth === 0 ? prev : { scrollWidth: 0, clientWidth: 0 }));
+      return;
+    }
+    const update = () => {
+      setTreeScrollMetrics(prev =>
+        Math.abs(prev.scrollWidth - container.scrollWidth) < 1 && Math.abs(prev.clientWidth - container.clientWidth) < 1
+          ? prev
+          : { scrollWidth: container.scrollWidth, clientWidth: container.clientWidth }
+      );
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(container);
+    const table = container.querySelector('table');
+    if (table) observer.observe(table);
+    return () => observer.disconnect();
+  }, [listViewMode, showFinancialTree, visibleActiveColumns, pagedApplications.length, language, showBulkSelect]);
+
+  const treeHasOverflow = treeScrollMetrics.scrollWidth - treeScrollMetrics.clientWidth > 4;
+
+  const scrollTreeBy = (amount: number) => {
+    treeScrollRef.current?.scrollBy({ left: amount, behavior: 'smooth' });
+  };
+
+  const handleTreeScroll = (source: 'table' | 'proxy') => {
+    if (syncingScrollRef.current) {
+      syncingScrollRef.current = false;
+      return;
+    }
+    const table = treeScrollRef.current;
+    const proxy = treeScrollProxyRef.current;
+    if (!table || !proxy) return;
+    syncingScrollRef.current = true;
+    if (source === 'table') proxy.scrollLeft = table.scrollLeft;
+    else table.scrollLeft = proxy.scrollLeft;
+  };
 
   useEffect(() => {
     const hiddenByConfig = sortBy && applicationColumnKeys.includes(sortBy) && !visibleTreeColumns.includes(sortBy);
@@ -1377,7 +1655,12 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     if (normalized.length === 0) setVisibleTreeColumns(allowed);
   }, [canSeeAgentColumn, isAgent, applicationColumnKeys, visibleTreeColumns]);
   const SortTh = ({ colKey, label, className = '' }: { colKey: string; label: string; className?: string }) => (
-    <th style={{ fontWeight: 700 }} className={`px-6 py-5 text-gray-900 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100/80 transition-colors ${className}`} onClick={() => toggleSort(colKey)}>
+    <th
+      data-pin-key={colKey}
+      style={{ fontWeight: 700, ...(pinHeadStyle(colKey) || {}) }}
+      className={`px-6 py-5 text-gray-900 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100/80 transition-colors ${pinCellClass(colKey, 'head')} ${className}`}
+      onClick={() => toggleSort(colKey)}
+    >
       <span style={{ fontWeight: 700 }} className="inline-flex items-center gap-1 text-gray-900">
         {label}
         {sortBy === colKey ? (sortDir === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />) : <span className="opacity-30"><ChevronDown size={14} /></span>}
@@ -1815,10 +2098,14 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                         annualPayment: num(detailFinance.annualPayment),
                         educationVatRate: num(detailFinance.educationVatRate),
                         abroadVatRate: num(detailFinance.abroadVatRate),
-                        grossCommission: num(detailFinance.grossCommission),
+                        grossCommissionKind: detailFinance.grossCommissionKind,
+                        grossCommissionRate: num(detailFinance.grossCommissionRate),
+                        grossCommission: num(computedGrossCommission),
                         bonusMax: num(detailFinance.bonusMax),
                         bonusMin: num(detailFinance.bonusMin),
-                        agencyCommission: num(detailFinance.agencyCommission),
+                        agencyCommissionKind: detailFinance.agencyCommissionKind,
+                        agencyCommissionRate: num(detailFinance.agencyCommissionRate),
+                        agencyCommission: num(computedAgencyCommission),
                         agencyBonus: num(detailFinance.agencyBonus),
                         depositSupport: num(detailFinance.depositSupport),
                         currency: ['USD', 'TRY', 'EUR'].includes(detailFinance.currency) ? detailFinance.currency : 'USD',
@@ -1853,7 +2140,10 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                 </button>
               )
             )}
-            <div className="flex items-center gap-2 whitespace-nowrap">
+            <div className="flex items-center gap-2 whitespace-nowrap flex-wrap justify-end">
+              <span className="text-xs bg-gray-100 px-3 py-1 rounded-full text-gray-600 font-medium" title={t.createdByUser}>
+                {t.createdByUser}: {getCreatedByName(app)}
+              </span>
               <span className="text-xs bg-gray-100 px-3 py-1 rounded-full text-gray-600 font-medium" title={t.createdAt}>
                 {t.createdAt}: {app.createdAt ? new Date(app.createdAt).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
               </span>
@@ -2545,13 +2835,45 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                     />
                   </div>
                   <div className="min-w-0 flex flex-col gap-1">
+                    <label className="text-gray-500 text-xs font-medium">Brüt Komisyon Tipi</label>
+                    <select
+                      value={detailFinance.grossCommissionKind}
+                      onChange={(e) => setDetailFinance(prev => ({
+                        ...prev,
+                        grossCommissionKind: e.target.value as 'amount' | 'rate'
+                      }))}
+                      className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                    >
+                      <option value="amount">Sabit tutar</option>
+                      <option value="rate">Oran</option>
+                    </select>
+                  </div>
+                  {detailFinance.grossCommissionKind === 'rate' && (
+                    <div className="min-w-0 flex flex-col gap-1">
+                      <label className="text-gray-500 text-xs font-medium">Brüt Komisyon Oranı (%)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={detailFinance.grossCommissionRate}
+                        onChange={(e) => setDetailFinance(prev => ({ ...prev, grossCommissionRate: e.target.value }))}
+                        className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                      />
+                    </div>
+                  )}
+                  <div className="min-w-0 flex flex-col gap-1">
                     <label className="text-gray-500 text-xs font-medium">Brüt Komisyon</label>
                     <input
                       type="number"
                       step="any"
-                      value={detailFinance.grossCommission}
+                      value={computedGrossCommission}
+                      readOnly={detailFinance.grossCommissionKind === 'rate'}
                       onChange={(e) => setDetailFinance(prev => ({ ...prev, grossCommission: e.target.value }))}
-                      className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                      className={`w-full min-w-0 p-2 border border-gray-200 rounded-lg outline-none ${
+                        detailFinance.grossCommissionKind === 'rate'
+                          ? 'bg-gray-50 text-gray-600 cursor-not-allowed'
+                          : 'focus:ring-2 focus:ring-blue-500'
+                      }`}
                     />
                   </div>
                   <div className="min-w-0 flex flex-col gap-1">
@@ -2575,8 +2897,46 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                     <input type="number" step="any" value={detailFinance.bonusMin} onChange={(e) => setDetailFinance(prev => ({ ...prev, bonusMin: e.target.value }))} className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
                   </div>
                   <div className="min-w-0 flex flex-col gap-1">
+                    <label className="text-gray-500 text-xs font-medium">Acenta Komisyon Tipi</label>
+                    <select
+                      value={detailFinance.agencyCommissionKind}
+                      onChange={(e) => setDetailFinance(prev => ({
+                        ...prev,
+                        agencyCommissionKind: e.target.value as 'amount' | 'rate'
+                      }))}
+                      className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                    >
+                      <option value="amount">Sabit tutar</option>
+                      <option value="rate">Oran</option>
+                    </select>
+                  </div>
+                  {detailFinance.agencyCommissionKind === 'rate' && (
+                    <div className="min-w-0 flex flex-col gap-1">
+                      <label className="text-gray-500 text-xs font-medium">Acenta Komisyon Oranı (%)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={detailFinance.agencyCommissionRate}
+                        onChange={(e) => setDetailFinance(prev => ({ ...prev, agencyCommissionRate: e.target.value }))}
+                        className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                      />
+                    </div>
+                  )}
+                  <div className="min-w-0 flex flex-col gap-1">
                     <label className="text-gray-500 text-xs font-medium">Acenta Komisyon</label>
-                    <input type="number" step="any" value={detailFinance.agencyCommission} onChange={(e) => setDetailFinance(prev => ({ ...prev, agencyCommission: e.target.value }))} className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                    <input
+                      type="number"
+                      step="any"
+                      value={computedAgencyCommission}
+                      readOnly={detailFinance.agencyCommissionKind === 'rate'}
+                      onChange={(e) => setDetailFinance(prev => ({ ...prev, agencyCommission: e.target.value }))}
+                      className={`w-full min-w-0 p-2 border border-gray-200 rounded-lg outline-none ${
+                        detailFinance.agencyCommissionKind === 'rate'
+                          ? 'bg-gray-50 text-gray-600 cursor-not-allowed'
+                          : 'focus:ring-2 focus:ring-blue-500'
+                      }`}
+                    />
                   </div>
                   <div className="min-w-0 flex flex-col gap-1">
                     <label className="text-gray-500 text-xs font-medium">Acenta Bonus</label>
@@ -2668,6 +3028,20 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                     <p className="font-medium text-gray-900 mt-0.5">{app.educationVat != null ? Number(app.educationVat) : '—'}</p>
                   </div>
                   <div className="min-w-0 py-1">
+                    <p className="text-gray-500 text-xs font-medium">Brüt Komisyon Tipi</p>
+                    <p className="font-medium text-gray-900 mt-0.5">
+                      {app.grossCommissionKind === 'rate' ? 'Oran' : 'Sabit tutar'}
+                    </p>
+                  </div>
+                  {app.grossCommissionKind === 'rate' && (
+                    <div className="min-w-0 py-1">
+                      <p className="text-gray-500 text-xs font-medium">Brüt Komisyon Oranı (%)</p>
+                      <p className="font-medium text-gray-900 mt-0.5">
+                        {app.grossCommissionRate != null ? Number(app.grossCommissionRate) : '—'}
+                      </p>
+                    </div>
+                  )}
+                  <div className="min-w-0 py-1">
                     <p className="text-gray-500 text-xs font-medium">Brüt Komisyon</p>
                     <p className="font-medium text-gray-900 mt-0.5">{app.grossCommission != null ? Number(app.grossCommission) : '—'}</p>
                   </div>
@@ -2685,6 +3059,20 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                   </div>
                   <div className="min-w-0 py-1"><p className="text-gray-500 text-xs font-medium">Bonus Max</p><p className="font-medium text-gray-900 mt-0.5">{app.bonusMax != null ? Number(app.bonusMax) : '—'}</p></div>
                   <div className="min-w-0 py-1"><p className="text-gray-500 text-xs font-medium">Bonus Min</p><p className="font-medium text-gray-900 mt-0.5">{app.bonusMin != null ? Number(app.bonusMin) : '—'}</p></div>
+                  <div className="min-w-0 py-1">
+                    <p className="text-gray-500 text-xs font-medium">Acenta Komisyon Tipi</p>
+                    <p className="font-medium text-gray-900 mt-0.5">
+                      {app.agencyCommissionKind === 'rate' ? 'Oran' : 'Sabit tutar'}
+                    </p>
+                  </div>
+                  {app.agencyCommissionKind === 'rate' && (
+                    <div className="min-w-0 py-1">
+                      <p className="text-gray-500 text-xs font-medium">Acenta Komisyon Oranı (%)</p>
+                      <p className="font-medium text-gray-900 mt-0.5">
+                        {app.agencyCommissionRate != null ? Number(app.agencyCommissionRate) : '—'}
+                      </p>
+                    </div>
+                  )}
                   <div className="min-w-0 py-1"><p className="text-gray-500 text-xs font-medium">Acenta Komisyon</p><p className="font-medium text-gray-900 mt-0.5">{app.agencyCommission != null ? Number(app.agencyCommission) : '—'}</p></div>
                   <div className="min-w-0 py-1"><p className="text-gray-500 text-xs font-medium">Acenta Bonus</p><p className="font-medium text-gray-900 mt-0.5">{app.agencyBonus != null ? Number(app.agencyBonus) : '—'}</p></div>
                   <div className="min-w-0 py-1"><p className="text-gray-500 text-xs font-medium">Depozito Desteği</p><p className="font-medium text-gray-900 mt-0.5">{app.depositSupport != null ? Number(app.depositSupport) : '—'}</p></div>
@@ -2755,7 +3143,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
 
           {/* Filter bar + View toggle */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mt-6">
-            <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
               <div className="flex items-center gap-3 flex-wrap">
                 <div className="flex items-center gap-2 text-gray-600">
                   <Search size={18} className="text-blue-500" />
@@ -2766,10 +3154,91 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                   <Filter size={18} className="text-purple-500" />
                   <span className="text-sm font-medium">{t.filter}</span>
                 </div>
-                {(searchApplicationNumber || searchStudentName || (!isAgent && (filterAgents.length > 0 || filterResponsibles.length > 0 || filterCurrencies.length > 0 || filterAgencyCompanies.length > 0)) || filterUniversities.length > 0 || filterPrograms.length > 0 || filterNationalities.length > 0 || filterStatuses.length > 0 || filterDegrees.length > 0 || filterAppCreatedFrom || filterAppCreatedTo) && (
+                {isAdmin && (
+                  <SavedQuickFilters
+                    pageKey="applications"
+                    userId={currentUser?.id}
+                    isAdmin
+                    getFilters={() => ({
+                      searchApplicationNumber,
+                      searchStudentName,
+                      filterAgents,
+                      filterResponsibles,
+                      filterUniversities,
+                      filterPrograms,
+                      filterNationalities,
+                      filterCurrencies,
+                      filterAgencyCompanies,
+                      filterStatuses,
+                      filterDegrees,
+                      filterPeriods,
+                      filterAgentsMode,
+                      filterResponsiblesMode,
+                      filterUniversitiesMode,
+                      filterProgramsMode,
+                      filterNationalitiesMode,
+                      filterCurrenciesMode,
+                      filterAgencyCompaniesMode,
+                      filterStatusesMode,
+                      filterDegreesMode,
+                      filterAppCreatedFrom,
+                      filterAppCreatedTo
+                    })}
+                    onApply={(f) => {
+                      setSearchApplicationNumber(typeof f.searchApplicationNumber === 'string' ? f.searchApplicationNumber : '');
+                      setSearchStudentName(typeof f.searchStudentName === 'string' ? f.searchStudentName : '');
+                      setFilterAgents(Array.isArray(f.filterAgents) ? f.filterAgents as string[] : []);
+                      setFilterResponsibles(Array.isArray(f.filterResponsibles) ? f.filterResponsibles as string[] : []);
+                      setFilterUniversities(Array.isArray(f.filterUniversities) ? f.filterUniversities as string[] : []);
+                      setFilterPrograms(Array.isArray(f.filterPrograms) ? f.filterPrograms as string[] : []);
+                      setFilterNationalities(Array.isArray(f.filterNationalities) ? f.filterNationalities as string[] : []);
+                      setFilterCurrencies(Array.isArray(f.filterCurrencies) ? f.filterCurrencies as string[] : []);
+                      setFilterAgencyCompanies(Array.isArray(f.filterAgencyCompanies) ? f.filterAgencyCompanies as string[] : []);
+                      setFilterStatuses(Array.isArray(f.filterStatuses) ? f.filterStatuses as string[] : []);
+                      setFilterDegrees(Array.isArray(f.filterDegrees) ? f.filterDegrees as string[] : []);
+                      setFilterPeriods(Array.isArray(f.filterPeriods) ? f.filterPeriods as string[] : []);
+                      setFilterAgentsMode((f.filterAgentsMode as MultiFilterMode) || 'include');
+                      setFilterResponsiblesMode((f.filterResponsiblesMode as MultiFilterMode) || 'include');
+                      setFilterUniversitiesMode((f.filterUniversitiesMode as MultiFilterMode) || 'include');
+                      setFilterProgramsMode((f.filterProgramsMode as MultiFilterMode) || 'include');
+                      setFilterNationalitiesMode((f.filterNationalitiesMode as MultiFilterMode) || 'include');
+                      setFilterCurrenciesMode((f.filterCurrenciesMode as MultiFilterMode) || 'include');
+                      setFilterAgencyCompaniesMode((f.filterAgencyCompaniesMode as MultiFilterMode) || 'include');
+                      setFilterStatusesMode((f.filterStatusesMode as MultiFilterMode) || 'include');
+                      setFilterDegreesMode((f.filterDegreesMode as MultiFilterMode) || 'include');
+                      setFilterAppCreatedFrom(typeof f.filterAppCreatedFrom === 'string' ? f.filterAppCreatedFrom : '');
+                      setFilterAppCreatedTo(typeof f.filterAppCreatedTo === 'string' ? f.filterAppCreatedTo : '');
+                    }}
+                  />
+                )}
+                {(searchApplicationNumber || searchStudentName || (!isAgent && (filterAgents.length > 0 || filterResponsibles.length > 0 || filterCurrencies.length > 0 || filterAgencyCompanies.length > 0)) || filterUniversities.length > 0 || filterPrograms.length > 0 || filterNationalities.length > 0 || filterStatuses.length > 0 || filterDegrees.length > 0 || filterPeriods.length > 0 || filterAppCreatedFrom || filterAppCreatedTo) && (
                   <button
                     type="button"
-                    onClick={() => { setSearchApplicationNumber(''); setSearchStudentName(''); setFilterAgents([]); setFilterResponsibles([]); setFilterUniversities([]); setFilterPrograms([]); setFilterNationalities([]); setFilterCurrencies([]); setFilterAgencyCompanies([]); setFilterStatuses([]); setFilterDegrees([]); setFilterAppCreatedFrom(''); setFilterAppCreatedTo(''); }}
+                    onClick={() => {
+                      setSearchApplicationNumber('');
+                      setSearchStudentName('');
+                      setFilterAgents([]);
+                      setFilterResponsibles([]);
+                      setFilterUniversities([]);
+                      setFilterPrograms([]);
+                      setFilterNationalities([]);
+                      setFilterCurrencies([]);
+                      setFilterAgencyCompanies([]);
+                      setFilterStatuses([]);
+                      setFilterDegrees([]);
+                      setFilterPeriods([]);
+                      setFilterAgentsMode('include');
+                      setFilterResponsiblesMode('include');
+                      setFilterUniversitiesMode('include');
+                      setFilterProgramsMode('include');
+                      setFilterNationalitiesMode('include');
+                      setFilterCurrenciesMode('include');
+                      setFilterAgencyCompaniesMode('include');
+                      setFilterStatusesMode('include');
+                      setFilterDegreesMode('include');
+                      setFilterAppCreatedFrom('');
+                      setFilterAppCreatedTo('');
+                    }}
                     className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors"
                   >
                     <X size={14} />
@@ -2828,6 +3297,46 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                     </div>
                   )}
                 </div>
+                {listViewMode === 'tree' && (
+                  <div className="relative mr-2" ref={pinsRef}>
+                    <button
+                      type="button"
+                      onClick={() => setPinsOpen(prev => !prev)}
+                      className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors rounded-md ${pinActive ? 'text-blue-700 bg-blue-50' : 'text-gray-600 hover:bg-gray-100'}`}
+                      title={t.pinColumns}
+                    >
+                      <Pin size={16} />
+                      <span className="hidden sm:inline">{t.pinColumns}</span>
+                      {activePinnedColumns.length > 0 && (
+                        <span className="text-xs font-bold bg-blue-100 text-blue-700 px-1.5 rounded-full">{activePinnedColumns.length}</span>
+                      )}
+                    </button>
+                    {pinsOpen && (
+                      <div className="absolute right-0 mt-2 w-64 max-h-80 overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-lg p-2 z-30">
+                        <p className="px-2 py-1 text-[11px] text-gray-500">{t.pinColumnsHint}</p>
+                        {pinnableColumns.map(col => (
+                          <label key={col.key} className="flex items-center gap-2 px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-50 rounded-md cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={activePinnedColumns.includes(col.key)}
+                              onChange={() => togglePinnedColumn(col.key)}
+                              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            />
+                            <span>{col.label}</span>
+                          </label>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={clearPinnedColumns}
+                          disabled={activePinnedColumns.length === 0}
+                          className="w-full mt-1 px-2 py-1.5 text-xs font-semibold rounded-md border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+                        >
+                          {t.unpinAllColumns}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={() => setListViewMode('tree')}
@@ -2868,6 +3377,8 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
               <MultiSelectFilter
                 selected={filterAgents}
                 onChange={setFilterAgents}
+                mode={filterAgentsMode}
+                onModeChange={setFilterAgentsMode}
                 options={uniqueAgents}
                 placeholder={`${t.agent} (${t.filterAll})`}
                 searchPlaceholder={t.search}
@@ -2876,6 +3387,8 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
               <MultiSelectFilter
                 selected={filterUniversities}
                 onChange={setFilterUniversities}
+                mode={filterUniversitiesMode}
+                onModeChange={setFilterUniversitiesMode}
                 options={universities.map(u => u.id)}
                 optionLabels={Object.fromEntries(universities.map(u => [u.id, u.name]))}
                 placeholder={`${t.universitiesTitle} (${t.filterAll})`}
@@ -2884,6 +3397,8 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
               <MultiSelectFilter
                 selected={filterPrograms}
                 onChange={setFilterPrograms}
+                mode={filterProgramsMode}
+                onModeChange={setFilterProgramsMode}
                 options={programFilterOptions}
                 optionLabels={programFilterLabels}
                 placeholder={`${t.programsTitle} (${t.filterAll})`}
@@ -2892,6 +3407,8 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
               <MultiSelectFilter
                 selected={filterNationalities}
                 onChange={setFilterNationalities}
+                mode={filterNationalitiesMode}
+                onModeChange={setFilterNationalitiesMode}
                 options={uniqueNationalities}
                 placeholder={`${t.nationality} (${t.filterAll})`}
                 searchPlaceholder={t.search}
@@ -2900,6 +3417,8 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
               <MultiSelectFilter
                 selected={filterCurrencies}
                 onChange={setFilterCurrencies}
+                mode={filterCurrenciesMode}
+                onModeChange={setFilterCurrenciesMode}
                 options={uniqueCurrencies}
                 placeholder={`${t.currency} (${t.filterAll})`}
                 searchPlaceholder={t.search}
@@ -2909,6 +3428,8 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
               <MultiSelectFilter
                 selected={filterAgencyCompanies}
                 onChange={setFilterAgencyCompanies}
+                mode={filterAgencyCompaniesMode}
+                onModeChange={setFilterAgencyCompaniesMode}
                 options={agencyCompanies.map(c => c.id)}
                 optionLabels={Object.fromEntries(agencyCompanies.map(c => [c.id, c.name]))}
                 placeholder={`${t.agencyCompany} (${t.filterAll})`}
@@ -2918,6 +3439,8 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
               <MultiSelectFilter
                 selected={filterStatuses}
                 onChange={setFilterStatuses}
+                mode={filterStatusesMode}
+                onModeChange={setFilterStatusesMode}
                 options={Object.values(ApplicationStatus)}
                 optionLabels={Object.fromEntries(Object.values(ApplicationStatus).map((st) => [st, displayStatus(st)]).filter(([, label]) => Boolean(label)))}
                 placeholder={`${t.applicationStatus} (${t.filterAll})`}
@@ -2926,6 +3449,8 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
               <MultiSelectFilter
                 selected={filterDegrees}
                 onChange={setFilterDegrees}
+                mode={filterDegreesMode}
+                onModeChange={setFilterDegreesMode}
                 options={uniqueDegrees}
                 placeholder={`${t.programDegree} (${t.filterAll})`}
                 searchPlaceholder={t.search}
@@ -2934,6 +3459,8 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                 <MultiSelectFilter
                   selected={filterResponsibles}
                   onChange={setFilterResponsibles}
+                  mode={filterResponsiblesMode}
+                  onModeChange={setFilterResponsiblesMode}
                   options={uniqueResponsibles}
                   placeholder={`${t.responsible} (${t.filterAll})`}
                   searchPlaceholder={t.search}
@@ -2951,7 +3478,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
           </div>
 
           {listViewMode === 'tree' && (
-            <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden mt-4 overflow-x-auto">
+            <div className="bg-white rounded-3xl shadow-sm border border-gray-100 mt-4">
               <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
                 <div className="flex items-center gap-3 flex-wrap">
                 {isAdmin ? (
@@ -3044,6 +3571,40 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                 </button>
                 </div>
               </div>
+              {treeHasOverflow && (
+                <div className="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-gray-100 px-3 py-1.5 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => scrollTreeBy(-420)}
+                    className="inline-flex items-center justify-center w-8 h-8 shrink-0 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50"
+                    aria-label={t.scrollTableLeft}
+                    title={t.scrollTableLeft}
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                  <div
+                    ref={treeScrollProxyRef}
+                    onScroll={() => handleTreeScroll('proxy')}
+                    className="flex-1 overflow-x-auto overflow-y-hidden"
+                  >
+                    <div style={{ width: treeScrollMetrics.scrollWidth, height: 1 }} />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => scrollTreeBy(420)}
+                    className="inline-flex items-center justify-center w-8 h-8 shrink-0 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50"
+                    aria-label={t.scrollTableRight}
+                    title={t.scrollTableRight}
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+              )}
+              <div
+                ref={treeScrollRef}
+                onScroll={() => handleTreeScroll('table')}
+                className="overflow-x-auto rounded-b-3xl"
+              >
               {showFinancialTree ? (
               <table
                 dir={language === 'ar' ? 'rtl' : 'ltr'}
@@ -3053,7 +3614,11 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                 <thead style={{ fontWeight: 700 }} className="bg-gray-50/50 text-gray-900 border-b border-gray-100">
                   <tr>
                     {showBulkSelect && (
-                      <th className="px-4 py-4 w-12 text-center">
+                      <th
+                        data-pin-key="__select"
+                        style={pinHeadStyle('__select')}
+                        className={`px-4 py-4 w-12 text-center ${pinCellClass('__select', 'head')}`}
+                      >
                         <input
                           ref={selectAllCheckboxRef}
                           type="checkbox"
@@ -3076,7 +3641,12 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                     {isAdminOrUser && visibleFinancialColumns.includes('agencyCompany') && <SortTh colKey="agencyCompany" label={t.agencyCompany} />}
                     {isAdminOrUser && visibleFinancialColumns.includes('description') && <SortTh colKey="description" label={t.internalDescription} />}
                     {visibleFinancialFields.map((col) => (
-                      <th key={col.key} className="px-4 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                      <th
+                        key={col.key}
+                        data-pin-key={String(col.key)}
+                        style={pinHeadStyle(String(col.key))}
+                        className={`px-4 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider whitespace-nowrap ${pinCellClass(String(col.key), 'head')}`}
+                      >
                         {col.label}
                       </th>
                     ))}
@@ -3091,11 +3661,15 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                     return (
                       <tr
                         key={app.id}
-                        className={`hover:bg-blue-50/30 cursor-pointer transition-colors group ${hasUnreadNotifications ? 'bg-blue-50/50 border-l-4 border-l-blue-500' : ''} ${selectedApplicationIds.has(app.id) ? 'bg-blue-50/40' : ''}`}
+                        className={`cursor-pointer transition-colors group ${hasUnreadNotifications ? 'border-l-4 border-l-blue-500' : ''} ${treeRowBgClass(selectedApplicationIds.has(app.id), hasUnreadNotifications)}`}
                         onClick={() => { setSelectedAppId(app.id); setView('detail'); }}
                       >
                         {showBulkSelect && (
-                          <td className="px-4 py-3 text-center" onClick={e => e.stopPropagation()}>
+                          <td
+                            style={pinCellStyle('__select')}
+                            className={`px-4 py-3 text-center ${pinCellClass('__select')}`}
+                            onClick={e => e.stopPropagation()}
+                          >
                             <input
                               type="checkbox"
                               checked={selectedApplicationIds.has(app.id)}
@@ -3105,7 +3679,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                             />
                           </td>
                         )}
-                        {visibleFinancialColumns.includes('number') && <td className="px-4 py-3 whitespace-nowrap">
+                        {visibleFinancialColumns.includes('number') && <td style={pinCellStyle('number')} className={`px-4 py-3 whitespace-nowrap ${pinCellClass('number')}`}>
                           <span className="inline-flex items-center gap-2 font-mono font-bold text-gray-900 group-hover:text-blue-600 transition-colors text-xs">
                             #{app.id}
                             {hasUnreadNotifications && (
@@ -3113,29 +3687,33 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                             )}
                           </span>
                         </td>}
-                        {visibleFinancialColumns.includes('status') && <td className="px-2 py-3 text-center w-[170px] max-w-[170px]">
+                        {visibleFinancialColumns.includes('status') && <td style={pinCellStyle('status')} className={`px-2 py-3 text-center w-[170px] max-w-[170px] ${pinCellClass('status')}`}>
                           <span className={`${getApplicationStatusBadgeClass(app.status, 'compact')} inline-block max-w-[160px] whitespace-normal break-words leading-tight`}>
                             {displayStatus(app.status)}
                           </span>
                         </td>}
-                        {visibleFinancialColumns.includes('agent') && <td className="px-4 py-3 text-gray-900 whitespace-nowrap">{getAgentName(app)}</td>}
-                        {visibleFinancialColumns.includes('nationality') && <td className="px-4 py-3 text-gray-900 whitespace-nowrap">{s?.nationality || '—'}</td>}
-                        {visibleFinancialColumns.includes('degree') && <td className="px-4 py-3 text-gray-900 whitespace-nowrap">
+                        {visibleFinancialColumns.includes('agent') && <td style={pinCellStyle('agent')} className={`px-4 py-3 text-gray-900 whitespace-nowrap ${pinCellClass('agent')}`}>{getAgentName(app)}</td>}
+                        {visibleFinancialColumns.includes('nationality') && <td style={pinCellStyle('nationality')} className={`px-4 py-3 text-gray-900 whitespace-nowrap ${pinCellClass('nationality')}`}>{s?.nationality || '—'}</td>}
+                        {visibleFinancialColumns.includes('degree') && <td style={pinCellStyle('degree')} className={`px-4 py-3 text-gray-900 whitespace-nowrap ${pinCellClass('degree')}`}>
                           {p?.degree ? translateDegree(p.degree) : '—'}
                         </td>}
-                        {visibleFinancialColumns.includes('program') && <td className="px-4 py-3 font-bold text-gray-900 whitespace-nowrap">{p?.name || '—'}</td>}
-                        {visibleFinancialColumns.includes('university') && <td className="px-4 py-3 text-gray-900 whitespace-nowrap">{uni?.name || '—'}</td>}
-                        {visibleFinancialColumns.includes('student') && <td className="px-4 py-3 font-bold text-gray-900 whitespace-nowrap">{s?.firstName} {s?.lastName}</td>}
+                        {visibleFinancialColumns.includes('program') && <td style={pinCellStyle('program')} className={`px-4 py-3 font-bold text-gray-900 whitespace-nowrap ${pinCellClass('program')}`}>{p?.name || '—'}</td>}
+                        {visibleFinancialColumns.includes('university') && <td style={pinCellStyle('university')} className={`px-4 py-3 text-gray-900 whitespace-nowrap ${pinCellClass('university')}`}>{uni?.name || '—'}</td>}
+                        {visibleFinancialColumns.includes('student') && <td style={pinCellStyle('student')} className={`px-4 py-3 font-bold text-gray-900 whitespace-nowrap ${pinCellClass('student')}`}>{s?.firstName} {s?.lastName}</td>}
                         {isAdminOrUser && visibleFinancialColumns.includes('agencyCompany') && (
-                          <td className="px-4 py-3 text-gray-900 whitespace-nowrap">{app.agencyCompanyName || '—'}</td>
+                          <td style={pinCellStyle('agencyCompany')} className={`px-4 py-3 text-gray-900 whitespace-nowrap ${pinCellClass('agencyCompany')}`}>{app.agencyCompanyName || '—'}</td>
                         )}
                         {isAdminOrUser && visibleFinancialColumns.includes('description') && (
-                          <td className="px-4 py-3 text-gray-900 max-w-[220px]">
+                          <td style={pinCellStyle('description')} className={`px-4 py-3 text-gray-900 max-w-[220px] ${pinCellClass('description')}`}>
                             <span className="line-clamp-2" title={app.internalDescription || ''}>{app.internalDescription || '—'}</span>
                           </td>
                         )}
                         {visibleFinancialFields.map((col) => (
-                          <td key={col.key} className="px-4 py-3 text-gray-900 tabular-nums whitespace-nowrap text-xs">
+                          <td
+                            key={col.key}
+                            style={pinCellStyle(String(col.key))}
+                            className={`px-4 py-3 text-gray-900 tabular-nums whitespace-nowrap text-xs ${pinCellClass(String(col.key))}`}
+                          >
                             {formatApplicationFinanceValue(app, col.key)}
                           </td>
                         ))}
@@ -3145,18 +3723,28 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                 </tbody>
                 <tfoot className="border-t-2 border-blue-200 bg-blue-50/70">
                   <tr>
-                    {(showBulkSelect || visibleFinancialBaseCount > 0) && (
+                    {showBulkSelect && (
                       <td
-                        colSpan={(showBulkSelect ? 1 : 0) + visibleFinancialBaseCount}
-                        className="px-4 py-4 font-bold text-blue-900 whitespace-nowrap"
+                        style={pinCellStyle('__select')}
+                        className={`px-4 py-4 font-bold text-blue-900 whitespace-nowrap ${pinFooterClass('__select')}`}
                       >
-                        {t.totals}
+                        {visibleFinancialBaseKeys.length === 0 ? t.totals : ''}
                       </td>
                     )}
+                    {visibleFinancialBaseKeys.map((key, index) => (
+                      <td
+                        key={key}
+                        style={pinCellStyle(key)}
+                        className={`px-4 py-4 font-bold text-blue-900 whitespace-nowrap ${pinFooterClass(key)}`}
+                      >
+                        {index === 0 ? t.totals : ''}
+                      </td>
+                    ))}
                     {visibleFinancialFields.map((col) => (
                       <td
                         key={col.key}
-                        className="px-4 py-4 font-bold text-blue-900 tabular-nums whitespace-nowrap text-xs"
+                        style={pinCellStyle(String(col.key))}
+                        className={`px-4 py-4 font-bold text-blue-900 tabular-nums whitespace-nowrap text-xs ${pinFooterClass(String(col.key))}`}
                       >
                         {FINANCIAL_TREE_NUMERIC_KEYS.has(col.key)
                           ? (financialTreeTotals[col.key] || 0).toLocaleString()
@@ -3174,7 +3762,11 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                 <thead style={{ fontWeight: 700 }} className="bg-gray-50/50 text-gray-900 border-b border-gray-100">
                   <tr>
                     {showBulkSelect && (
-                      <th className="px-4 py-5 w-12 text-center">
+                      <th
+                        data-pin-key="__select"
+                        style={pinHeadStyle('__select')}
+                        className={`px-4 py-5 w-12 text-center ${pinCellClass('__select', 'head')}`}
+                      >
                         <input
                           ref={selectAllCheckboxRef}
                           type="checkbox"
@@ -3186,7 +3778,11 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                         />
                       </th>
                     )}
-                    <th className="px-6 py-5"></th>
+                    <th
+                      data-pin-key="__expand"
+                      style={pinHeadStyle('__expand')}
+                      className={`px-6 py-5 ${pinCellClass('__expand', 'head')}`}
+                    ></th>
                     {visibleTreeColumns.includes('number') && <SortTh colKey="number" label={t.number} />}
                     {visibleTreeColumns.includes('status') && <SortTh colKey="status" label={t.applicationStatus} className="text-center w-[170px] max-w-[170px]" />}
                     {canSeeAgentColumn && visibleTreeColumns.includes('agent') && <SortTh colKey="agent" label={t.agent} />}
@@ -3198,6 +3794,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                     {visibleTreeColumns.includes('degree') && <SortTh colKey="degree" label={t.programDegree} />}
                     {isAdminOrUser && visibleTreeColumns.includes('agencyCompany') && <SortTh colKey="agencyCompany" label={t.agencyCompany} />}
                     {isAdminOrUser && visibleTreeColumns.includes('description') && <SortTh colKey="description" label={t.internalDescription} />}
+                    {visibleTreeColumns.includes('createdBy') && <SortTh colKey="createdBy" label={t.createdByUser} />}
                     {visibleTreeColumns.includes('createdAt') && <SortTh colKey="createdAt" label={t.createdAt} />}
                     {!isAgent && visibleTreeColumns.includes('updatedAt') && <SortTh colKey="updatedAt" label={t.lastUpdatedAt} />}
                   </tr>
@@ -3223,17 +3820,22 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                       (visibleTreeColumns.includes('degree') ? 1 : 0) +
                       (isAdminOrUser && visibleTreeColumns.includes('agencyCompany') ? 1 : 0) +
                       (isAdminOrUser && visibleTreeColumns.includes('description') ? 1 : 0) +
+                      (visibleTreeColumns.includes('createdBy') ? 1 : 0) +
                       (visibleTreeColumns.includes('createdAt') ? 1 : 0) +
                       (!isAgent && visibleTreeColumns.includes('updatedAt') ? 1 : 0) +
                       1; // expand toggle column
                     return (
                       <React.Fragment key={app.id}>
                         <tr
-                          className={`hover:bg-blue-50/30 cursor-pointer transition-colors group ${hasUnreadNotifications ? 'bg-blue-50/50 border-l-4 border-l-blue-500' : ''} ${selectedApplicationIds.has(app.id) ? 'bg-blue-50/40' : ''}`}
+                          className={`cursor-pointer transition-colors group ${hasUnreadNotifications ? 'border-l-4 border-l-blue-500' : ''} ${treeRowBgClass(selectedApplicationIds.has(app.id), hasUnreadNotifications)}`}
                           onClick={() => { setSelectedAppId(app.id); setView('detail'); }}
                         >
                           {showBulkSelect && (
-                            <td className="px-4 py-4 text-center" onClick={e => e.stopPropagation()}>
+                            <td
+                              style={pinCellStyle('__select')}
+                              className={`px-4 py-4 text-center ${pinCellClass('__select')}`}
+                              onClick={e => e.stopPropagation()}
+                            >
                               <input
                                 type="checkbox"
                                 checked={selectedApplicationIds.has(app.id)}
@@ -3243,7 +3845,11 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                               />
                             </td>
                           )}
-                          <td className="px-6 py-4 text-left" onClick={e => e.stopPropagation()}>
+                          <td
+                            style={pinCellStyle('__expand')}
+                            className={`px-6 py-4 text-left ${pinCellClass('__expand')}`}
+                            onClick={e => e.stopPropagation()}
+                          >
                             <button
                               type="button"
                               onClick={() => {
@@ -3261,7 +3867,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                             </button>
                           </td>
                           {visibleTreeColumns.includes('number') && (
-                            <td className="px-6 py-4">
+                            <td style={pinCellStyle('number')} className={`px-6 py-4 ${pinCellClass('number')}`}>
                               <span className="inline-flex items-center gap-2 font-mono font-bold text-gray-900 group-hover:text-blue-600 transition-colors">
                                 #{app.id}
                                 {hasUnreadNotifications && (
@@ -3271,7 +3877,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                             </td>
                           )}
                           {visibleTreeColumns.includes('status') && (
-                            <td className="px-2 py-4 text-center w-[170px] max-w-[170px]">
+                            <td style={pinCellStyle('status')} className={`px-2 py-4 text-center w-[170px] max-w-[170px] ${pinCellClass('status')}`}>
                               <div className="flex justify-center">
                                 <span className={`${getApplicationStatusBadgeClass(app.status, 'compact')} inline-block max-w-[160px] whitespace-normal break-words leading-tight text-center`}>
                                   {displayStatus(app.status)}
@@ -3279,42 +3885,47 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                               </div>
                             </td>
                           )}
-                          {canSeeAgentColumn && visibleTreeColumns.includes('agent') && <td className="px-6 py-4 text-gray-900">{getAgentName(app)}</td>}
+                          {canSeeAgentColumn && visibleTreeColumns.includes('agent') && <td style={pinCellStyle('agent')} className={`px-6 py-4 text-gray-900 ${pinCellClass('agent')}`}>{getAgentName(app)}</td>}
                           {isAdminOrUser && visibleTreeColumns.includes('responsible') && (
-                            <td className="px-6 py-4 text-gray-900">{getResponsibleLabel(app)}</td>
+                            <td style={pinCellStyle('responsible')} className={`px-6 py-4 text-gray-900 ${pinCellClass('responsible')}`}>{getResponsibleLabel(app)}</td>
                           )}
-                          {visibleTreeColumns.includes('student') && <td className="px-6 py-4 font-bold text-gray-900">{s?.firstName} {s?.lastName}</td>}
+                          {visibleTreeColumns.includes('student') && <td style={pinCellStyle('student')} className={`px-6 py-4 font-bold text-gray-900 ${pinCellClass('student')}`}>{s?.firstName} {s?.lastName}</td>}
                           {visibleTreeColumns.includes('nationality') && (
-                            <td className="px-6 py-4 text-gray-900">{s?.nationality || '—'}</td>
+                            <td style={pinCellStyle('nationality')} className={`px-6 py-4 text-gray-900 ${pinCellClass('nationality')}`}>{s?.nationality || '—'}</td>
                           )}
                           {visibleTreeColumns.includes('program') && (
-                            <td className="px-6 py-4">
+                            <td style={pinCellStyle('program')} className={`px-6 py-4 ${pinCellClass('program')}`}>
                               <span className="font-bold text-gray-900">{p?.name || '—'}</span>
                             </td>
                           )}
                           {visibleTreeColumns.includes('university') && (
-                            <td className="px-6 py-4 text-gray-900">
+                            <td style={pinCellStyle('university')} className={`px-6 py-4 text-gray-900 ${pinCellClass('university')}`}>
                               {uni?.name || '—'}
                             </td>
                           )}
                           {visibleTreeColumns.includes('degree') && (
-                            <td className="px-6 py-4 text-gray-900">{p?.degree ? translateDegree(p.degree) : '—'}</td>
+                            <td style={pinCellStyle('degree')} className={`px-6 py-4 text-gray-900 ${pinCellClass('degree')}`}>{p?.degree ? translateDegree(p.degree) : '—'}</td>
                           )}
                           {isAdminOrUser && visibleTreeColumns.includes('agencyCompany') && (
-                            <td className="px-6 py-4 text-gray-900">{app.agencyCompanyName || '—'}</td>
+                            <td style={pinCellStyle('agencyCompany')} className={`px-6 py-4 text-gray-900 ${pinCellClass('agencyCompany')}`}>{app.agencyCompanyName || '—'}</td>
                           )}
                           {isAdminOrUser && visibleTreeColumns.includes('description') && (
-                            <td className="px-6 py-4 text-gray-900 max-w-[240px]">
+                            <td style={pinCellStyle('description')} className={`px-6 py-4 text-gray-900 max-w-[240px] ${pinCellClass('description')}`}>
                               <span className="line-clamp-2" title={app.internalDescription || ''}>{app.internalDescription || '—'}</span>
                             </td>
                           )}
+                          {visibleTreeColumns.includes('createdBy') && (
+                            <td style={pinCellStyle('createdBy')} className={`px-6 py-4 text-gray-900 font-medium ${pinCellClass('createdBy')}`}>
+                              {getCreatedByName(app)}
+                            </td>
+                          )}
                           {visibleTreeColumns.includes('createdAt') && (
-                            <td className="px-6 py-4 text-gray-900 font-medium">
+                            <td style={pinCellStyle('createdAt')} className={`px-6 py-4 text-gray-900 font-medium ${pinCellClass('createdAt')}`}>
                               {app.createdAt ? new Date(app.createdAt).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
                             </td>
                           )}
                           {!isAgent && visibleTreeColumns.includes('updatedAt') && (
-                            <td className="px-6 py-4 text-gray-900 font-medium">
+                            <td style={pinCellStyle('updatedAt')} className={`px-6 py-4 text-gray-900 font-medium ${pinCellClass('updatedAt')}`}>
                               {(app.updatedAt || app.createdAt) ? new Date(app.updatedAt || app.createdAt).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
                             </td>
                           )}
@@ -3351,6 +3962,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                 </tbody>
               </table>
               )}
+              </div>
               {sortedApplications.length === 0 && (
                 <div className="py-20 text-center">
                   <FileText size={48} className="mx-auto text-gray-100 mb-4" />
@@ -3409,6 +4021,8 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                           <p className="text-[10px] text-gray-400">{getPeriod(app.periodId || p?.periodId)?.name}</p>
                         )}
                         <p className="text-[10px] text-gray-400 mt-2">
+                          {t.createdByUser}: {getCreatedByName(app)}
+                          <br />
                           {t.createdAt}: {app.createdAt ? new Date(app.createdAt).toLocaleString(dateLocale, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
                           {!isAgent && (
                             <>
