@@ -1,5 +1,5 @@
 from app import create_app, db
-from models import User
+from models import User, ActivityLog
 from flask import Blueprint, request, jsonify
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import load_only
@@ -284,6 +284,15 @@ if __name__ == '__main__':
                         conn.commit()
             except Exception as e:
                 print('application_messages column check:', e)
+            try:
+                if 'notifications' in inspector.get_table_names():
+                    notif_cols = [c['name'] for c in inspector.get_columns('notifications')]
+                    if 'is_processed' not in notif_cols:
+                        conn.execute(text('ALTER TABLE notifications ADD COLUMN is_processed BOOLEAN DEFAULT FALSE'))
+                        conn.execute(text('UPDATE notifications SET is_processed = FALSE WHERE is_processed IS NULL'))
+                        conn.commit()
+            except Exception as e:
+                print('notifications is_processed column check:', e)
             # Ensure payment tables and currency columns
             try:
                 table_names = inspector.get_table_names()

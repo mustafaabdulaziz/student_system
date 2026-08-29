@@ -176,6 +176,18 @@ class NewsItem(db.Model):
     created_by = db.Column(db.String, db.ForeignKey('users.id'), nullable=False)
 
 
+class ActivityLog(db.Model):
+    __tablename__ = 'activity_logs'
+    id = db.Column(db.String, primary_key=True)
+    type = db.Column(db.String, nullable=False)  # FILE_UPLOAD | APPLICATION_STATUS | APPLICATION_CREATE | STUDENT_CREATE
+    actor_user_id = db.Column(db.String, nullable=True)
+    actor_name = db.Column(db.String, nullable=True)
+    created_at = db.Column(db.String, nullable=False)
+    entity_type = db.Column(db.String, nullable=True)  # student | application
+    entity_id = db.Column(db.String, nullable=True)
+    details = db.Column(db.JSON, nullable=True)
+
+
 class Notification(db.Model):
     __tablename__ = 'notifications'
     id = db.Column(db.String, primary_key=True)
@@ -184,6 +196,7 @@ class Notification(db.Model):
     message = db.Column(db.String, nullable=False)
     link = db.Column(db.String, nullable=True)
     is_read = db.Column(db.Boolean, default=False)
+    is_processed = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.String, nullable=False)
     type = db.Column(db.String, nullable=False)  # 'MESSAGE', 'STATUS', 'NEWS'
 

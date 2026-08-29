@@ -4,6 +4,7 @@ export interface AppNotification {
   message: string;
   link: string | null;
   isRead: boolean;
+  isProcessed?: boolean;
   createdAt: string;
   type: string;
 }
@@ -23,6 +24,62 @@ export function parseStudentIdFromNotification(notification: Pick<AppNotificatio
   const link = notification.link || '';
   const match = link.match(/^\/students\/(.+)$/);
   return match ? decodeURIComponent(match[1]) : null;
+}
+
+export type NotificationApplicationMeta = {
+  universityId?: string;
+  degree?: string;
+  responsibleId?: string;
+  agentId?: string;
+  agencyCompanyId?: string;
+};
+
+type NotificationFilterApplication = {
+  id: string;
+  studentId: string;
+  programId: string;
+  userId?: string;
+  responsibleId?: string;
+  agencyCompanyId?: string;
+};
+
+type NotificationFilterProgram = {
+  id: string;
+  universityId: string;
+  degree: string;
+};
+
+function metaFromApplication(
+  app: NotificationFilterApplication,
+  programById: Map<string, NotificationFilterProgram>
+): NotificationApplicationMeta {
+  const program = programById.get(app.programId);
+  return {
+    universityId: program?.universityId,
+    degree: program?.degree,
+    responsibleId: app.responsibleId,
+    agentId: app.userId,
+    agencyCompanyId: app.agencyCompanyId
+  };
+}
+
+/** Application fields tied to a notification (direct application link, or the student's applications). */
+export function getNotificationApplicationMetas(
+  notification: Pick<AppNotification, 'link'>,
+  applications: NotificationFilterApplication[],
+  programs: NotificationFilterProgram[]
+): NotificationApplicationMeta[] {
+  const programById = new Map(programs.map((p) => [p.id, p]));
+  const applicationId = parseApplicationIdFromNotification(notification);
+  if (applicationId) {
+    const app = applications.find((a) => a.id === applicationId);
+    return app ? [metaFromApplication(app, programById)] : [];
+  }
+  const studentId = parseStudentIdFromNotification(notification);
+  if (!studentId) return [];
+  return applications
+    .filter((a) => a.studentId === studentId)
+    .map((a) => metaFromApplication(a, programById));
 }
 
 /** Map unread notifications to student/application ids for tree view badges. */
@@ -77,7 +134,9 @@ export async function fetchUserNotifications(userId: string): Promise<AppNotific
   const res = await fetch(`/api/notifications?user_id=${userId}`);
   if (!res.ok) return [];
   const data = await res.json();
-  return Array.isArray(data) ? data : [];
+  return Array.isArray(data)
+    ? data.map((n) => ({ ...n, isProcessed: Boolean(n.isProcessed), isRead: Boolean(n.isRead) }))
+    : [];
 }
 
 export async function markNotificationRead(notificationId: string): Promise<boolean> {
@@ -87,6 +146,16 @@ export async function markNotificationRead(notificationId: string): Promise<bool
 
 export async function markNotificationUnread(notificationId: string): Promise<boolean> {
   const res = await fetch(`/api/notifications/${notificationId}/unread`, { method: 'PUT' });
+  return res.ok;
+}
+
+export async function markNotificationProcessed(notificationId: string): Promise<boolean> {
+  const res = await fetch(`/api/notifications/${notificationId}/processed`, { method: 'PUT' });
+  return res.ok;
+}
+
+export async function markNotificationUnprocessed(notificationId: string): Promise<boolean> {
+  const res = await fetch(`/api/notifications/${notificationId}/unprocessed`, { method: 'PUT' });
   return res.ok;
 }
 

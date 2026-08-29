@@ -1,13 +1,13 @@
 
 from flask import Blueprint, request, jsonify, session, current_app, send_from_directory, url_for
-from models import db, Student, University, Program, Application, ApplicationMessage, User, Notification, Period, NewsItem, IncomingPayment, OutgoingPayment, AgencyCompany, UserUniversityCommission, PaymentSource
+from models import db, Student, University, Program, Application, ApplicationMessage, User, Notification, Period, NewsItem, IncomingPayment, OutgoingPayment, AgencyCompany, UserUniversityCommission, PaymentSource, ActivityLog
 import os
 import re
 import uuid
 from datetime import datetime
 from werkzeug.utils import secure_filename
 from sqlalchemy.orm.attributes import flag_modified
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect, text, or_, cast, String
 from sqlalchemy.exc import IntegrityError
 
 api_bp = Blueprint('api', __name__)
@@ -266,13 +266,98 @@ def _is_agent_user(user):
     return bool(user and (user.role or '').strip().lower() == 'agent')
 
 
+STAFF_ROLES = frozenset({'ADMIN', 'USER', 'OPERATOR'})
+MANAGER_ROLES = frozenset({'ADMIN', 'OPERATOR'})
+FINANCE_ROLES = frozenset({'ADMIN'})
+APPLICATION_FINANCE_KEYS = (
+    'annualPayment', 'educationVatRate', 'grossCommissionKind', 'grossCommissionRate',
+    'grossCommission', 'abroadVatRate', 'bonusMax', 'bonusMin', 'agencyCommissionKind',
+    'agencyCommissionRate', 'agencyCommission', 'agencyBonus', 'depositSupport',
+    'agencyContractAmount', 'currency', 'remainingMin', 'remainingMax', 'paymentDeserved'
+)
+
+
 def _staff_users():
-    """Admin and USER role accounts (case-insensitive)."""
-    return [u for u in User.query.all() if (u.role or '').strip().upper() in ('ADMIN', 'USER')]
+    """Admin, operator and USER role accounts (case-insensitive)."""
+    return [u for u in User.query.all() if (u.role or '').strip().upper() in STAFF_ROLES]
 
 
 def _form_uploader_id():
-    return (request.form.get('user_id') or request.form.get('userId') or '').strip() or None
+    return (
+        request.form.get('actorUserId')
+        or request.form.get('user_id')
+        or request.form.get('userId')
+        or ''
+    ).strip() or None
+
+
+ACTIVITY_FILE_UPLOAD = 'FILE_UPLOAD'
+ACTIVITY_APPLICATION_STATUS = 'APPLICATION_STATUS'
+ACTIVITY_APPLICATION_CREATE = 'APPLICATION_CREATE'
+ACTIVITY_STUDENT_CREATE = 'STUDENT_CREATE'
+
+
+def _actor_user():
+    user = _session_user()
+    if user:
+        return user
+    uid = None
+    if request.is_json:
+        data = request.get_json(silent=True) or {}
+        uid = (str(data.get('actorUserId') or data.get('user_id') or '').strip() or None)
+    if not uid:
+        uid = _form_uploader_id() or (request.args.get('actorUserId') or '').strip() or None
+    return User.query.get(uid) if uid else None
+
+
+def _display_file_names(filenames):
+    names = []
+    for f in filenames or []:
+        names.append(f.split('_', 1)[1] if '_' in str(f) else str(f))
+    return names
+
+
+def _student_display_name(student):
+    if not student:
+        return None
+    return f"{student.first_name or ''} {student.last_name or ''}".strip() or None
+
+
+def _log_activity(activity_type, entity_type=None, entity_id=None, details=None, actor=None):
+    actor = actor if actor is not None else _actor_user()
+    payload = details if isinstance(details, dict) else {}
+    db.session.add(ActivityLog(
+        id=str(uuid.uuid4()),
+        type=activity_type,
+        actor_user_id=actor.id if actor else None,
+        actor_name=actor.name if actor else None,
+        created_at=_iso_timestamp(),
+        entity_type=entity_type,
+        entity_id=entity_id,
+        details=payload
+    ))
+
+
+def _log_file_upload(*, student=None, application=None, filenames=None, file_type=None):
+    saved = list(filenames or [])
+    if not saved:
+        return
+    details = {
+        'fileNames': _display_file_names(saved),
+        'fileCount': len(saved),
+    }
+    if file_type:
+        details['fileType'] = file_type
+    if student:
+        details['studentId'] = student.id
+        details['studentName'] = _student_display_name(student)
+    if application:
+        details['applicationId'] = application.id
+        if application.student_id:
+            details['studentId'] = details.get('studentId') or application.student_id
+    entity_type = 'application' if application else 'student'
+    entity_id = application.id if application else (student.id if student else None)
+    _log_activity(ACTIVITY_FILE_UPLOAD, entity_type=entity_type, entity_id=entity_id, details=details)
 
 
 def _notify_staff_agent_file_upload(uploader, title, message, link, extra_user_ids=None):
@@ -352,7 +437,7 @@ def _notify_agent_owner_file_upload(student, application, uploader, link, file_t
     if not uploader or not student:
         return
     role = (uploader.role or '').strip().upper()
-    if role not in ('ADMIN', 'USER'):
+    if role not in ('ADMIN', 'USER', 'OPERATOR'):
         return
     agent_id = getattr(student, 'user_id', None)
     if not agent_id:
@@ -549,6 +634,16 @@ def _serialize_application(a, program_by_id, student_by_id=None):
     }
     if _request_staff_user():
         data['internalDescription'] = getattr(a, 'internal_description', None)
+    if not _can_see_finance():
+        for key in (
+            'annualPayment', 'educationVatRate', 'educationVat', 'grossCommissionKind',
+            'grossCommissionRate', 'grossCommission', 'abroadVatRate', 'abroadVat',
+            'netCommission', 'bonusMax', 'bonusMin', 'agencyCommissionKind',
+            'agencyCommissionRate', 'agencyCommission', 'agencyBonus', 'depositSupport',
+            'agencyContractAmount', 'remainingMin', 'remainingMax', 'paymentDeserved',
+            'paymentDate', 'paymentMonth'
+        ):
+            data.pop(key, None)
     return data
 
 
@@ -608,17 +703,35 @@ def _session_user():
     return user
 
 
+def _effective_role():
+    role = _request_role_value()
+    if role:
+        return role
+    user = _session_user()
+    return (user.role or '').upper() if user else ''
+
+
 def _request_staff_user():
     user = _session_user()
-    if user and (user.role or '').upper() in ('ADMIN', 'USER'):
+    if user and (user.role or '').upper() in STAFF_ROLES:
         return user
     return None
 
 
 def _require_admin():
-    if _request_role_value() != 'ADMIN':
+    if _effective_role() != 'ADMIN':
         return jsonify({'message': 'Only admin can access this endpoint'}), 403
     return None
+
+
+def _require_manager():
+    if _effective_role() not in MANAGER_ROLES:
+        return jsonify({'message': 'Only admin or operator can access this endpoint'}), 403
+    return None
+
+
+def _can_see_finance():
+    return _effective_role() in FINANCE_ROLES
 
 
 def _next_sequence(model_cls):
@@ -1300,6 +1413,16 @@ def add_student():
         updated_at=created_at
     )
     db.session.add(student)
+    _log_activity(
+        ACTIVITY_STUDENT_CREATE,
+        entity_type='student',
+        entity_id=student.id,
+        details={
+            'studentId': student.id,
+            'studentName': _student_display_name(student),
+            'passportNumber': student.passport_number
+        }
+    )
     try:
         db.session.commit()
     except IntegrityError:
@@ -1383,7 +1506,7 @@ def update_student(student_id):
 
 @api_bp.route('/students/<student_id>', methods=['DELETE'])
 def delete_student(student_id):
-    denied = _require_admin()
+    denied = _require_manager()
     if denied:
         return denied
     student = Student.query.get(student_id)
@@ -1404,23 +1527,30 @@ def delete_student(student_id):
 # Universities
 @api_bp.route('/universities', methods=['GET'])
 def get_universities():
-    universities = University.query.all()
-    return jsonify([{
-        'id': u.id,
-        'name': u.name,
-        'website': u.website,
-        'country': u.country,
-        'city': getattr(u, 'city', ''),
-        'description': u.description,
-        'logo': getattr(u, 'logo', None),
-        'educationVatRate': getattr(u, 'education_vat_rate', None),
-        'abroadVatRate': getattr(u, 'abroad_vat_rate', None),
-        'commissionKind': getattr(u, 'commission_kind', None),
-        'commissionValue': getattr(u, 'commission_value', None),
-        'bonusMax': getattr(u, 'bonus_max', None),
-        'bonusMin': getattr(u, 'bonus_min', None),
-        'degreeCommissions': getattr(u, 'degree_commissions', None) or []
-    } for u in universities])
+    show_finance = _can_see_finance()
+    rows = []
+    for u in University.query.all():
+        item = {
+            'id': u.id,
+            'name': u.name,
+            'website': u.website,
+            'country': u.country,
+            'city': getattr(u, 'city', ''),
+            'description': u.description,
+            'logo': getattr(u, 'logo', None),
+        }
+        if show_finance:
+            item.update({
+                'educationVatRate': getattr(u, 'education_vat_rate', None),
+                'abroadVatRate': getattr(u, 'abroad_vat_rate', None),
+                'commissionKind': getattr(u, 'commission_kind', None),
+                'commissionValue': getattr(u, 'commission_value', None),
+                'bonusMax': getattr(u, 'bonus_max', None),
+                'bonusMin': getattr(u, 'bonus_min', None),
+                'degreeCommissions': getattr(u, 'degree_commissions', None) or []
+            })
+        rows.append(item)
+    return jsonify(rows)
 
 @api_bp.route('/universities', methods=['POST'])
 def add_university():
@@ -1428,6 +1558,9 @@ def add_university():
     user_role = data.get('role')
     if user_role == 'agent':
         return jsonify({'message': 'Agents are not allowed to add universities'}), 403
+    if not _can_see_finance():
+        for key in ('educationVatRate', 'abroadVatRate', 'commissionKind', 'commissionValue', 'bonusMax', 'bonusMin', 'degreeCommissions'):
+            data.pop(key, None)
     evr = data.get('educationVatRate')
     if evr is not None and evr != '':
         try:
@@ -1508,7 +1641,7 @@ def get_programs():
     archived_only = request.args.get('archivedOnly') in ('1', 'true', 'yes', 'True')
 
     query = Program.query.order_by(Program.name.asc())
-    if role != 'ADMIN':
+    if role not in MANAGER_ROLES:
         query = query.filter(Program.is_archived == False)
     elif archived_only:
         query = query.filter(Program.is_archived == True)
@@ -1531,7 +1664,7 @@ def get_programs():
 
 @api_bp.route('/programs', methods=['POST'])
 def add_program():
-    denied = _require_admin()
+    denied = _require_manager()
     if denied:
         return denied
     data = request.json or {}
@@ -1574,7 +1707,7 @@ def add_program():
 # Delete Program
 @api_bp.route('/programs/<prog_id>', methods=['DELETE'])
 def delete_program(prog_id):
-    denied = _require_admin()
+    denied = _require_manager()
     if denied:
         return denied
     program = Program.query.get(prog_id)
@@ -1594,7 +1727,7 @@ def delete_program(prog_id):
 # Update Program
 @api_bp.route('/programs/<prog_id>', methods=['PUT'])
 def update_program(prog_id):
-    denied = _require_admin()
+    denied = _require_manager()
     if denied:
         return denied
     program = Program.query.get(prog_id)
@@ -1640,6 +1773,9 @@ def update_university(uni_id):
     if not university:
         return jsonify({'message': 'الجامعة غير موجودة'}), 404
     data = request.json
+    if not _can_see_finance():
+        for key in ('educationVatRate', 'abroadVatRate', 'commissionKind', 'commissionValue', 'bonusMax', 'bonusMin', 'degreeCommissions'):
+            data.pop(key, None)
     university.name = data.get('name', university.name)
     university.website = data.get('website', university.website)
     university.country = data.get('country', university.country)
@@ -1975,6 +2111,19 @@ def add_application():
         stu.updated_at = created_at
         if saved_files:
             _append_student_files(stu, saved_files)
+    _log_activity(
+        ACTIVITY_APPLICATION_CREATE,
+        entity_type='application',
+        entity_id=application.id,
+        details={
+            'applicationId': application.id,
+            'studentId': student_id,
+            'studentName': _student_display_name(stu),
+            'status': application.status
+        }
+    )
+    if saved_files:
+        _log_file_upload(student=stu, application=application, filenames=saved_files)
     db.session.commit()
     if stu:
         db.session.refresh(stu)
@@ -2067,6 +2216,19 @@ def add_application_v2():
         stu.updated_at = created_at
         if saved_files:
             _append_student_files(stu, saved_files)
+    _log_activity(
+        ACTIVITY_APPLICATION_CREATE,
+        entity_type='application',
+        entity_id=application.id,
+        details={
+            'applicationId': application.id,
+            'studentId': student_id,
+            'studentName': _student_display_name(stu),
+            'status': application.status
+        }
+    )
+    if saved_files:
+        _log_file_upload(student=stu, application=application, filenames=saved_files)
     db.session.commit()
     file_urls = [url_for('api.upload_file', filename=f, _external=False) for f in _student_files_raw(stu)]
     program = Program.query.get(application.program_id) if application.program_id else None
@@ -2386,6 +2548,7 @@ def student_files(student_id):
         uploader_id = _form_uploader_id() or getattr(student, 'user_id', None)
         _apply_student_file_metadata(student, saved, file_type, file_description, uploader_id)
         _touch_student(student)
+        _log_file_upload(student=student, filenames=saved, file_type=file_type)
         db.session.commit()
         db.session.refresh(student)
     except Exception as e:
@@ -2475,6 +2638,7 @@ def application_files(app_id):
         uploader_id = _form_uploader_id() or getattr(application, 'user_id', None)
         _apply_student_file_metadata(student, saved, file_type, file_description, uploader_id)
         _touch_application_and_student(application)
+        _log_file_upload(student=student, application=application, filenames=saved, file_type=file_type)
         db.session.commit()
         db.session.refresh(student)
     except Exception as e:
@@ -2562,6 +2726,19 @@ def update_application_status(app_id):
 
     # Notify the assigned agent only for an actual status change.
     if previous_status != new_status:
+        stu = Student.query.get(application.student_id)
+        _log_activity(
+            ACTIVITY_APPLICATION_STATUS,
+            entity_type='application',
+            entity_id=application.id,
+            details={
+                'applicationId': application.id,
+                'studentId': application.student_id,
+                'studentName': _student_display_name(stu),
+                'oldStatus': previous_status,
+                'newStatus': new_status
+            }
+        )
         _add_application_agent_status_notification(application, new_status)
     
     # 6. Notify admin(s) when application is sent to review (e.g. by agent)
@@ -2606,6 +2783,9 @@ def update_application(app_id):
     if not application:
         return jsonify({'message': 'Application not found'}), 404
     data = request.get_json() or {}
+    if not _can_see_finance():
+        for key in APPLICATION_FINANCE_KEYS:
+            data.pop(key, None)
     staff_user = _request_staff_user()
     if 'internalDescription' in data and not staff_user:
         return jsonify({'message': 'Only admin and user roles can update the internal description'}), 403
@@ -2702,6 +2882,19 @@ def update_application(app_id):
     if 'paymentDeserved' in data:
         application.payment_deserved = bool(data.get('paymentDeserved'))
     if application.status != previous_status:
+        stu_for_log = Student.query.get(application.student_id)
+        _log_activity(
+            ACTIVITY_APPLICATION_STATUS,
+            entity_type='application',
+            entity_id=application.id,
+            details={
+                'applicationId': application.id,
+                'studentId': application.student_id,
+                'studentName': _student_display_name(stu_for_log),
+                'oldStatus': previous_status,
+                'newStatus': application.status
+            }
+        )
         _add_application_agent_status_notification(application, application.status)
     _touch_application_and_student(application)
     db.session.commit()
@@ -2750,7 +2943,7 @@ def update_application(app_id):
 
 @api_bp.route('/applications/<app_id>', methods=['DELETE'])
 def delete_application(app_id):
-    denied = _require_admin()
+    denied = _require_manager()
     if denied:
         return denied
     application = Application.query.get(app_id)
@@ -2769,6 +2962,106 @@ def delete_application(app_id):
         'studentId': student_id,
         'studentUpdatedAt': student_updated_at
     }), 200
+
+
+def _serialize_activity(row):
+    details = row.details if isinstance(row.details, dict) else {}
+    return {
+        'id': row.id,
+        'type': row.type,
+        'actorUserId': row.actor_user_id,
+        'actorName': row.actor_name,
+        'createdAt': _normalize_ts_z(row.created_at),
+        'entityType': row.entity_type,
+        'entityId': row.entity_id,
+        'details': details
+    }
+
+
+@api_bp.route('/activities', methods=['GET'])
+def get_activities():
+    guard = _require_manager()
+    if guard:
+        return guard
+    activity_type = (request.args.get('type') or '').strip()
+    actor_user_id = (request.args.get('actorUserId') or '').strip()
+    from_date = (request.args.get('from') or '').strip()
+    to_date = (request.args.get('to') or '').strip()
+    search = (request.args.get('search') or '').strip()
+    try:
+        page = max(1, int(request.args.get('page') or 1))
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        page_size = min(100, max(1, int(request.args.get('pageSize') or 50)))
+    except (TypeError, ValueError):
+        page_size = 50
+
+    query = ActivityLog.query
+    if activity_type:
+        query = query.filter(ActivityLog.type == activity_type)
+    if actor_user_id:
+        query = query.filter(ActivityLog.actor_user_id == actor_user_id)
+    if from_date:
+        start = from_date if 'T' in from_date else f'{from_date}T00:00:00.000Z'
+        query = query.filter(ActivityLog.created_at >= start)
+    if to_date:
+        end = to_date if 'T' in to_date else f'{to_date}T23:59:59.999Z'
+        query = query.filter(ActivityLog.created_at <= end)
+    if search:
+        like = f'%{search}%'
+        query = query.filter(
+            or_(
+                ActivityLog.actor_name.ilike(like),
+                ActivityLog.entity_id.ilike(like),
+                cast(ActivityLog.details, String).ilike(like)
+            )
+        )
+
+    total = query.count()
+    rows = (
+        query.order_by(ActivityLog.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+
+    summary_query = ActivityLog.query
+    if actor_user_id:
+        summary_query = summary_query.filter(ActivityLog.actor_user_id == actor_user_id)
+    if from_date:
+        start = from_date if 'T' in from_date else f'{from_date}T00:00:00.000Z'
+        summary_query = summary_query.filter(ActivityLog.created_at >= start)
+    if to_date:
+        end = to_date if 'T' in to_date else f'{to_date}T23:59:59.999Z'
+        summary_query = summary_query.filter(ActivityLog.created_at <= end)
+    if search:
+        like = f'%{search}%'
+        summary_query = summary_query.filter(
+            or_(
+                ActivityLog.actor_name.ilike(like),
+                ActivityLog.entity_id.ilike(like),
+                cast(ActivityLog.details, String).ilike(like)
+            )
+        )
+    summary = {
+        ACTIVITY_FILE_UPLOAD: 0,
+        ACTIVITY_APPLICATION_STATUS: 0,
+        ACTIVITY_APPLICATION_CREATE: 0,
+        ACTIVITY_STUDENT_CREATE: 0
+    }
+    for type_name, count in summary_query.with_entities(ActivityLog.type, db.func.count(ActivityLog.id)).group_by(ActivityLog.type).all():
+        if type_name in summary:
+            summary[type_name] = int(count or 0)
+
+    return jsonify({
+        'items': [_serialize_activity(row) for row in rows],
+        'total': total,
+        'page': page,
+        'pageSize': page_size,
+        'totalPages': max(1, (total + page_size - 1) // page_size),
+        'summary': summary
+    })
 
 
 @api_bp.route('/incoming-payments', methods=['GET'])
@@ -3224,8 +3517,8 @@ def post_news():
     if not creator:
         return jsonify({'message': 'User not found'}), 404
     role = (creator.role or '').upper()
-    if role not in ('ADMIN', 'USER'):
-        return jsonify({'message': 'Only admin or user role can create news'}), 403
+    if role not in ('ADMIN', 'USER', 'OPERATOR'):
+        return jsonify({'message': 'Only admin, operator or user role can create news'}), 403
     news = NewsItem(
         id=str(uuid.uuid4()),
         title=title,
@@ -3261,7 +3554,7 @@ def post_news():
 
 @api_bp.route('/news/<news_id>', methods=['DELETE'])
 def delete_news(news_id):
-    denied = _require_admin()
+    denied = _require_manager()
     if denied:
         return denied
     news = NewsItem.query.get(news_id)
@@ -3285,6 +3578,7 @@ def get_notifications():
         'message': n.message,
         'link': n.link,
         'isRead': n.is_read,
+        'isProcessed': bool(getattr(n, 'is_processed', False)),
         'createdAt': n.created_at,
         'type': n.type
     } for n in notifications])
@@ -3307,6 +3601,26 @@ def mark_notification_unread(n_id):
     notification.is_read = False
     db.session.commit()
     return jsonify({'message': 'Marked as unread'}), 200
+
+
+@api_bp.route('/notifications/<n_id>/processed', methods=['PUT'])
+def mark_notification_processed(n_id):
+    notification = Notification.query.get(n_id)
+    if not notification:
+        return jsonify({'message': 'Notification not found'}), 404
+    notification.is_processed = True
+    db.session.commit()
+    return jsonify({'message': 'Marked as processed'}), 200
+
+
+@api_bp.route('/notifications/<n_id>/unprocessed', methods=['PUT'])
+def mark_notification_unprocessed(n_id):
+    notification = Notification.query.get(n_id)
+    if not notification:
+        return jsonify({'message': 'Notification not found'}), 404
+    notification.is_processed = False
+    db.session.commit()
+    return jsonify({'message': 'Marked as unprocessed'}), 200
 
 
 @api_bp.route('/notifications/read-all', methods=['PUT'])

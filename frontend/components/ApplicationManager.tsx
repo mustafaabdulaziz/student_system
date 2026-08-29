@@ -13,6 +13,7 @@ import { matchesCreatedAtRange } from '../utils/createdAtRangeFilter';
 import { matchesMultiFilter, type MultiFilterMode } from '../utils/multiFilter';
 import { getApplicationStatusBadgeClass } from '../utils/applicationStatusStyles';
 import { normalizeApplicationStatus } from '../utils/applicationStatus';
+import { isStaffRole, isAdminRole, canManageCatalog } from '../utils/roles';
 import { useNotifications } from '../contexts/NotificationContext';
 import { buildNotificationEntityIndex } from '../utils/notifications';
 import { NotificationUnreadDot } from './NotificationUnreadDot';
@@ -274,7 +275,6 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const [filterDegreesMode, setFilterDegreesMode] = useState<MultiFilterMode>('include');
   const [filterAppCreatedFrom, setFilterAppCreatedFrom] = useState('');
   const [filterAppCreatedTo, setFilterAppCreatedTo] = useState('');
-  const [expandedAppIds, setExpandedAppIds] = useState<Set<string>>(() => new Set());
   const [sortBy, setSortBy] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [treePage, setTreePage] = useState(1);
@@ -371,7 +371,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   };
 
   const agentUsers = useMemo(() => users.filter(u => (u.role || '').toString().toLowerCase() === 'agent'), [users]);
-  const responsibleUsers = useMemo(() => users.filter(u => { const r = (u.role || '').toString().toUpperCase(); return r === 'ADMIN' || r === 'USER'; }), [users]);
+  const responsibleUsers = useMemo(() => users.filter(u => isStaffRole(u.role)), [users]);
   const mentionableUsers = useMemo(
     () => responsibleUsers.filter(u => u.id !== currentUser?.id),
     [responsibleUsers, currentUser?.id]
@@ -383,9 +383,10 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
       (u.name || '').toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q)
     );
   }, [mentionableUsers, mentionQuery]);
-  const isAdminOrUser = currentUser && ((currentUser.role || '').toString().toUpperCase() === 'ADMIN' || (currentUser.role || '').toString().toUpperCase() === 'USER');
+  const isAdminOrUser = isStaffRole(currentUser?.role);
   const canSeeAgentColumn = !!isAdminOrUser;
-  const isAdmin = currentUser && (currentUser.role || '').toString().toUpperCase() === 'ADMIN';
+  const isAdmin = isAdminRole(currentUser?.role);
+  const canManageRecords = canManageCatalog(currentUser?.role);
   const isAgent = currentUser && (currentUser.role || '').toString().toLowerCase() === 'agent';
   const displayStatus = (status: string) => translateStatus(status, currentUser?.role);
   const showFinancialTree = !!(isAdmin && listViewMode === 'tree' && treeDataMode === 'financial');
@@ -1036,7 +1037,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const allMatchingSelected =
     sortedApplications.length > 0 &&
     sortedApplications.every((a) => selectedApplicationIds.has(a.id));
-  const showBulkDelete = !!(isAdmin && onDeleteApplication && listViewMode === 'tree' && view === 'list');
+  const showBulkDelete = !!(canManageRecords && onDeleteApplication && listViewMode === 'tree' && view === 'list');
   const showMassEdit = !!(isAdminOrUser && onUpdateApplication && listViewMode === 'tree' && view === 'list');
   const showBulkSelect = showBulkDelete || showMassEdit;
 
@@ -1111,18 +1112,22 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
         options: Object.values(ApplicationStatus).map(st => ({ value: st, label: displayStatus(st) }))
           .filter(option => option.label)
       },
-      { key: 'currency', label: fin('currency'), type: 'select', options: [{ value: 'USD', label: 'USD' }, { value: 'TRY', label: 'TRY' }, { value: 'EUR', label: 'EUR' }] },
-      { key: 'paymentDeserved', label: fin('paymentDeserved'), type: 'boolean' },
-      { key: 'annualPayment', label: fin('annualPayment'), type: 'number', nullable: true },
-      { key: 'educationVatRate', label: 'Eğitim KDV %', type: 'number', nullable: true },
-      { key: 'grossCommission', label: fin('grossCommission'), type: 'number', nullable: true, supportsRateMode: true },
-      { key: 'abroadVatRate', label: 'Yurtdışı KDV %', type: 'number', nullable: true },
-      { key: 'bonusMax', label: fin('bonusMax'), type: 'number', nullable: true },
-      { key: 'bonusMin', label: fin('bonusMin'), type: 'number', nullable: true },
-      { key: 'agencyCommission', label: fin('agencyCommission'), type: 'number', nullable: true, supportsRateMode: true },
-      { key: 'agencyBonus', label: fin('agencyBonus'), type: 'number', nullable: true },
-      { key: 'depositSupport', label: fin('depositSupport'), type: 'number', nullable: true }
     ];
+    if (isAdmin) {
+      fields.push(
+        { key: 'currency', label: fin('currency'), type: 'select', options: [{ value: 'USD', label: 'USD' }, { value: 'TRY', label: 'TRY' }, { value: 'EUR', label: 'EUR' }] },
+        { key: 'paymentDeserved', label: fin('paymentDeserved'), type: 'boolean' },
+        { key: 'annualPayment', label: fin('annualPayment'), type: 'number', nullable: true },
+        { key: 'educationVatRate', label: 'Eğitim KDV %', type: 'number', nullable: true },
+        { key: 'grossCommission', label: fin('grossCommission'), type: 'number', nullable: true, supportsRateMode: true },
+        { key: 'abroadVatRate', label: 'Yurtdışı KDV %', type: 'number', nullable: true },
+        { key: 'bonusMax', label: fin('bonusMax'), type: 'number', nullable: true },
+        { key: 'bonusMin', label: fin('bonusMin'), type: 'number', nullable: true },
+        { key: 'agencyCommission', label: fin('agencyCommission'), type: 'number', nullable: true, supportsRateMode: true },
+        { key: 'agencyBonus', label: fin('agencyBonus'), type: 'number', nullable: true },
+        { key: 'depositSupport', label: fin('depositSupport'), type: 'number', nullable: true }
+      );
+    }
     if (agentUsers.length > 0) {
       fields.splice(1, 0, {
         key: 'userId',
@@ -1151,7 +1156,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
       });
     }
     return fields;
-  }, [isAdminOrUser, agentUsers, responsibleUsers, agencyCompanies, t, translateStatus]);
+  }, [isAdminOrUser, isAdmin, agentUsers, responsibleUsers, agencyCompanies, t, translateStatus]);
 
   const handleApplicationMassEditApply = async (
     fieldKey: string,
@@ -1486,7 +1491,6 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     const keys = new Set(activePinnedColumns.filter(key => visibleActiveColumns.includes(key)));
     if (keys.size > 0) {
       if (showBulkSelect) keys.add('__select');
-      if (!showFinancialTree) keys.add('__expand');
     }
     return keys;
   }, [activePinnedColumns, visibleActiveColumns, showBulkSelect, showFinancialTree]);
@@ -3778,11 +3782,6 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                         />
                       </th>
                     )}
-                    <th
-                      data-pin-key="__expand"
-                      style={pinHeadStyle('__expand')}
-                      className={`px-6 py-5 ${pinCellClass('__expand', 'head')}`}
-                    ></th>
                     {visibleTreeColumns.includes('number') && <SortTh colKey="number" label={t.number} />}
                     {visibleTreeColumns.includes('status') && <SortTh colKey="status" label={t.applicationStatus} className="text-center w-[170px] max-w-[170px]" />}
                     {canSeeAgentColumn && visibleTreeColumns.includes('agent') && <SortTh colKey="agent" label={t.agent} />}
@@ -3804,29 +3803,10 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                     const s = getStudent(app.studentId);
                     const p = getProgram(app.programId);
                     const uni = p ? getUni(p.universityId) : null;
-                    const period = getPeriod(app.periodId || p?.periodId);
-                    const isExpanded = expandedAppIds.has(app.id);
                     const hasUnreadNotifications = notificationIndex.unreadApplicationIds.has(app.id);
-                    const treeColSpan =
-                      (showBulkSelect ? 1 : 0) +
-                      (visibleTreeColumns.includes('number') ? 1 : 0) +
-                      (visibleTreeColumns.includes('status') ? 1 : 0) +
-                      (canSeeAgentColumn && visibleTreeColumns.includes('agent') ? 1 : 0) +
-                      (isAdminOrUser && visibleTreeColumns.includes('responsible') ? 1 : 0) +
-                      (visibleTreeColumns.includes('student') ? 1 : 0) +
-                      (visibleTreeColumns.includes('nationality') ? 1 : 0) +
-                      (visibleTreeColumns.includes('program') ? 1 : 0) +
-                      (visibleTreeColumns.includes('university') ? 1 : 0) +
-                      (visibleTreeColumns.includes('degree') ? 1 : 0) +
-                      (isAdminOrUser && visibleTreeColumns.includes('agencyCompany') ? 1 : 0) +
-                      (isAdminOrUser && visibleTreeColumns.includes('description') ? 1 : 0) +
-                      (visibleTreeColumns.includes('createdBy') ? 1 : 0) +
-                      (visibleTreeColumns.includes('createdAt') ? 1 : 0) +
-                      (!isAgent && visibleTreeColumns.includes('updatedAt') ? 1 : 0) +
-                      1; // expand toggle column
                     return (
-                      <React.Fragment key={app.id}>
                         <tr
+                          key={app.id}
                           className={`cursor-pointer transition-colors group ${hasUnreadNotifications ? 'border-l-4 border-l-blue-500' : ''} ${treeRowBgClass(selectedApplicationIds.has(app.id), hasUnreadNotifications)}`}
                           onClick={() => { setSelectedAppId(app.id); setView('detail'); }}
                         >
@@ -3845,27 +3825,6 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                               />
                             </td>
                           )}
-                          <td
-                            style={pinCellStyle('__expand')}
-                            className={`px-6 py-4 text-left ${pinCellClass('__expand')}`}
-                            onClick={e => e.stopPropagation()}
-                          >
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setExpandedAppIds(prev => {
-                                  const next = new Set(prev);
-                                  if (next.has(app.id)) next.delete(app.id);
-                                  else next.add(app.id);
-                                  return next;
-                                });
-                              }}
-                              className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all border ${isExpanded ? 'bg-blue-600 text-white border-blue-600' : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100'}`}
-                              aria-expanded={isExpanded}
-                            >
-                              <ChevronDown size={18} className={`transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
-                            </button>
-                          </td>
                           {visibleTreeColumns.includes('number') && (
                             <td style={pinCellStyle('number')} className={`px-6 py-4 ${pinCellClass('number')}`}>
                               <span className="inline-flex items-center gap-2 font-mono font-bold text-gray-900 group-hover:text-blue-600 transition-colors">
@@ -3930,33 +3889,6 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                             </td>
                           )}
                         </tr>
-                        {isExpanded && (
-                          <tr className="bg-slate-50/90 border-b border-gray-100">
-                            <td colSpan={treeColSpan} className="px-6 py-4 text-left align-top">
-                              <div
-                                dir="ltr"
-                                className="grid grid-cols-1 sm:grid-cols-3 gap-6 sm:gap-8 text-sm text-gray-700 w-full justify-items-start"
-                              >
-                                <div className="text-left min-w-0">
-                                  <span className="block text-xs font-semibold text-gray-500 mb-1">{t.universityName}</span>
-                                  <span className="font-medium text-gray-900 break-words">{uni?.name || '—'}</span>
-                                </div>
-                                <div className="text-left min-w-0">
-                                  <span className="block text-xs font-semibold text-gray-500 mb-1">{t.period}</span>
-                                  <span className="font-medium text-gray-900 break-words">{period?.name || '—'}</span>
-                                </div>
-                                <div className="text-left min-w-0">
-                                  <span className="block text-xs font-semibold text-gray-500 mb-1">{t.program}</span>
-                                  <span className="font-medium text-gray-900 break-words">{p?.name || '—'}</span>
-                                  {p?.degree && (
-                                    <span className="block text-xs text-gray-500 mt-1">{translateDegree(p.degree)}</span>
-                                  )}
-                                </div>
-                              </div>
-                            </td>
-                          </tr>
-                        )}
-                      </React.Fragment>
                     );
                   })}
                 </tbody>

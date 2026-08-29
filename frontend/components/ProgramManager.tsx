@@ -9,6 +9,7 @@ import { useTranslation } from '../hooks/useTranslation';
 import { SearchableMultiSelect } from './SearchableMultiSelect';
 import { MassEditModal, type MassEditFieldDef } from './MassEditModal';
 import { SavedQuickFilters } from './SavedQuickFilters';
+import { canManageCatalog, isAgentRole } from '../utils/roles';
 
 interface ProgramManagerProps {
   programs: Program[];
@@ -34,8 +35,8 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
   const { t, translateDegree, dir: layoutDir } = useTranslation();
   const isLtr = layoutDir === 'ltr';
   const tableAlign = isLtr ? 'text-left' : 'text-right';
-  const isAdmin = currentUser?.role === UserRole.ADMIN;
-  const isAgent = (currentUser?.role || '').toString().toLowerCase() === UserRole.AGENT;
+  const canManage = canManageCatalog(currentUser?.role);
+  const isAgent = isAgentRole(currentUser?.role);
 
   const [isModalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<'add' | 'edit'>('add');
@@ -97,14 +98,14 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
   });
 
   useEffect(() => {
-    if (!isAdmin) {
+    if (!canManage) {
       setModalOpen(false);
       setSelectedProgramForView(null);
       setConfirmBulkDelete(false);
       setConfirmArchiveId(null);
       setArchiveView('active');
     }
-  }, [isAdmin]);
+  }, [canManage]);
 
   useEffect(() => {
     setSelectedProgramIds(new Set());
@@ -114,9 +115,9 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
   const getUniversityName = (id: string) => universities.find(u => u.id === id)?.name || t.noUniversities;
   const getPeriodName = (id: string | undefined) => (id && periods.find(p => p.id === id))?.name ?? '—';
   const visiblePrograms = useMemo(() => {
-    if (!isAdmin) return programs.filter((p) => !p.isArchived);
+    if (!canManage) return programs.filter((p) => !p.isArchived);
     return programs.filter((p) => (archiveView === 'archived' ? !!p.isArchived : !p.isArchived));
-  }, [programs, isAdmin, archiveView]);
+  }, [programs, canManage, archiveView]);
 
   const programApplicationCounts = useMemo(() => {
     const map = new Map<string, number>();
@@ -144,7 +145,7 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
     }
     setConfirmBulkDelete(true);
   };
-  const visibleTreeColSpan = visibleTreeColumns.length + (isAdmin ? 2 : 1);
+  const visibleTreeColSpan = visibleTreeColumns.length + (canManage ? 2 : 1);
   const programColumnOptions = useMemo(() => [
     { key: 'name', label: t.programName },
     { key: 'university', label: t.universities },
@@ -413,7 +414,7 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
   const programPaginationBar = sortedPrograms.length > 0 ? (
     <div className="px-4 py-3 border-gray-100 flex flex-wrap items-center justify-between gap-3 text-sm text-gray-600 bg-gray-50/80">
       <div className="flex items-center gap-3 flex-wrap">
-        {isAdmin && archiveView === 'active' && (
+        {canManage && archiveView === 'active' && (
           allMatchingSelected ? (
             <button
               type="button"
@@ -434,7 +435,7 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
             </button>
           )
         )}
-        {isAdmin && archiveView === 'active' && (
+        {canManage && archiveView === 'active' && (
           <button
             type="button"
             onClick={() => setMassEditOpen(true)}
@@ -448,7 +449,7 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
             )}
           </button>
         )}
-        {isAdmin && archiveView === 'active' && (
+        {canManage && archiveView === 'active' && (
           <button
             type="button"
             onClick={openBulkDeleteConfirm}
@@ -793,7 +794,7 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
   };
 
   const openAddModal = () => {
-    if (!isAdmin) return;
+    if (!canManage) return;
     setSelectedProgramForView(null);
     setModalMode('add');
     setEditingId(null);
@@ -805,7 +806,7 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
   };
 
   const openEditModal = (prog: Program) => {
-    if (!isAdmin) return;
+    if (!canManage) return;
     setSelectedProgramForView(null);
     setModalMode('edit');
     setEditingId(prog.id);
@@ -862,7 +863,7 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
   const programToArchive = programs.find(p => p.id === confirmArchiveId);
 
   const programMassEditFields = useMemo((): MassEditFieldDef[] => {
-    if (!isAdmin) return [];
+    if (!canManage) return [];
     return [
       { key: 'periodId', label: t.period, type: 'select', nullable: true, options: periods.map(p => ({ value: p.id, label: p.name })) },
       { key: 'universityId', label: t.universities, type: 'select', options: universities.map(u => ({ value: u.id, label: u.name })) },
@@ -876,7 +877,7 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
       { key: 'years', label: t.programYears, type: 'number' },
       { key: 'isOpen', label: t.programAvailability, type: 'boolean' }
     ];
-  }, [isAdmin, periods, universities, t, translateDegree]);
+  }, [canManage, periods, universities, t, translateDegree]);
 
   const handleProgramMassEditApply = async (fieldKey: string, value: unknown) => {
     if (!onEditProgram || selectedProgramIds.size === 0) return;
@@ -921,7 +922,7 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
   return (
     <div className="space-y-6">
       {/* Full-screen view */}
-      {isAdmin && selectedProgramForView && (
+      {canManage && selectedProgramForView && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 min-h-[calc(100vh-8rem)] overflow-hidden flex flex-col">
           <div className="flex items-center justify-between gap-4 p-6 bg-gradient-to-r from-slate-50 to-white border-b border-gray-200 shrink-0">
             <div className="flex items-center gap-4 min-w-0">
@@ -935,7 +936,7 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
               </button>
               <h2 className="text-xl font-bold text-gray-800 truncate">{selectedProgramForView.name}</h2>
             </div>
-            {isAdmin && (
+            {canManage && (
               <button
                 type="button"
                 onClick={() => openEditModal(selectedProgramForView)}
@@ -1028,7 +1029,7 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
       )}
 
       {/* Full-screen form (Add / Edit) */}
-      {isAdmin && isModalOpen && (
+      {canManage && isModalOpen && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 min-h-[calc(100vh-8rem)] overflow-hidden flex flex-col">
           <div className="flex items-center justify-between gap-4 p-6 bg-gradient-to-r from-slate-50 to-white border-b border-gray-200 shrink-0">
             <div className="flex items-center gap-4 min-w-0">
@@ -1236,7 +1237,7 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
           <p className="text-gray-500">{t.programsTitle}</p>
         </div>
         <div className="flex items-center gap-2">
-          {isAdmin && (
+          {canManage && (
             <input
               ref={importInputRef}
               type="file"
@@ -1282,7 +1283,7 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
               <span className="text-xs font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">{selectedProgramIds.size}</span>
             )}
           </button>
-          {isAdmin && archiveView === 'active' && (
+          {canManage && archiveView === 'active' && (
             <>
               <button
                 type="button"
@@ -1308,7 +1309,7 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
               </button>
             </>
           )}
-          {isAdmin && archiveView === 'archived' && (
+          {canManage && archiveView === 'archived' && (
             <button
               type="button"
               onClick={exportProgramsToExcel}
@@ -1332,7 +1333,7 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
             <Filter size={18} className="text-purple-500" />
             <span className="text-sm font-medium">{t.filter}</span>
           </div>
-          {isAdmin && (
+          {canManage && (
             <>
               <div className="h-6 w-px bg-gray-200 hidden sm:block" />
               <div className="flex rounded-lg border border-gray-200 p-0.5 bg-gray-50">
@@ -1363,11 +1364,11 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
               {t.clearFilters}
             </button>
           )}
-          {isAdmin && (
+          {canManage && (
             <SavedQuickFilters
               pageKey="programs"
               userId={currentUser?.id}
-              isAdmin
+              isAdmin={canManage}
               className="ml-1"
               getFilters={() => ({
                 searchProgramName,
@@ -1495,15 +1496,15 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
                 {visibleTreeColumns.includes('cashPrice') && <SortTh colKey="cashPrice" label={t.cashPrice} />}
                 {visibleTreeColumns.includes('deposit') && <SortTh colKey="deposit" label={t.deposit} />}
                 {!isAgent && visibleTreeColumns.includes('isOpen') && <SortTh colKey="isOpen" label={t.programAvailability} className="text-center" />}
-                {isAdmin && <th className="px-6 py-4 font-bold text-center whitespace-nowrap">{t.edit}</th>}
+                {canManage && <th className="px-6 py-4 font-bold text-center whitespace-nowrap">{t.edit}</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {paginatedPrograms.map((program) => (
                 <tr
                   key={program.id}
-                  onClick={isAdmin && archiveView === 'active' ? () => openEditModal(program) : undefined}
-                  className={`hover:bg-gray-50 transition-colors group ${isAdmin && archiveView === 'active' ? 'cursor-pointer' : ''} ${selectedProgramIds.has(program.id) ? 'bg-blue-50/40' : ''}`}
+                  onClick={canManage && archiveView === 'active' ? () => openEditModal(program) : undefined}
+                  className={`hover:bg-gray-50 transition-colors group ${canManage && archiveView === 'active' ? 'cursor-pointer' : ''} ${selectedProgramIds.has(program.id) ? 'bg-blue-50/40' : ''}`}
                 >
                   <td className="px-4 py-4 text-center" onClick={e => e.stopPropagation()}>
                     <input
@@ -1546,7 +1547,7 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
                       </span>
                     </td>
                   )}
-                  {isAdmin && (
+                  {canManage && (
                   <td className="px-6 py-4 text-center">
                     <div className="flex justify-center gap-2 opacity-60 group-hover:opacity-100 transition-opacity">
                       {archiveView === 'active' && (

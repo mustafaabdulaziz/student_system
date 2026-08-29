@@ -13,6 +13,7 @@ import { NotificationUnreadDot } from './NotificationUnreadDot';
 import { CreatedAtRangeFilter } from './CreatedAtRangeFilter';
 import { SearchableMultiSelect } from './SearchableMultiSelect';
 import { SearchableSelect } from './SearchableSelect';
+import { isStaffRole, canManageCatalog, isAdminRole, isAgentRole } from '../utils/roles';
 import { SavedQuickFilters } from './SavedQuickFilters';
 import { StaffTypedFileUpload } from './StaffTypedFileUpload';
 import { getStudentFileTypeLabel, type StudentFileTypeCode } from '../constants/studentFileTypes';
@@ -177,10 +178,11 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
   };
 
   const agentUsers = useMemo(() => users.filter(u => (u.role || '').toString().toLowerCase() === 'agent'), [users]);
-  const isAdminOrUser = currentUser && ((currentUser.role || '').toString().toUpperCase() === 'ADMIN' || (currentUser.role || '').toString().toUpperCase() === 'USER');
-  const isAdmin = currentUser && (currentUser.role || '').toString().toUpperCase() === 'ADMIN';
+  const isAdminOrUser = isStaffRole(currentUser?.role);
+  const isAdmin = isAdminRole(currentUser?.role);
+  const canManage = canManageCatalog(currentUser?.role);
   const isUser = currentUser && (currentUser.role || '').toString().toUpperCase() === 'USER';
-  const isAgent = currentUser && (currentUser.role || '').toString().toLowerCase() === 'agent';
+  const isAgent = isAgentRole(currentUser?.role);
   const canEditStudent = !isAgent;
   const getAgentName = (student: Student) => (student.userId && users.find(u => u.id === student.userId)?.name) || '—';
   const getCreatedByName = (student: Student) =>
@@ -1571,7 +1573,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                               <div className="font-bold text-gray-800 group-hover:text-blue-600 transition-colors">{info.universityName}</div>
                               <div className="flex items-center gap-2">
                                 {getStatusBadge(app.status)}
-                                {isAdmin && onDeleteApplication && (
+                                {canManage && onDeleteApplication && (
                                   <button
                                     type="button"
                                     title={t.delete}
@@ -1675,7 +1677,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                     {t.clearFilters}
                   </button>
                 )}
-                {isAdmin && (
+                {canManage && (
                   <SavedQuickFilters
                     pageKey="students"
                     userId={currentUser?.id}
@@ -1817,7 +1819,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
           {viewMode === 'tree' && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
               <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-3 text-sm text-gray-600">
-                {isAdmin && onDeleteStudent ? (
+                {canManage && onDeleteStudent ? (
                   <button
                     type="button"
                     onClick={() => setConfirmBulkDelete(true)}
@@ -1857,7 +1859,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                 <table className="w-full text-sm text-left">
                   <thead className="bg-gray-50 text-gray-900 font-bold border-b border-gray-200">
                     <tr>
-                      {isAdmin && onDeleteStudent && (
+                      {canManage && onDeleteStudent && (
                         <th className="px-4 py-3 w-12 text-center">
                           <input
                             ref={selectAllCheckboxRef}
@@ -1891,7 +1893,7 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                         className={`hover:bg-gray-50 cursor-pointer ${hasUnreadNotifications ? 'bg-blue-50/40 hover:bg-blue-50/60 border-l-4 border-l-blue-500' : ''} ${selectedStudentIds.has(student.id) ? 'bg-blue-50/40' : ''}`}
                         onClick={() => setSelectedStudentForDetails(student)}
                       >
-                        {isAdmin && onDeleteStudent && (
+                        {canManage && onDeleteStudent && (
                           <td className="px-4 py-3 text-center" onClick={e => e.stopPropagation()}>
                             <input
                               type="checkbox"

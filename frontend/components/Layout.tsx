@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   LayoutDashboard,
+  Activity,
   School,
   BookOpen,
   Users,
@@ -18,6 +19,7 @@ import {
   Settings
 } from 'lucide-react';
 import { User, UserRole } from '../types';
+import { canManageCatalog } from '../utils/roles';
 import { NotificationDropdown } from './NotificationDropdown';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -56,6 +58,9 @@ export const Layout: React.FC<LayoutProps> = ({
 
   const mainNavItems = [
     { id: 'dashboard', label: t.dashboard, icon: LayoutDashboard },
+    ...(canManageCatalog(currentUser?.role)
+      ? [{ id: 'activity-dashboard', label: t.activityDashboard, icon: Activity }]
+      : []),
     { id: 'programs', label: t.programs, icon: BookOpen },
     { id: 'students', label: t.students, icon: Users },
     { id: 'applications', label: t.applications, icon: FileText },

@@ -10,6 +10,7 @@ import { DATE_PRESETS, getDatePreset } from '../utils/datePresets';
 import { matchesMultiFilter, type MultiFilterMode } from '../utils/multiFilter';
 import { SearchableMultiSelect } from './SearchableMultiSelect';
 import { SavedQuickFilters } from './SavedQuickFilters';
+import { isAdminRole, isStaffRole, canManageCatalog, isAgentRole, canSeeFinance } from '../utils/roles';
 
 interface DashboardProps {
   students: Student[];
@@ -261,8 +262,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
 }) => {
   const { t, translateStatus, translateDegree } = useTranslation();
   const displayStatus = (status: string) => translateStatus(status, currentUser?.role);
-  const isAdmin = currentUser?.role === UserRole.ADMIN;
-  const isAdminOrUser = currentUser?.role === UserRole.ADMIN || currentUser?.role === UserRole.USER;
+  const isAdmin = canSeeFinance(currentUser?.role);
+  const isAdminOrUser = isStaffRole(currentUser?.role);
+  const canSeeOpsFilters = canManageCatalog(currentUser?.role);
   const canSeeCountryChart = isAdminOrUser;
   const canSeeAgencyCompany = isAdminOrUser;
   const defaultRange = getDatePreset('thisYear');
@@ -293,7 +295,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [visibleFinancialTableColumns, setVisibleFinancialTableColumns] = useState<string[]>(FINANCIAL_TABLE_COLUMN_KEYS);
   const financialTableColumnsRef = useRef<HTMLDivElement>(null);
 
-  const canSeeNationalityFilter = currentUser?.role === UserRole.ADMIN || currentUser?.role === UserRole.USER;
+  const canSeeNationalityFilter = isStaffRole(currentUser?.role);
 
   useEffect(() => {
     try {
@@ -370,14 +372,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
     app.agentName || (app.userId && users.find((u) => u.id === app.userId)?.name) || '—';
 
   const scopedApplications = useMemo(() => {
-    if (currentUser?.role === UserRole.AGENT) {
+    if (isAgentRole(currentUser?.role)) {
       return applications.filter((app) => app.userId === currentUser.id);
     }
     return applications;
   }, [applications, currentUser]);
 
   const scopedStudents = useMemo(() => {
-    if (currentUser?.role === UserRole.AGENT) {
+    if (isAgentRole(currentUser?.role)) {
       return students.filter((student) => student.userId === currentUser.id);
     }
     return students;
@@ -1206,7 +1208,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               noResultsText={t.searchNoResults}
             />
           )}
-          {isAdmin && (
+          {canSeeOpsFilters && (
             <SearchableMultiSelect
               options={uniqueAgents}
               selected={agentFilter}
@@ -1218,7 +1220,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               noResultsText={t.searchNoResults}
             />
           )}
-          {isAdmin && (
+          {canSeeOpsFilters && (
             <SearchableMultiSelect
               options={uniqueResponsibles}
               selected={responsibleFilter}
@@ -1536,7 +1538,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             {...rankedCardLabels}
           />
         )}
-        {isAdmin && (
+        {canSeeOpsFilters && (
           <RankedStatsCard
             title={t.byResponsible}
             stats={responsibleStats}

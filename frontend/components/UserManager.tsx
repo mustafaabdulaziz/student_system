@@ -213,6 +213,7 @@ export const UserManager: React.FC<UserManagerProps> = ({ users, currentUser, on
                   onChange={e => setFormData({ ...formData, role: e.target.value as UserRole })}
                 >
                   <option value={UserRole.USER}>{t.user}</option>
+                  <option value={UserRole.OPERATOR}>{t.operator}</option>
                   <option value={UserRole.ADMIN}>{t.admin}</option>
                   <option value={UserRole.AGENT}>{t.agent}</option>
                 </select>

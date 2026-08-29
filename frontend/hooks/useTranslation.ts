@@ -51,6 +51,8 @@ export const useTranslation = () => {
         const roleMap: Record<string, any> = {
             'ADMIN': t.admin,
             'Admin': t.admin,
+            'OPERATOR': t.operator,
+            'Operator': t.operator,
             'AGENT': t.agent,
             'Agent': t.agent,
             'USER': t.user,

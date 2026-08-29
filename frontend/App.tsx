@@ -26,10 +26,12 @@ import {
 import { PeriodManager } from './components/PeriodManager';
 import { PaymentsManager } from './components/PaymentsManager';
 import { PaymentDashboard } from './components/PaymentDashboard';
+import { ActivityDashboard } from './components/ActivityDashboard';
 import { AgencyCompanyManager } from './components/AgencyCompanyManager';
 import { PaymentSourceManager } from './components/PaymentSourceManager';
 import { NotificationsPage } from './components/NotificationsPage';
 import { NotificationProvider } from './contexts/NotificationContext';
+import { isAdminRole, isStaffRole, canManageCatalog } from './utils/roles';
 
 const NewsAndUpdates = lazy(() => import('./components/NewsAndUpdates').then(m => ({ default: m.NewsAndUpdates })));
 
@@ -57,6 +59,7 @@ const PATH_TO_PAGE: Record<string, string> = {
   '/incoming-payments': 'incoming-payments',
   '/outgoing-payments': 'outgoing-payments',
   '/payment-dashboard': 'payment-dashboard',
+  '/activity-dashboard': 'activity-dashboard',
   '/agency-companies': 'agency-companies',
   '/payment-sources': 'payment-sources',
   '/news': 'news',
@@ -75,6 +78,7 @@ const PAGE_TO_PATH: Record<string, string> = {
   'incoming-payments': '/incoming-payments',
   'outgoing-payments': '/outgoing-payments',
   'payment-dashboard': '/payment-dashboard',
+  'activity-dashboard': '/activity-dashboard',
   'agency-companies': '/agency-companies',
   'payment-sources': '/payment-sources',
   news: '/news',
@@ -163,8 +167,9 @@ export default function App() {
 
   useEffect(() => {
     const role = state.currentUser?.role;
-    const shouldBlockPage = (
-      (role !== UserRole.ADMIN && (
+    const shouldBlockPage =
+      (role && !canManageCatalog(role) && activePage === 'activity-dashboard') ||
+      (!isAdminRole(role) && (
         activePage === 'users' ||
         activePage === 'periods' ||
         activePage === 'incoming-payments' ||
@@ -172,8 +177,7 @@ export default function App() {
         activePage === 'payment-dashboard' ||
         activePage === 'agency-companies' ||
         activePage === 'payment-sources'
-      ))
-    );
+      ));
     if (state.currentUser && shouldBlockPage) {
       setActivePage('dashboard');
       if (typeof window !== 'undefined') {
@@ -228,7 +232,7 @@ export default function App() {
       const res = await fetch('/api/universities', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(uni)
+        body: JSON.stringify({ ...uni, role: state.currentUser?.role })
       });
       const data = await res.json();
       if (res.ok) {
@@ -246,7 +250,7 @@ export default function App() {
       const res = await fetch(`/api/universities/${uni.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(uni)
+        body: JSON.stringify({ ...uni, role: state.currentUser?.role })
       });
       const data = await res.json();
       if (res.ok) {
@@ -624,7 +628,7 @@ export default function App() {
       const res = await fetch(`/api/applications/${id}/status`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status })
+        body: JSON.stringify({ status, actorUserId: state.currentUser?.id })
       });
       const data = await res.json();
       if (res.ok) {
@@ -1098,14 +1102,14 @@ export default function App() {
           return items;
         };
 
-        const programsBaseUrl = state.currentUser?.role === UserRole.ADMIN
-          ? '/api/programs?role=ADMIN&includeArchived=1'
+        const programsBaseUrl = canManageCatalog(state.currentUser?.role)
+          ? `/api/programs?role=${encodeURIComponent(state.currentUser.role)}&includeArchived=1`
           : '/api/programs';
         const studentsBaseUrl = buildBaseUrl('/api/students');
         const applicationsBaseUrl = buildBaseUrl('/api/applications');
 
         const sharedRequests: Promise<any>[] = [
-          fetch('/api/universities').then(r => r.json()),
+          fetch(`/api/universities?role=${encodeURIComponent(state.currentUser.role)}`).then(r => r.json()),
           fetchPaginatedAll(programsBaseUrl),
           fetchPaginatedAll(studentsBaseUrl),
           fetchPaginatedAll(applicationsBaseUrl),
@@ -1113,8 +1117,7 @@ export default function App() {
           fetch('/api/agency-companies').then(r => r.json()),
           fetch('/api/payment-sources').then(r => r.json())
         ];
-        const canLoadUsers =
-          state.currentUser.role === UserRole.ADMIN || state.currentUser.role === UserRole.USER;
+        const canLoadUsers = isStaffRole(state.currentUser.role);
         if (canLoadUsers) {
           sharedRequests.push(fetch('/api/users').then(r => r.json()));
         }
@@ -1178,11 +1181,41 @@ export default function App() {
       case 'notifications':
         return (
           <NotificationsPage
+            currentUser={state.currentUser}
+            applications={state.applications}
+            programs={state.programs}
+            universities={state.universities}
+            users={state.users}
+            agencyCompanies={state.agencyCompanies}
             onNavigate={(page, entityId) => {
               if (page === 'applications' && entityId) openApplicationDetails(entityId);
               else if (page === 'students' && entityId) openStudentDetails(entityId);
               else navigateTo(page);
             }}
+          />
+        );
+      case 'activity-dashboard':
+        if (!canManageCatalog(state.currentUser?.role)) {
+          return (
+            <Dashboard
+              students={state.students}
+              applications={state.applications}
+              programs={state.programs}
+              universities={state.universities}
+              periods={state.periods}
+              users={state.users}
+              agencyCompanies={state.agencyCompanies}
+              currentUser={state.currentUser}
+              onDrilldownToApplications={openApplicationsWithFilters}
+            />
+          );
+        }
+        return (
+          <ActivityDashboard
+            currentUser={state.currentUser}
+            users={state.users}
+            onOpenApplication={openApplicationDetails}
+            onOpenStudent={openStudentDetails}
           />
         );
       case 'periods':

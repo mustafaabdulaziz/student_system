@@ -389,6 +389,7 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
               <label className="block text-sm font-medium text-gray-700 mb-1">{t.userRole}</label>
               <select disabled={!formEditable} className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-gray-50 disabled:text-gray-600" value={formData.role} onChange={e => setFormData({ ...formData, role: e.target.value as UserRole })}>
                 <option value={UserRole.USER}>{t.user}</option>
+                <option value={UserRole.OPERATOR}>{t.operator}</option>
                 <option value={UserRole.ADMIN}>{t.admin}</option>
                 <option value={UserRole.AGENT}>{t.agent}</option>
               </select>

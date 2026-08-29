@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { NewsItem as NewsItemType, User } from '../types';
 import { useTranslation } from '../hooks/useTranslation';
+import { isStaffRole, canManageCatalog } from '../utils/roles';
 import { Newspaper, Plus, Send, Trash2 } from 'lucide-react';
 
 interface NewsAndUpdatesProps {
@@ -17,8 +18,8 @@ export const NewsAndUpdates: React.FC<NewsAndUpdatesProps> = ({ currentUser }) =
   const [confirmDeleteNewsId, setConfirmDeleteNewsId] = useState<string | null>(null);
   const [deletingNews, setDeletingNews] = useState(false);
 
-  const canCreate = currentUser && ['ADMIN', 'USER'].includes((currentUser.role || '').toString().toUpperCase());
-  const isAdmin = currentUser && (currentUser.role || '').toString().toUpperCase() === 'ADMIN';
+  const canCreate = isStaffRole(currentUser?.role);
+  const canManageNews = canManageCatalog(currentUser?.role);
 
   const loadNews = async () => {
     try {
@@ -162,7 +163,7 @@ export const NewsAndUpdates: React.FC<NewsAndUpdatesProps> = ({ currentUser }) =
               <li key={item.id} className="border-b border-gray-100 pb-4 last:border-0 last:pb-0">
                 <div className="flex items-start justify-between gap-3">
                   <h4 className="font-bold text-gray-900 text-lg flex-1 min-w-0">{item.title}</h4>
-                  {isAdmin && (
+                  {canManageNews && (
                     <button
                       type="button"
                       onClick={() => setConfirmDeleteNewsId(item.id)}

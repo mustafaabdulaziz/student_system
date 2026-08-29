@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { University, Program, User, UserRole, UniversityDegreeCommission } from '../types';
+import { canManageCatalog, canSeeFinance } from '../utils/roles';
 import {
   Plus, Globe, Sparkles, X, Image, Pencil, Trash2,
   BookOpen, Clock, DollarSign, Calendar, ChevronLeft,
@@ -110,7 +111,8 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
   onAddUniversity, onEditUniversity, onDeleteUniversity, currentUser
 }) => {
   const { t, translateDegree } = useTranslation();
-  const isAdmin = currentUser?.role === UserRole.ADMIN;
+  const canManage = canManageCatalog(currentUser?.role);
+  const canEditFinance = canSeeFinance(currentUser?.role);
   const getCountryLabel = (country?: string) => {
     if (country === 'Turkey') return t.countryTurkey;
     if (country === 'Cyprus') return t.countryCyprus;
@@ -285,7 +287,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name || !formData.website || !formData.country || !formData.description) return;
-    const adminFin = isAdmin ? parseAdminFinance() : {
+    const adminFin = canEditFinance ? parseAdminFinance() : {
       educationVatRate: null,
       abroadVatRate: null,
       commissionKind: null,
@@ -293,7 +295,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
       bonusMax: null,
       bonusMin: null
     };
-    if (isAdmin) {
+    if (canEditFinance) {
       const ext = formData as Partial<University> & {
         educationVatRateInput?: string;
         abroadVatRateInput?: string;
@@ -330,8 +332,8 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
         return;
       }
     }
-    const degreeCommissions = isAdmin ? parseDegreeCommissions() : [];
-    if (isAdmin && degreeCommissions === null) return;
+    const degreeCommissions = canEditFinance ? parseDegreeCommissions() : [];
+    if (canEditFinance && degreeCommissions === null) return;
     const uniData: University = {
       id: editingId || Date.now().toString(),
       name: formData.name, website: formData.website,
@@ -339,8 +341,8 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
       city: formData.city || '',
       description: formData.description,
       logo: logoBase64 || undefined,
-      ...(isAdmin ? adminFin : {}),
-      ...(isAdmin ? { degreeCommissions: degreeCommissions || [] } : {})
+      ...(canEditFinance ? adminFin : {}),
+      ...(canEditFinance ? { degreeCommissions: degreeCommissions || [] } : {})
     };
     if (modalMode === 'edit') {
       const saved = await Promise.resolve(onEditUniversity(uniData));
@@ -594,7 +596,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                 </div>
               </div>
             </div>
-            {isAdmin && (
+            {canManage && (
               <div className="flex items-center gap-2 shrink-0">
                 <button
                   type="button"
@@ -661,7 +663,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                   ))}
                 </div>
               </section>
-              {isAdmin && (
+              {canEditFinance && (
                 <section className="rounded-2xl p-6 border border-amber-200 bg-amber-50/50">
                   <h3 className="font-bold text-amber-950 text-lg mb-3 flex items-center gap-2">
                     <DollarSign size={20} className="text-amber-700" />
@@ -812,7 +814,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                 <textarea required rows={5} className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none"
                   value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} />
               </div>
-              {isAdmin && (
+              {canEditFinance && (
                 <div className="border-t border-amber-200 pt-6 mt-2 space-y-4 rounded-xl border border-amber-100 bg-amber-50/40 p-4">
                   <h3 className="text-sm font-bold text-amber-900 uppercase tracking-wide flex items-center gap-2">
                     <DollarSign size={18} />
@@ -986,7 +988,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
           <p className="text-gray-500">{t.universities}</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          {isAdmin && (
+          {canManage && (
             <SavedQuickFilters
               pageKey="universities"
               userId={currentUser?.id}
@@ -1028,7 +1030,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
               </button>
             </div>
           </div>
-          {isAdmin && (
+          {canManage && (
             <div className="flex items-center gap-2">
               <input ref={fileInputRef} type="file" accept=".xlsx,.xls" onChange={handleFileChange} style={{ display: 'none' }} />
               <button onClick={() => fileInputRef.current?.click()} disabled={uploading}
@@ -1079,7 +1081,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                       </span>
                     )}
                     {/* Action buttons – visible on hover */}
-                    {isAdmin && (
+                    {canManage && (
                       <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
                         <button onClick={e => openEdit(uni, e)} title={t.edit}
                           className="p-1.5 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors">
@@ -1172,7 +1174,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                                     {progCount}
                                   </span>
                                   <div className="flex gap-1" onClick={e => e.stopPropagation()}>
-                                    {isAdmin && (
+                                    {canManage && (
                                       <>
                                         <button onClick={e => openEdit(uni, e)} title={t.edit} className="p-1.5 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100">
                                           <Pencil size={14} />

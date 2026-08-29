@@ -13,6 +13,8 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
   markNotificationUnread,
+  markNotificationProcessed,
+  markNotificationUnprocessed,
   parseApplicationIdFromNotification
 } from '../utils/notifications';
 import { playNotificationSound, unlockNotificationAudio } from '../utils/notificationSound';
@@ -27,6 +29,8 @@ interface NotificationContextValue {
   refresh: () => Promise<void>;
   markAsRead: (id: string) => Promise<void>;
   markAsUnread: (id: string) => Promise<void>;
+  markAsProcessed: (id: string) => Promise<void>;
+  markAsUnprocessed: (id: string) => Promise<void>;
   markAsReadForApplication: (applicationId: string) => Promise<void>;
   markAllAsRead: () => Promise<void>;
 }
@@ -141,6 +145,24 @@ export function NotificationProvider({
     }
   }, []);
 
+  const markAsProcessed = useCallback(async (id: string) => {
+    const ok = await markNotificationProcessed(id);
+    if (ok) {
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === id ? { ...n, isProcessed: true } : n))
+      );
+    }
+  }, []);
+
+  const markAsUnprocessed = useCallback(async (id: string) => {
+    const ok = await markNotificationUnprocessed(id);
+    if (ok) {
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === id ? { ...n, isProcessed: false } : n))
+      );
+    }
+  }, []);
+
   const markAsReadForApplication = useCallback(async (applicationId: string) => {
     if (!applicationId) return;
     const toMark = notificationsRef.current.filter(
@@ -178,10 +200,12 @@ export function NotificationProvider({
       refresh: () => refresh(false),
       markAsRead,
       markAsUnread,
+      markAsProcessed,
+      markAsUnprocessed,
       markAsReadForApplication,
       markAllAsRead
     }),
-    [notifications, unreadCount, loading, refresh, markAsRead, markAsUnread, markAsReadForApplication, markAllAsRead]
+    [notifications, unreadCount, loading, refresh, markAsRead, markAsUnread, markAsProcessed, markAsUnprocessed, markAsReadForApplication, markAllAsRead]
   );
 
   return (

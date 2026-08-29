@@ -1,35 +1,110 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Bell, Filter, X, CheckCheck, ChevronLeft, ChevronRight, Mail, MailOpen } from 'lucide-react';
+import { Bell, Filter, X, CheckCheck, ChevronLeft, ChevronRight, Mail, MailOpen, ClipboardCheck, ClipboardList } from 'lucide-react';
 import { useTranslation } from '../hooks/useTranslation';
 import { useNotifications } from '../contexts/NotificationContext';
 import { matchesCreatedAtRange } from '../utils/createdAtRangeFilter';
-import { navigateFromNotification } from '../utils/notifications';
+import { getNotificationApplicationMetas, navigateFromNotification } from '../utils/notifications';
 import { NOTIFICATION_DATE_PRESETS, getDatePreset } from '../utils/datePresets';
+import { matchesMultiFilter, type MultiFilterMode } from '../utils/multiFilter';
+import { SearchableMultiSelect } from './SearchableMultiSelect';
+import { Application, AgencyCompany, Program, University, User } from '../types';
+import { isAgentRole, isStaffRole } from '../utils/roles';
 
 interface NotificationsPageProps {
   onNavigate?: (page: string, appId?: string) => void;
+  currentUser?: User | null;
+  applications?: Application[];
+  programs?: Program[];
+  universities?: University[];
+  users?: User[];
+  agencyCompanies?: AgencyCompany[];
 }
 
 const PAGE_SIZE = 50;
 
-export const NotificationsPage: React.FC<NotificationsPageProps> = ({ onNavigate }) => {
-  const { t, language, translateNotification } = useTranslation();
+export const NotificationsPage: React.FC<NotificationsPageProps> = ({
+  onNavigate,
+  currentUser,
+  applications = [],
+  programs = [],
+  universities = [],
+  users = [],
+  agencyCompanies = []
+}) => {
+  const { t, language, translateNotification, translateDegree } = useTranslation();
   const dateLocale = { ar: 'ar-SA', en: 'en-GB', tr: 'tr-TR' }[language] || 'en-GB';
-  const { notifications, unreadCount, loading, markAsRead, markAsUnread, markAllAsRead } = useNotifications();
+  const {
+    notifications,
+    unreadCount,
+    loading,
+    markAsRead,
+    markAsUnread,
+    markAsProcessed,
+    markAsUnprocessed,
+    markAllAsRead
+  } = useNotifications();
 
   const [filterFrom, setFilterFrom] = useState('');
   const [filterTo, setFilterTo] = useState('');
   const [readFilter, setReadFilter] = useState<'all' | 'unread' | 'read'>('all');
+  const [processedFilter, setProcessedFilter] = useState<'all' | 'unprocessed' | 'processed'>('all');
+  const [universityFilter, setUniversityFilter] = useState<string[]>([]);
+  const [degreeFilter, setDegreeFilter] = useState<string[]>([]);
+  const [responsibleFilter, setResponsibleFilter] = useState<string[]>([]);
+  const [agentFilter, setAgentFilter] = useState<string[]>([]);
+  const [agencyCompanyFilter, setAgencyCompanyFilter] = useState<string[]>([]);
+  const [universityFilterMode, setUniversityFilterMode] = useState<MultiFilterMode>('include');
+  const [degreeFilterMode, setDegreeFilterMode] = useState<MultiFilterMode>('include');
+  const [responsibleFilterMode, setResponsibleFilterMode] = useState<MultiFilterMode>('include');
+  const [agentFilterMode, setAgentFilterMode] = useState<MultiFilterMode>('include');
+  const [agencyCompanyFilterMode, setAgencyCompanyFilterMode] = useState<MultiFilterMode>('include');
   const [page, setPage] = useState(1);
+
+  const canUseStaffNotificationFilters = !isAgentRole(currentUser?.role);
+  const agentUsers = useMemo(() => users.filter((u) => isAgentRole(u.role)), [users]);
+  const responsibleUsers = useMemo(() => users.filter((u) => isStaffRole(u.role)), [users]);
+  const degreeOptions = useMemo(() => {
+    const degrees = Array.from(new Set(programs.map((p) => p.degree).filter(Boolean)));
+    degrees.sort((a, b) => a.localeCompare(b, 'tr'));
+    return degrees.map((d) => ({ value: d, label: translateDegree(d) || d }));
+  }, [programs, translateDegree]);
+
+  const hasAppFilters =
+    universityFilter.length > 0 ||
+    degreeFilter.length > 0 ||
+    (canUseStaffNotificationFilters && (
+      responsibleFilter.length > 0 ||
+      agentFilter.length > 0 ||
+      agencyCompanyFilter.length > 0
+    ));
 
   const filtered = useMemo(() => {
     return notifications.filter((n) => {
       if (!matchesCreatedAtRange(n.createdAt, filterFrom, filterTo)) return false;
       if (readFilter === 'unread' && n.isRead) return false;
       if (readFilter === 'read' && !n.isRead) return false;
+      if (processedFilter === 'unprocessed' && n.isProcessed) return false;
+      if (processedFilter === 'processed' && !n.isProcessed) return false;
+      if (hasAppFilters) {
+        const metas = getNotificationApplicationMetas(n, applications, programs);
+        if (metas.length === 0) return false;
+        const matchesOne = metas.some((meta) =>
+          matchesMultiFilter(meta.universityId, universityFilter, universityFilterMode) &&
+          matchesMultiFilter(meta.degree, degreeFilter, degreeFilterMode) &&
+          (!canUseStaffNotificationFilters || matchesMultiFilter(meta.responsibleId, responsibleFilter, responsibleFilterMode)) &&
+          (!canUseStaffNotificationFilters || matchesMultiFilter(meta.agentId, agentFilter, agentFilterMode)) &&
+          (!canUseStaffNotificationFilters || matchesMultiFilter(meta.agencyCompanyId, agencyCompanyFilter, agencyCompanyFilterMode))
+        );
+        if (!matchesOne) return false;
+      }
       return true;
     });
-  }, [notifications, filterFrom, filterTo, readFilter]);
+  }, [
+    notifications, filterFrom, filterTo, readFilter, processedFilter, hasAppFilters,
+    canUseStaffNotificationFilters, applications, programs, universityFilter, degreeFilter,
+    responsibleFilter, agentFilter, agencyCompanyFilter, universityFilterMode, degreeFilterMode,
+    responsibleFilterMode, agentFilterMode, agencyCompanyFilterMode
+  ]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const paginated = useMemo(() => {
@@ -39,7 +114,11 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({ onNavigate
 
   useEffect(() => {
     setPage(1);
-  }, [filterFrom, filterTo, readFilter]);
+  }, [
+    filterFrom, filterTo, readFilter, processedFilter, universityFilter, degreeFilter,
+    responsibleFilter, agentFilter, agencyCompanyFilter, universityFilterMode,
+    degreeFilterMode, responsibleFilterMode, agentFilterMode, agencyCompanyFilterMode
+  ]);
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
@@ -48,12 +127,31 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({ onNavigate
   const listFrom = filtered.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const listTo = Math.min(page * PAGE_SIZE, filtered.length);
 
-  const hasActiveFilters = Boolean(filterFrom || filterTo || readFilter !== 'all');
+  const hasActiveFilters = Boolean(
+    filterFrom || filterTo || readFilter !== 'all' || processedFilter !== 'all' || hasAppFilters
+  );
 
   const applyDatePreset = (presetId: string) => {
     const range = getDatePreset(presetId);
     setFilterFrom(range.from);
     setFilterTo(range.to);
+  };
+
+  const clearFilters = () => {
+    setFilterFrom('');
+    setFilterTo('');
+    setReadFilter('all');
+    setProcessedFilter('all');
+    setUniversityFilter([]);
+    setDegreeFilter([]);
+    setResponsibleFilter([]);
+    setAgentFilter([]);
+    setAgencyCompanyFilter([]);
+    setUniversityFilterMode('include');
+    setDegreeFilterMode('include');
+    setResponsibleFilterMode('include');
+    setAgentFilterMode('include');
+    setAgencyCompanyFilterMode('include');
   };
 
   const handleMarkAllRead = () => {
@@ -120,7 +218,7 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({ onNavigate
         )}
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 space-y-4">
         <div className="flex flex-wrap items-end gap-4">
           <div className="flex items-center gap-2 text-gray-600 mb-1">
             <Filter size={18} className="text-blue-500" />
@@ -168,10 +266,22 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({ onNavigate
               <option value="read">{t.readOnly}</option>
             </select>
           </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">{t.notificationProcessedFilter}</label>
+            <select
+              value={processedFilter}
+              onChange={(e) => setProcessedFilter(e.target.value as 'all' | 'unprocessed' | 'processed')}
+              className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white min-w-[140px]"
+            >
+              <option value="all">{t.filterAll}</option>
+              <option value="unprocessed">{t.unprocessedOnly}</option>
+              <option value="processed">{t.processedOnly}</option>
+            </select>
+          </div>
           {hasActiveFilters && (
             <button
               type="button"
-              onClick={() => { setFilterFrom(''); setFilterTo(''); setReadFilter('all'); }}
+              onClick={clearFilters}
               className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-100 transition-colors"
             >
               <X size={14} />
@@ -179,7 +289,63 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({ onNavigate
             </button>
           )}
         </div>
-        <p className="text-sm text-gray-500 mt-3">
+        <div className={`grid grid-cols-1 md:grid-cols-2 gap-3 ${canUseStaffNotificationFilters ? 'lg:grid-cols-5' : 'lg:grid-cols-2'}`}>
+          <SearchableMultiSelect
+            options={universities.map((u) => ({ value: u.id, label: u.name }))}
+            selected={universityFilter}
+            onChange={setUniversityFilter}
+            mode={universityFilterMode}
+            onModeChange={setUniversityFilterMode}
+            placeholder={`${t.university} (${t.filterAll})`}
+            searchPlaceholder={t.search}
+            noResultsText={t.searchNoResults}
+          />
+          <SearchableMultiSelect
+            options={degreeOptions}
+            selected={degreeFilter}
+            onChange={setDegreeFilter}
+            mode={degreeFilterMode}
+            onModeChange={setDegreeFilterMode}
+            placeholder={`${t.programDegree} (${t.filterAll})`}
+            searchPlaceholder={t.search}
+            noResultsText={t.searchNoResults}
+          />
+          {canUseStaffNotificationFilters && (
+            <>
+              <SearchableMultiSelect
+                options={responsibleUsers.map((u) => ({ value: u.id, label: u.name }))}
+                selected={responsibleFilter}
+                onChange={setResponsibleFilter}
+                mode={responsibleFilterMode}
+                onModeChange={setResponsibleFilterMode}
+                placeholder={`${t.responsible} (${t.filterAll})`}
+                searchPlaceholder={t.search}
+                noResultsText={t.searchNoResults}
+              />
+              <SearchableMultiSelect
+                options={agentUsers.map((u) => ({ value: u.id, label: u.name }))}
+                selected={agentFilter}
+                onChange={setAgentFilter}
+                mode={agentFilterMode}
+                onModeChange={setAgentFilterMode}
+                placeholder={`${t.agent} (${t.filterAll})`}
+                searchPlaceholder={t.search}
+                noResultsText={t.searchNoResults}
+              />
+              <SearchableMultiSelect
+                options={agencyCompanies.map((c) => ({ value: c.id, label: c.name }))}
+                selected={agencyCompanyFilter}
+                onChange={setAgencyCompanyFilter}
+                mode={agencyCompanyFilterMode}
+                onModeChange={setAgencyCompanyFilterMode}
+                placeholder={`${t.agencyCompany} (${t.filterAll})`}
+                searchPlaceholder={t.search}
+                noResultsText={t.searchNoResults}
+              />
+            </>
+          )}
+        </div>
+        <p className="text-sm text-gray-500">
           {filtered.length} / {notifications.length} {t.notificationsShown}
           {unreadCount > 0 && (
             <span className="ml-2 text-blue-600 font-medium">· {unreadCount} {t.unreadNotifications}</span>
@@ -226,6 +392,7 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({ onNavigate
             <div className="divide-y divide-gray-100">
               {paginated.map((notification) => {
               const { title, message } = translateNotification(notification);
+              const processed = Boolean(notification.isProcessed);
               return (
                 <div
                   key={notification.id}
@@ -248,6 +415,11 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({ onNavigate
                         <div className="flex flex-wrap items-start justify-between gap-2">
                           <h4 className={`font-bold text-base ${notification.isRead ? 'text-gray-700' : 'text-gray-900'}`}>
                             {title}
+                            {processed && (
+                              <span className="ml-2 align-middle text-[10px] font-semibold uppercase tracking-wide text-emerald-700 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded">
+                                {t.processed}
+                              </span>
+                            )}
                           </h4>
                           <time className="text-xs text-gray-400 whitespace-nowrap font-medium">
                             {formatDate(notification.createdAt)}
@@ -256,19 +428,34 @@ export const NotificationsPage: React.FC<NotificationsPageProps> = ({ onNavigate
                         <p className="text-sm text-gray-600 mt-1.5 leading-relaxed">{message}</p>
                       </div>
                     </button>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (notification.isRead) void markAsUnread(notification.id);
-                        else void markAsRead(notification.id);
-                      }}
-                      className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 text-gray-600 hover:bg-white hover:text-blue-700 hover:border-blue-200 transition-colors"
-                      title={notification.isRead ? t.markAsUnread : t.markAsRead}
-                    >
-                      {notification.isRead ? <Mail size={14} /> : <MailOpen size={14} />}
-                      <span className="hidden sm:inline">{notification.isRead ? t.markAsUnread : t.markAsRead}</span>
-                    </button>
+                    <div className="shrink-0 flex flex-col sm:flex-row gap-1.5">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (processed) void markAsUnprocessed(notification.id);
+                          else void markAsProcessed(notification.id);
+                        }}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 text-gray-600 hover:bg-white hover:text-emerald-700 hover:border-emerald-200 transition-colors"
+                        title={processed ? t.markAsUnprocessed : t.markAsProcessed}
+                      >
+                        {processed ? <ClipboardCheck size={14} /> : <ClipboardList size={14} />}
+                        <span className="hidden sm:inline">{processed ? t.markAsUnprocessed : t.markAsProcessed}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (notification.isRead) void markAsUnread(notification.id);
+                          else void markAsRead(notification.id);
+                        }}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 text-gray-600 hover:bg-white hover:text-blue-700 hover:border-blue-200 transition-colors"
+                        title={notification.isRead ? t.markAsUnread : t.markAsRead}
+                      >
+                        {notification.isRead ? <Mail size={14} /> : <MailOpen size={14} />}
+                        <span className="hidden sm:inline">{notification.isRead ? t.markAsUnread : t.markAsRead}</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               );

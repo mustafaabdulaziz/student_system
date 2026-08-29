@@ -36,6 +36,22 @@ export interface Translations {
     account: string;
     logout: string;
     notifications: string;
+    activityDashboard: string;
+    activityDashboardSubtitle: string;
+    activityType: string;
+    activityActor: string;
+    activityTime: string;
+    activityDetails: string;
+    activityFileUpload: string;
+    activityApplicationStatus: string;
+    activityApplicationCreate: string;
+    activityStudentCreate: string;
+    activityNoRecords: string;
+    activityOldStatus: string;
+    activityNewStatus: string;
+    activityFileCount: string;
+    activityAllTypes: string;
+    activityAllUsers: string;
 
     // Login
     login: string;
@@ -344,6 +360,7 @@ export interface Translations {
     countryCode: string;
     noUsers: string;
     admin: string;
+    operator: string;
     agent: string;
     selectAgent: string;
     hostAgent: string;
@@ -374,11 +391,17 @@ export interface Translations {
     notificationsShown: string;
     unreadNotifications: string;
     notificationReadFilter: string;
+    notificationProcessedFilter: string;
     unreadOnly: string;
     readOnly: string;
+    processedOnly: string;
+    unprocessedOnly: string;
+    processed: string;
     noNotificationsForFilter: string;
     markAsRead: string;
     markAsUnread: string;
+    markAsProcessed: string;
+    markAsUnprocessed: string;
     markAllAsRead: string;
     newMessage: string;
     statusUpdate: string;
@@ -458,6 +481,22 @@ export const translations: Record<Language, Translations> = {
         account: 'الحساب',
         logout: 'تسجيل الخروج',
         notifications: 'الإشعارات',
+        activityDashboard: 'لوحة النشاط',
+        activityDashboardSubtitle: 'تتبع من قام بالعمليات ومتى',
+        activityType: 'نوع الحركة',
+        activityActor: 'المستخدم',
+        activityTime: 'الوقت',
+        activityDetails: 'التفاصيل',
+        activityFileUpload: 'رفع ملف',
+        activityApplicationStatus: 'تعديل حالة الطلب',
+        activityApplicationCreate: 'إنشاء طلب',
+        activityStudentCreate: 'إنشاء طالب',
+        activityNoRecords: 'لا توجد حركات',
+        activityOldStatus: 'الحالة السابقة',
+        activityNewStatus: 'الحالة الجديدة',
+        activityFileCount: 'عدد الملفات',
+        activityAllTypes: 'كل الأنواع',
+        activityAllUsers: 'كل المستخدمين',
 
         // Login
         login: 'تسجيل الدخول',
@@ -761,6 +800,7 @@ export const translations: Record<Language, Translations> = {
         countryCode: 'كود الدولة',
         noUsers: 'لا يوجد مستخدمون',
         admin: 'مدير',
+        operator: 'مدير العمليات',
         agent: 'وكيل',
         selectAgent: 'اختر الوكيل',
         hostAgent: 'الوكيل المضيف',
@@ -791,11 +831,17 @@ export const translations: Record<Language, Translations> = {
         notificationsShown: 'إشعار',
         unreadNotifications: 'غير مقروء',
         notificationReadFilter: 'حالة القراءة',
+        notificationProcessedFilter: 'حالة المعالجة',
         unreadOnly: 'غير المقروء فقط',
         readOnly: 'المقروء فقط',
+        processedOnly: 'المعالج فقط',
+        unprocessedOnly: 'غير المعالج فقط',
+        processed: 'معالج',
         noNotificationsForFilter: 'لا توجد إشعارات تطابق الفلتر',
         markAsRead: 'تعليم كمقروء',
         markAsUnread: 'تعليم كغير مقروء',
+        markAsProcessed: 'تعليم كمعالج',
+        markAsUnprocessed: 'تعليم كغير معالج',
         markAllAsRead: 'تجاهل الكل',
         newMessage: 'رسالة جديدة',
         statusUpdate: 'تحديث الحالة',
@@ -874,6 +920,22 @@ export const translations: Record<Language, Translations> = {
         account: 'Account',
         logout: 'Logout',
         notifications: 'Notifications',
+        activityDashboard: 'Activity Dashboard',
+        activityDashboardSubtitle: 'See who did what and when',
+        activityType: 'Action type',
+        activityActor: 'User',
+        activityTime: 'Time',
+        activityDetails: 'Details',
+        activityFileUpload: 'File upload',
+        activityApplicationStatus: 'Application status change',
+        activityApplicationCreate: 'Application created',
+        activityStudentCreate: 'Student created',
+        activityNoRecords: 'No activity yet',
+        activityOldStatus: 'Previous status',
+        activityNewStatus: 'New status',
+        activityFileCount: 'File count',
+        activityAllTypes: 'All types',
+        activityAllUsers: 'All users',
 
         // Login
         login: 'Login',
@@ -1177,6 +1239,7 @@ export const translations: Record<Language, Translations> = {
         countryCode: 'Country Code',
         noUsers: 'No users found',
         admin: 'Admin',
+        operator: 'Operations Manager',
         agent: 'Agent',
         selectAgent: 'Select agent',
         hostAgent: 'Host Agent',
@@ -1207,11 +1270,17 @@ export const translations: Record<Language, Translations> = {
         notificationsShown: 'notifications',
         unreadNotifications: 'unread',
         notificationReadFilter: 'Read status',
+        notificationProcessedFilter: 'Processed status',
         unreadOnly: 'Unread only',
         readOnly: 'Read only',
+        processedOnly: 'Processed only',
+        unprocessedOnly: 'Unprocessed only',
+        processed: 'Processed',
         noNotificationsForFilter: 'No notifications match the filter',
         markAsRead: 'Mark as Read',
         markAsUnread: 'Mark as unread',
+        markAsProcessed: 'Mark as processed',
+        markAsUnprocessed: 'Mark as unprocessed',
         markAllAsRead: 'Ignore all',
         newMessage: 'New Message',
         statusUpdate: 'Status Update',
@@ -1290,6 +1359,22 @@ export const translations: Record<Language, Translations> = {
         account: 'Hesap',
         logout: 'Çıkış',
         notifications: 'Bildirimler',
+        activityDashboard: 'Hareket Panosu',
+        activityDashboardSubtitle: 'İşlemleri kim yaptı ve ne zaman yapıldı',
+        activityType: 'Hareket tipi',
+        activityActor: 'Kullanıcı',
+        activityTime: 'Zaman',
+        activityDetails: 'Detay',
+        activityFileUpload: 'Dosya yükleme',
+        activityApplicationStatus: 'Başvuru durum düzenleme',
+        activityApplicationCreate: 'Başvuru oluşturma',
+        activityStudentCreate: 'Öğrenci oluşturma',
+        activityNoRecords: 'Henüz hareket yok',
+        activityOldStatus: 'Önceki durum',
+        activityNewStatus: 'Yeni durum',
+        activityFileCount: 'Dosya sayısı',
+        activityAllTypes: 'Tüm tipler',
+        activityAllUsers: 'Tüm kullanıcılar',
 
         // Login
         login: 'Giriş',
@@ -1593,6 +1678,7 @@ export const translations: Record<Language, Translations> = {
         countryCode: 'Ülke Kodu',
         noUsers: 'Kullanıcı bulunamadı',
         admin: 'Yönetici',
+        operator: 'Operasyon Yöneticisi',
         agent: 'Temsilci',
         selectAgent: 'Temsilci seçin',
         hostAgent: 'Sorumlu Temsilci',
@@ -1623,11 +1709,17 @@ export const translations: Record<Language, Translations> = {
         notificationsShown: 'bildirim',
         unreadNotifications: 'okunmamış',
         notificationReadFilter: 'Okunma durumu',
+        notificationProcessedFilter: 'İşlenme durumu',
         unreadOnly: 'Yalnızca okunmamış',
         readOnly: 'Yalnızca okunmuş',
+        processedOnly: 'Yalnızca işlenen',
+        unprocessedOnly: 'Yalnızca işlenmeyen',
+        processed: 'İşlendi',
         noNotificationsForFilter: 'Filtreye uygun bildirim yok',
         markAsRead: 'Okundu Olarak İşaretle',
         markAsUnread: 'Okunmadı olarak işaretle',
+        markAsProcessed: 'İşlendi olarak işaretle',
+        markAsUnprocessed: 'İşlenmedi olarak işaretle',
         markAllAsRead: 'Tümünü okundu işaretle',
         newMessage: 'Yeni Mesaj',
         statusUpdate: 'Durum Güncellemesi',
