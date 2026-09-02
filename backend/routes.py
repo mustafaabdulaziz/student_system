@@ -1,6 +1,6 @@
 
 from flask import Blueprint, request, jsonify, session, current_app, send_from_directory, url_for
-from models import db, Student, University, Program, Application, ApplicationMessage, User, Notification, Period, NewsItem, IncomingPayment, OutgoingPayment, AgencyCompany, UserUniversityCommission, PaymentSource, ActivityLog
+from models import db, Student, University, Program, Application, ApplicationMessage, User, Notification, Period, NewsItem, IncomingPayment, OutgoingPayment, AgencyCompany, UserUniversityCommission, PaymentSource, PaymentCategory, ActivityLog
 import os
 import re
 import uuid
@@ -240,6 +240,33 @@ def _payment_receipt_files_raw(record):
     if not record:
         return []
     return list(getattr(record, 'receipt_files', None) or [])
+
+
+def _resolve_period_id(raw):
+    if raw is None or raw == '':
+        return None
+    period_id = str(raw).strip()
+    if not period_id:
+        return None
+    if not Period.query.get(period_id):
+        return False
+    return period_id
+
+
+def _payment_period_fields(record):
+    period_id = getattr(record, 'period_id', None)
+    period_name = None
+    if period_id:
+        period_obj = getattr(record, 'period', None)
+        if period_obj:
+            period_name = period_obj.name
+        else:
+            period_row = Period.query.get(period_id)
+            period_name = period_row.name if period_row else None
+    return {
+        'periodId': period_id,
+        'periodName': period_name
+    }
 
 
 def _append_payment_receipts(record, filenames):
@@ -1865,7 +1892,8 @@ def get_periods():
         'name': p.name,
         'startDate': p.start_date,
         'endDate': p.end_date,
-        'active': getattr(p, 'active', True)
+        'active': getattr(p, 'active', True),
+        'isDefault': bool(getattr(p, 'is_default', False))
     } for p in periods])
 
 
@@ -1874,12 +1902,14 @@ def add_period():
     data = request.json
     if not data.get('name') or not data.get('startDate') or not data.get('endDate'):
         return jsonify({'message': 'Name, start date and end date required'}), 400
+    is_default = data.get('isDefault', False) if isinstance(data.get('isDefault'), bool) else False
     period = Period(
         id=str(uuid.uuid4()),
         name=data['name'].strip(),
         start_date=data['startDate'],
         end_date=data['endDate'],
-        active=data.get('active', True) if isinstance(data.get('active'), bool) else True
+        active=data.get('active', True) if isinstance(data.get('active'), bool) else True,
+        is_default=is_default
     )
     db.session.add(period)
     db.session.commit()
@@ -1904,6 +1934,8 @@ def update_period(period_id):
         if new_active != period.active:
             programs_updated = _sync_program_archive_for_period(period_id, archived=not new_active)
         period.active = new_active
+    if 'isDefault' in data and isinstance(data['isDefault'], bool):
+        period.is_default = data['isDefault']
     db.session.commit()
     resp = {'message': 'Period updated'}
     if programs_updated:
@@ -2024,6 +2056,59 @@ def delete_payment_source(source_id):
     db.session.delete(source)
     db.session.commit()
     return jsonify({'message': 'Payment source deleted'}), 200
+
+
+@api_bp.route('/payment-categories', methods=['GET'])
+def get_payment_categories():
+    categories = PaymentCategory.query.order_by(PaymentCategory.name.asc()).all()
+    return jsonify([{
+        'id': c.id,
+        'name': c.name
+    } for c in categories])
+
+
+@api_bp.route('/payment-categories', methods=['POST'])
+def add_payment_category():
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'message': 'Payment category name is required'}), 400
+    category = PaymentCategory(
+        id=str(uuid.uuid4()),
+        name=name
+    )
+    db.session.add(category)
+    db.session.commit()
+    return jsonify({'message': 'Payment category added', 'id': category.id}), 201
+
+
+@api_bp.route('/payment-categories/<category_id>', methods=['PUT'])
+def update_payment_category(category_id):
+    category = PaymentCategory.query.get(category_id)
+    if not category:
+        return jsonify({'message': 'Payment category not found'}), 404
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'message': 'Payment category name is required'}), 400
+    category.name = name
+    db.session.commit()
+    return jsonify({'message': 'Payment category updated'}), 200
+
+
+@api_bp.route('/payment-categories/<category_id>', methods=['DELETE'])
+def delete_payment_category(category_id):
+    category = PaymentCategory.query.get(category_id)
+    if not category:
+        return jsonify({'message': 'Payment category not found'}), 404
+    linked_payment = IncomingPayment.query.filter_by(payment_category_id=category_id).first()
+    if not linked_payment:
+        linked_payment = IncomingPayment.query.filter_by(payment_category=category.name).first()
+    if linked_payment:
+        return jsonify({'message': 'Bu ödeme kategorisine bağlı gelen ödeme olduğu için silinemez'}), 400
+    db.session.delete(category)
+    db.session.commit()
+    return jsonify({'message': 'Payment category deleted'}), 200
 
 
 @api_bp.route('/applications', methods=['GET'])
@@ -3077,13 +3162,18 @@ def get_incoming_payments():
         'paymentType': getattr(r, 'payment_type', None) or 'Cash',
         'paymentSource': (r.payment_source_rel.name if getattr(r, 'payment_source_rel', None) else r.payment_source),
         'paymentSourceId': getattr(r, 'payment_source_id', None),
+        'paymentCategory': (
+            r.payment_category_rel.name if getattr(r, 'payment_category_rel', None) else getattr(r, 'payment_category', None)
+        ),
+        'paymentCategoryId': getattr(r, 'payment_category_id', None),
         'paymentAmount': getattr(r, 'payment_amount', None),
         'currency': getattr(r, 'currency', None) or 'USD',
         'description1': r.description_1,
         'description2': r.description_2,
         'receiptFiles': _files_info_list(_payment_receipt_files_raw(r)),
         'createdAt': r.created_at,
-        'updatedAt': r.updated_at
+        'updatedAt': r.updated_at,
+        **_payment_period_fields(r)
     } for r in records])
 
 
@@ -3097,12 +3187,18 @@ def add_incoming_payment():
     payment_type = (data.get('paymentType') or '').strip()
     payment_source = (data.get('paymentSource') or '').strip()
     payment_source_id = (data.get('paymentSourceId') or '').strip()
+    payment_category_id = (data.get('paymentCategoryId') or '').strip()
     source_obj = None
+    category_obj = None
     if payment_source_id:
         source_obj = PaymentSource.query.get(payment_source_id)
         if not source_obj:
             return jsonify({'message': 'Selected payment source not found'}), 400
         payment_source = source_obj.name
+    if payment_category_id:
+        category_obj = PaymentCategory.query.get(payment_category_id)
+        if not category_obj:
+            return jsonify({'message': 'Selected payment category not found'}), 400
     payment_amount = data.get('paymentAmount')
     currency = (data.get('currency') or 'USD').strip().upper()
     if currency not in ('USD', 'TRY', 'EUR'):
@@ -3113,6 +3209,11 @@ def add_incoming_payment():
         return jsonify({'message': 'paymentAmount must be a number'}), 400
     if not payment_date or payment_type not in INCOMING_PAYMENT_TYPES or not payment_source:
         return jsonify({'message': 'paymentDate, paymentType (Cash/Bank/Scholarship), paymentSource and paymentAmount are required'}), 400
+    period_value = None
+    if 'periodId' in data:
+        period_value = _resolve_period_id(data.get('periodId'))
+        if period_value is False:
+            return jsonify({'message': 'Selected period not found'}), 400
     now = _iso_timestamp()
     record = IncomingPayment(
         id=str(uuid.uuid4()),
@@ -3121,10 +3222,13 @@ def add_incoming_payment():
         payment_type=payment_type,
         payment_source=payment_source,
         payment_source_id=(source_obj.id if source_obj else None),
+        payment_category=(category_obj.name if category_obj else None),
+        payment_category_id=(category_obj.id if category_obj else None),
         payment_amount=payment_amount,
         currency=currency,
         description_1=(data.get('description1') or '').strip() or None,
         description_2=(data.get('description2') or '').strip() or None,
+        period_id=period_value,
         created_at=now,
         updated_at=now
     )
@@ -3162,6 +3266,17 @@ def update_incoming_payment(payment_id):
             return jsonify({'message': 'Selected payment source not found'}), 400
         record.payment_source_id = source_obj.id
         record.payment_source = source_obj.name
+    if 'paymentCategoryId' in data:
+        category_id = (data.get('paymentCategoryId') or '').strip()
+        if not category_id:
+            record.payment_category_id = None
+            record.payment_category = None
+        else:
+            category_obj = PaymentCategory.query.get(category_id)
+            if not category_obj:
+                return jsonify({'message': 'Selected payment category not found'}), 400
+            record.payment_category_id = category_obj.id
+            record.payment_category = category_obj.name
     if 'paymentType' in data:
         value = (data.get('paymentType') or '').strip()
         if value not in INCOMING_PAYMENT_TYPES:
@@ -3181,6 +3296,11 @@ def update_incoming_payment(payment_id):
         record.description_1 = (data.get('description1') or '').strip() or None
     if 'description2' in data:
         record.description_2 = (data.get('description2') or '').strip() or None
+    if 'periodId' in data:
+        period_value = _resolve_period_id(data.get('periodId'))
+        if period_value is False:
+            return jsonify({'message': 'Selected period not found'}), 400
+        record.period_id = period_value
     record.updated_at = _iso_timestamp()
     db.session.commit()
     return jsonify({'message': 'Incoming payment updated'})
@@ -3277,7 +3397,8 @@ def get_outgoing_payments():
         'userName': (r.user.name if getattr(r, 'user', None) else None),
         'userRole': ((r.user.role or '').lower() if getattr(r, 'user', None) else None),
         'createdAt': r.created_at,
-        'updatedAt': r.updated_at
+        'updatedAt': r.updated_at,
+        **_payment_period_fields(r)
     } for r in records])
 
 
@@ -3319,6 +3440,11 @@ def add_outgoing_payment():
         if not user_obj:
             return jsonify({'message': 'Selected user not found'}), 400
         user_value = user_obj.id
+    period_value = None
+    if 'periodId' in data:
+        period_value = _resolve_period_id(data.get('periodId'))
+        if period_value is False:
+            return jsonify({'message': 'Selected period not found'}), 400
     now = _iso_timestamp()
     record = OutgoingPayment(
         id=str(uuid.uuid4()),
@@ -3332,6 +3458,7 @@ def add_outgoing_payment():
         commission_shape=commission_shape_value,
         description_1=(data.get('description1') or '').strip() or None,
         user_id=user_value,
+        period_id=period_value,
         created_at=now,
         updated_at=now
     )
@@ -3411,6 +3538,11 @@ def update_outgoing_payment(payment_id):
         record.commission_shape = cs
     else:
         record.commission_shape = None
+    if 'periodId' in data:
+        period_value = _resolve_period_id(data.get('periodId'))
+        if period_value is False:
+            return jsonify({'message': 'Selected period not found'}), 400
+        record.period_id = period_value
     record.updated_at = _iso_timestamp()
     db.session.commit()
     return jsonify({'message': 'Outgoing payment updated'})

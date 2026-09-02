@@ -88,6 +88,12 @@ class PaymentSource(db.Model):
     name = db.Column(db.String, nullable=False)
 
 
+class PaymentCategory(db.Model):
+    __tablename__ = 'payment_categories'
+    id = db.Column(db.String, primary_key=True)
+    name = db.Column(db.String, nullable=False)
+
+
 class UserUniversityCommission(db.Model):
     __tablename__ = 'user_university_commissions'
     id = db.Column(db.String, primary_key=True)
@@ -165,6 +171,7 @@ class Period(db.Model):
     start_date = db.Column(db.String, nullable=False)
     end_date = db.Column(db.String, nullable=False)
     active = db.Column(db.Boolean, default=True, nullable=False)
+    is_default = db.Column(db.Boolean, default=False, nullable=False)
 
 
 class NewsItem(db.Model):
@@ -210,10 +217,15 @@ class IncomingPayment(db.Model):
     payment_source = db.Column(db.String, nullable=False)
     payment_source_id = db.Column(db.String, db.ForeignKey('payment_sources.id'), nullable=True)
     payment_source_rel = db.relationship('PaymentSource', foreign_keys=[payment_source_id])
+    payment_category = db.Column(db.String, nullable=True)
+    payment_category_id = db.Column(db.String, db.ForeignKey('payment_categories.id'), nullable=True)
+    payment_category_rel = db.relationship('PaymentCategory', foreign_keys=[payment_category_id])
     payment_amount = db.Column(db.Float, nullable=True)
     currency = db.Column(db.String, nullable=False, default='USD')
     description_1 = db.Column(db.String, nullable=True)
     description_2 = db.Column(db.String, nullable=True)
+    period_id = db.Column(db.String, db.ForeignKey('periods.id'), nullable=True)
+    period = db.relationship('Period', foreign_keys=[period_id])
     receipt_files = db.Column(db.ARRAY(db.String))
     created_at = db.Column(db.String, nullable=False)
     updated_at = db.Column(db.String, nullable=True)
@@ -231,6 +243,8 @@ class OutgoingPayment(db.Model):
     expense_type = db.Column(db.String, nullable=True)  # when company_expense: salaries, advertising, ...
     commission_shape = db.Column(db.String, nullable=True)  # when commission: agency / employee / student_referral
     description_1 = db.Column(db.String, nullable=True)
+    period_id = db.Column(db.String, db.ForeignKey('periods.id'), nullable=True)
+    period = db.relationship('Period', foreign_keys=[period_id])
     receipt_files = db.Column(db.ARRAY(db.String))
     user_id = db.Column(db.String, db.ForeignKey('users.id'), nullable=True)
     user = db.relationship('User', foreign_keys=[user_id])

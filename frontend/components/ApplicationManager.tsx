@@ -24,6 +24,7 @@ import { MassEditModal, type MassEditApplyOptions, type MassEditFieldDef } from 
 import { SearchableMultiSelect } from './SearchableMultiSelect';
 import { SearchableSelect } from './SearchableSelect';
 import { SavedQuickFilters } from './SavedQuickFilters';
+import { getDefaultPeriodIds } from '../utils/defaultPeriods';
 import {
   extractMentionIds,
   getActiveMentionQuery,
@@ -273,6 +274,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const [filterAgencyCompaniesMode, setFilterAgencyCompaniesMode] = useState<MultiFilterMode>('include');
   const [filterStatusesMode, setFilterStatusesMode] = useState<MultiFilterMode>('include');
   const [filterDegreesMode, setFilterDegreesMode] = useState<MultiFilterMode>('include');
+  const [filterPeriodsMode, setFilterPeriodsMode] = useState<MultiFilterMode>('include');
   const [filterAppCreatedFrom, setFilterAppCreatedFrom] = useState('');
   const [filterAppCreatedTo, setFilterAppCreatedTo] = useState('');
   const [sortBy, setSortBy] = useState<string | null>(null);
@@ -291,6 +293,8 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const [pinnedFinancialColumns, setPinnedFinancialColumns] = useState<string[]>([]);
   const [pinsOpen, setPinsOpen] = useState(false);
   const pinsRef = useRef<HTMLDivElement>(null);
+  const defaultPeriodIds = useMemo(() => getDefaultPeriodIds(periods), [periods]);
+  const periodDefaultsApplied = useRef(false);
   const treeScrollRef = useRef<HTMLDivElement>(null);
   const treeScrollProxyRef = useRef<HTMLDivElement>(null);
   const syncingScrollRef = useRef(false);
@@ -687,6 +691,18 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   }, [view, selectedAppId, notifications, markAsReadForApplication]);
 
   useEffect(() => {
+    if (periodDefaultsApplied.current) return;
+    if (initialListFilters) {
+      periodDefaultsApplied.current = true;
+      return;
+    }
+    if (periods.length === 0) return;
+    const ids = getDefaultPeriodIds(periods);
+    if (ids.length > 0) setFilterPeriods(ids);
+    periodDefaultsApplied.current = true;
+  }, [periods, initialListFilters]);
+
+  useEffect(() => {
     if (!initialListFilters) return;
     setView('list');
     setSelectedAppId(null);
@@ -939,12 +955,12 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
       const selectedNorm = filterStatuses.map((st) => normalizeApplicationStatus(st));
       const matchStatus = matchesMultiFilter(appStatusNorm, selectedNorm, filterStatusesMode);
       const matchDegree = matchesMultiFilter(p?.degree, filterDegrees, filterDegreesMode);
-      const matchPeriod = matchesMultiFilter(app.periodId || p?.periodId, filterPeriods, 'include');
+      const matchPeriod = matchesMultiFilter(app.periodId || p?.periodId, filterPeriods, filterPeriodsMode);
       const matchCreated = matchesCreatedAtRange(app.createdAt, filterAppCreatedFrom, filterAppCreatedTo);
       return matchNumber && matchName && matchAgent && matchResponsible && matchUniversity && matchProgram && matchNationality && matchCurrency && matchAgencyCompany && matchStatus && matchDegree && matchPeriod && matchCreated;
     });
     return list;
-  }, [applications, students, programs, universities, users, searchApplicationNumber, searchStudentName, filterAgents, filterAgentsMode, filterResponsibles, filterResponsiblesMode, filterUniversities, filterUniversitiesMode, filterPrograms, filterProgramsMode, filterNationalities, filterNationalitiesMode, filterCurrencies, filterCurrenciesMode, filterAgencyCompanies, filterAgencyCompaniesMode, filterStatuses, filterStatusesMode, filterDegrees, filterDegreesMode, filterPeriods, filterAppCreatedFrom, filterAppCreatedTo]);
+  }, [applications, students, programs, universities, users, searchApplicationNumber, searchStudentName, filterAgents, filterAgentsMode, filterResponsibles, filterResponsiblesMode, filterUniversities, filterUniversitiesMode, filterPrograms, filterProgramsMode, filterNationalities, filterNationalitiesMode, filterCurrencies, filterCurrenciesMode, filterAgencyCompanies, filterAgencyCompaniesMode, filterStatuses, filterStatusesMode, filterDegrees, filterDegreesMode, filterPeriods, filterPeriodsMode, filterAppCreatedFrom, filterAppCreatedTo]);
 
   const sortedApplications = useMemo(() => {
     const list = [...filteredApplications];
@@ -3176,6 +3192,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                       filterStatuses,
                       filterDegrees,
                       filterPeriods,
+                      filterPeriodsMode,
                       filterAgentsMode,
                       filterResponsiblesMode,
                       filterUniversitiesMode,
@@ -3201,6 +3218,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                       setFilterStatuses(Array.isArray(f.filterStatuses) ? f.filterStatuses as string[] : []);
                       setFilterDegrees(Array.isArray(f.filterDegrees) ? f.filterDegrees as string[] : []);
                       setFilterPeriods(Array.isArray(f.filterPeriods) ? f.filterPeriods as string[] : []);
+                      setFilterPeriodsMode((f.filterPeriodsMode as MultiFilterMode) || 'include');
                       setFilterAgentsMode((f.filterAgentsMode as MultiFilterMode) || 'include');
                       setFilterResponsiblesMode((f.filterResponsiblesMode as MultiFilterMode) || 'include');
                       setFilterUniversitiesMode((f.filterUniversitiesMode as MultiFilterMode) || 'include');
@@ -3230,7 +3248,8 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                       setFilterAgencyCompanies([]);
                       setFilterStatuses([]);
                       setFilterDegrees([]);
-                      setFilterPeriods([]);
+                      setFilterPeriods([...defaultPeriodIds]);
+                      setFilterPeriodsMode('include');
                       setFilterAgentsMode('include');
                       setFilterResponsiblesMode('include');
                       setFilterUniversitiesMode('include');
@@ -3470,6 +3489,16 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                   searchPlaceholder={t.search}
                 />
               )}
+              <MultiSelectFilter
+                selected={filterPeriods}
+                onChange={setFilterPeriods}
+                mode={filterPeriodsMode}
+                onModeChange={setFilterPeriodsMode}
+                options={periods.map((p) => p.id)}
+                optionLabels={Object.fromEntries(periods.map((p) => [p.id, p.name]))}
+                placeholder={`${t.period} (${t.filterAll})`}
+                searchPlaceholder={t.search}
+              />
               <div className="sm:col-span-2">
                 <CreatedAtRangeFilter
                   from={filterAppCreatedFrom}

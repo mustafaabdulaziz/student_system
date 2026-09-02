@@ -16,7 +16,8 @@ import {
   Newspaper,
   HandCoins,
   Building2,
-  Settings
+  Settings,
+  Tags
 } from 'lucide-react';
 import { User, UserRole } from '../types';
 import { canManageCatalog } from '../utils/roles';
@@ -83,7 +84,8 @@ export const Layout: React.FC<LayoutProps> = ({
       ? [
           { id: 'incoming-payments', label: 'Gelen Ödemeler', icon: HandCoins },
           { id: 'outgoing-payments', label: 'Giden Ödemeler', icon: HandCoins },
-          { id: 'payment-dashboard', label: 'Ödeme Panosu', icon: BarChart2 }
+          { id: 'payment-dashboard', label: 'Ödeme Panosu', icon: BarChart2 },
+          { id: 'payment-categories', label: 'Ödeme Kategorisi', icon: Tags }
         ]
       : [];
 
@@ -92,7 +94,7 @@ export const Layout: React.FC<LayoutProps> = ({
     activePage === 'periods' ||
     activePage === 'agency-companies' ||
     activePage === 'payment-sources';
-  const isPaymentsPage = activePage === 'incoming-payments' || activePage === 'outgoing-payments' || activePage === 'payment-dashboard';
+  const isPaymentsPage = activePage === 'incoming-payments' || activePage === 'outgoing-payments' || activePage === 'payment-dashboard' || activePage === 'payment-categories';
 
   useEffect(() => {
     if (currentUser?.role !== UserRole.ADMIN) {

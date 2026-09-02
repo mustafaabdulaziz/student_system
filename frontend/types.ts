@@ -172,6 +172,7 @@ export interface Period {
   startDate: string;
   endDate: string;
   active?: boolean;
+  isDefault?: boolean;
 }
 
 export interface AgencyCompany {
@@ -180,6 +181,11 @@ export interface AgencyCompany {
 }
 
 export interface PaymentSource {
+  id: string;
+  name: string;
+}
+
+export interface PaymentCategory {
   id: string;
   name: string;
 }
@@ -203,6 +209,7 @@ export interface AppState {
   periods: Period[];
   agencyCompanies: AgencyCompany[];
   paymentSources: PaymentSource[];
+  paymentCategories: PaymentCategory[];
   currentUser: User | null;
 }
 
@@ -220,4 +227,17 @@ export interface ApplicationListFilters {
   currencies?: string[];
   agencyCompanyIds?: string[];
   periodIds?: string[];
+}
+
+/** Filters passed from payment dashboard drill-down to the outgoing payments list. */
+export interface OutgoingPaymentListFilters {
+  dateFrom?: string;
+  dateTo?: string;
+  periodId?: string;
+  currency?: string;
+  paymentType?: string;
+  paymentReason?: string;
+  expenseType?: string;
+  commissionShape?: string;
+  userId?: string;
 }

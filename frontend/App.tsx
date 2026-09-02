@@ -18,10 +18,12 @@ import {
   Period,
   AgencyCompany,
   PaymentSource,
+  PaymentCategory,
   AppState,
   UserRole,
   ApplicationStatus,
-  ApplicationListFilters
+  ApplicationListFilters,
+  OutgoingPaymentListFilters
 } from './types';
 import { PeriodManager } from './components/PeriodManager';
 import { PaymentsManager } from './components/PaymentsManager';
@@ -29,6 +31,7 @@ import { PaymentDashboard } from './components/PaymentDashboard';
 import { ActivityDashboard } from './components/ActivityDashboard';
 import { AgencyCompanyManager } from './components/AgencyCompanyManager';
 import { PaymentSourceManager } from './components/PaymentSourceManager';
+import { PaymentCategoryManager } from './components/PaymentCategoryManager';
 import { NotificationsPage } from './components/NotificationsPage';
 import { NotificationProvider } from './contexts/NotificationContext';
 import { isAdminRole, isStaffRole, canManageCatalog } from './utils/roles';
@@ -44,6 +47,7 @@ const INITIAL_STATE: AppState = {
   periods: [],
   agencyCompanies: [],
   paymentSources: [],
+  paymentCategories: [],
   currentUser: null
 };
 
@@ -62,6 +66,7 @@ const PATH_TO_PAGE: Record<string, string> = {
   '/activity-dashboard': 'activity-dashboard',
   '/agency-companies': 'agency-companies',
   '/payment-sources': 'payment-sources',
+  '/payment-categories': 'payment-categories',
   '/news': 'news',
   '/account': 'account',
   '/notifications': 'notifications'
@@ -81,6 +86,7 @@ const PAGE_TO_PATH: Record<string, string> = {
   'activity-dashboard': '/activity-dashboard',
   'agency-companies': '/agency-companies',
   'payment-sources': '/payment-sources',
+  'payment-categories': '/payment-categories',
   news: '/news',
   account: '/account',
   notifications: '/notifications'
@@ -103,6 +109,7 @@ export default function App() {
   const [targetApplicationId, setTargetApplicationId] = useState<string | null>(null);
   const [targetStudentId, setTargetStudentId] = useState<string | null>(null);
   const [applicationListFilters, setApplicationListFilters] = useState<ApplicationListFilters | null>(null);
+  const [outgoingPaymentListFilters, setOutgoingPaymentListFilters] = useState<OutgoingPaymentListFilters | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
 
   const navigateTo = (page: string) => {
@@ -176,7 +183,8 @@ export default function App() {
         activePage === 'outgoing-payments' ||
         activePage === 'payment-dashboard' ||
         activePage === 'agency-companies' ||
-        activePage === 'payment-sources'
+        activePage === 'payment-sources' ||
+        activePage === 'payment-categories'
       ));
     if (state.currentUser && shouldBlockPage) {
       setActivePage('dashboard');
@@ -224,6 +232,11 @@ export default function App() {
     setPrefillStudentIdForApp(null);
     setApplicationListFilters(filters);
     navigateTo('applications');
+  };
+
+  const openOutgoingPaymentsWithFilters = (filters: OutgoingPaymentListFilters) => {
+    setOutgoingPaymentListFilters(filters);
+    navigateTo('outgoing-payments');
   };
 
   // State Updates
@@ -888,6 +901,70 @@ export default function App() {
     }
   };
 
+  const addPaymentCategory = async (name: string) => {
+    try {
+      const res = await fetch('/api/payment-categories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, role: state.currentUser?.role })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setState(prev => ({
+          ...prev,
+          paymentCategories: [...prev.paymentCategories, { id: data.id, name }]
+        }));
+        return data.id as string;
+      }
+      alert(data.message || 'Ödeme kategorisi eklenemedi');
+    } catch (err) {
+      alert('Connection error');
+    }
+    return null;
+  };
+
+  const editPaymentCategory = async (category: PaymentCategory) => {
+    try {
+      const res = await fetch(`/api/payment-categories/${category.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: category.name, role: state.currentUser?.role })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setState(prev => ({
+          ...prev,
+          paymentCategories: prev.paymentCategories.map(c => c.id === category.id ? category : c)
+        }));
+      } else {
+        alert(data.message || 'Ödeme kategorisi güncellenemedi');
+      }
+    } catch (err) {
+      alert('Connection error');
+    }
+  };
+
+  const deletePaymentCategory = async (id: string) => {
+    try {
+      const res = await fetch(`/api/payment-categories/${id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: state.currentUser?.role })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setState(prev => ({
+          ...prev,
+          paymentCategories: prev.paymentCategories.filter(c => c.id !== id)
+        }));
+      } else {
+        alert(data.message || 'Ödeme kategorisi silinemedi');
+      }
+    } catch (err) {
+      alert('Connection error');
+    }
+  };
+
   const onSyncApplicationTimestamps = useCallback((payload: {
     applicationId: string;
     applicationUpdatedAt: string;
@@ -914,7 +991,10 @@ export default function App() {
       });
       const data = await res.json();
       if (res.ok) {
-        setState(prev => ({ ...prev, periods: [...prev.periods, { ...period, id: data.id }] }));
+        setState(prev => ({
+          ...prev,
+          periods: [...prev.periods, { ...period, id: data.id }]
+        }));
         return data.id;
       }
       alert(data.message || 'Failed to add period');
@@ -1115,7 +1195,8 @@ export default function App() {
           fetchPaginatedAll(applicationsBaseUrl),
           fetch('/api/periods').then(r => r.json()),
           fetch('/api/agency-companies').then(r => r.json()),
-          fetch('/api/payment-sources').then(r => r.json())
+          fetch('/api/payment-sources').then(r => r.json()),
+          fetch('/api/payment-categories').then(r => r.json())
         ];
         const canLoadUsers = isStaffRole(state.currentUser.role);
         if (canLoadUsers) {
@@ -1131,7 +1212,8 @@ export default function App() {
           periods: responses[4] || [],
           agencyCompanies: responses[5] || [],
           paymentSources: responses[6] || [],
-          users: canLoadUsers ? (responses[7] || []).map((u: any) => ({ ...u, active: u.active !== false })) : []
+          paymentCategories: responses[7] || [],
+          users: canLoadUsers ? (responses[8] || []).map((u: any) => ({ ...u, active: u.active !== false })) : []
         }));
       } catch (err) {
         console.error('Error fetching data:', err);
@@ -1303,7 +1385,15 @@ export default function App() {
             />
           );
         }
-        return <PaymentsManager mode="incoming" currentUser={state.currentUser} paymentSources={state.paymentSources} />;
+        return (
+          <PaymentsManager
+            mode="incoming"
+            currentUser={state.currentUser}
+            paymentSources={state.paymentSources}
+            paymentCategories={state.paymentCategories}
+            periods={state.periods}
+          />
+        );
       case 'payment-dashboard':
         if (state.currentUser?.role !== UserRole.ADMIN) {
           return (
@@ -1319,7 +1409,19 @@ export default function App() {
             />
           );
         }
-        return <PaymentDashboard currentUser={state.currentUser} />;
+        return (
+          <PaymentDashboard
+            currentUser={state.currentUser}
+            applications={state.applications}
+            programs={state.programs}
+            universities={state.universities}
+            periods={state.periods}
+            users={state.users}
+            students={state.students}
+            agencyCompanies={state.agencyCompanies}
+            onNavigateToOutgoingPayments={openOutgoingPaymentsWithFilters}
+          />
+        );
       case 'outgoing-payments':
         if (state.currentUser?.role !== UserRole.ADMIN) {
           return (
@@ -1335,7 +1437,16 @@ export default function App() {
             />
           );
         }
-        return <PaymentsManager mode="outgoing" currentUser={state.currentUser} paymentSources={state.paymentSources} />;
+        return (
+          <PaymentsManager
+            mode="outgoing"
+            currentUser={state.currentUser}
+            paymentSources={state.paymentSources}
+            periods={state.periods}
+            initialListFilters={outgoingPaymentListFilters}
+            clearInitialListFilters={() => setOutgoingPaymentListFilters(null)}
+          />
+        );
       case 'agency-companies':
         if (state.currentUser?.role !== UserRole.ADMIN) {
           return (
@@ -1357,6 +1468,29 @@ export default function App() {
             onAddCompany={addAgencyCompany}
             onEditCompany={editAgencyCompany}
             onDeleteCompany={deleteAgencyCompany}
+          />
+        );
+      case 'payment-categories':
+        if (state.currentUser?.role !== UserRole.ADMIN) {
+          return (
+            <Dashboard
+              students={state.students}
+              applications={state.applications}
+              programs={state.programs}
+              universities={state.universities}
+              users={state.users}
+              agencyCompanies={state.agencyCompanies}
+              currentUser={state.currentUser}
+              onDrilldownToApplications={openApplicationsWithFilters}
+            />
+          );
+        }
+        return (
+          <PaymentCategoryManager
+            categories={state.paymentCategories}
+            onAddCategory={addPaymentCategory}
+            onEditCategory={editPaymentCategory}
+            onDeleteCategory={deletePaymentCategory}
           />
         );
       case 'payment-sources':

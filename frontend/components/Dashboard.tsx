@@ -10,6 +10,8 @@ import { DATE_PRESETS, getDatePreset } from '../utils/datePresets';
 import { matchesMultiFilter, type MultiFilterMode } from '../utils/multiFilter';
 import { SearchableMultiSelect } from './SearchableMultiSelect';
 import { SavedQuickFilters } from './SavedQuickFilters';
+import { matchesCreatedAtRange } from '../utils/createdAtRangeFilter';
+import { getDefaultPeriodIds, sameIdSet } from '../utils/defaultPeriods';
 import { isAdminRole, isStaffRole, canManageCatalog, isAgentRole, canSeeFinance } from '../utils/roles';
 
 interface DashboardProps {
@@ -59,6 +61,10 @@ type DrilldownDimension = 'status' | 'university' | 'program' | 'country' | 'deg
 function dateOnly(iso: string | undefined): string {
   if (!iso) return '';
   return iso.split('T')[0];
+}
+
+function getAppPeriodId(app: Application, program?: Program): string | undefined {
+  return app.periodId || program?.periodId;
 }
 
 
@@ -267,10 +273,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const canSeeOpsFilters = canManageCatalog(currentUser?.role);
   const canSeeCountryChart = isAdminOrUser;
   const canSeeAgencyCompany = isAdminOrUser;
-  const defaultRange = getDatePreset('thisYear');
-  const [fromDate, setFromDate] = useState(defaultRange.from);
-  const [toDate, setToDate] = useState(defaultRange.to);
-  const [filterActive, setFilterActive] = useState(true);
+  const defaultPeriodIds = useMemo(() => getDefaultPeriodIds(periods), [periods]);
+  const periodDefaultsApplied = useRef(false);
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [appliedFromDate, setAppliedFromDate] = useState('');
+  const [appliedToDate, setAppliedToDate] = useState('');
+  const [filterActive, setFilterActive] = useState(false);
+  const createdAtDateFilterActive = Boolean(appliedFromDate && appliedToDate);
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [universityFilter, setUniversityFilter] = useState<string[]>([]);
   const [programFilter, setProgramFilter] = useState<string[]>([]);
@@ -280,6 +290,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [nationalityFilter, setNationalityFilter] = useState<string[]>([]);
   const [currencyFilter, setCurrencyFilter] = useState<string[]>([]);
   const [agencyCompanyFilter, setAgencyCompanyFilter] = useState<string[]>([]);
+  const [periodFilter, setPeriodFilter] = useState<string[]>([]);
   const [statusFilterMode, setStatusFilterMode] = useState<MultiFilterMode>('include');
   const [universityFilterMode, setUniversityFilterMode] = useState<MultiFilterMode>('include');
   const [programFilterMode, setProgramFilterMode] = useState<MultiFilterMode>('include');
@@ -289,6 +300,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [nationalityFilterMode, setNationalityFilterMode] = useState<MultiFilterMode>('include');
   const [currencyFilterMode, setCurrencyFilterMode] = useState<MultiFilterMode>('include');
   const [agencyCompanyFilterMode, setAgencyCompanyFilterMode] = useState<MultiFilterMode>('include');
+  const [periodFilterMode, setPeriodFilterMode] = useState<MultiFilterMode>('include');
   const [outgoingPayments, setOutgoingPayments] = useState<DashboardOutgoingPayment[]>([]);
   const [financialTableGroup, setFinancialTableGroup] = useState<FinancialTableGroup>('university');
   const [financialTableColumnsOpen, setFinancialTableColumnsOpen] = useState(false);
@@ -296,6 +308,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const financialTableColumnsRef = useRef<HTMLDivElement>(null);
 
   const canSeeNationalityFilter = isStaffRole(currentUser?.role);
+
+  useEffect(() => {
+    if (periodDefaultsApplied.current) return;
+    if (periods.length === 0) return;
+    const ids = getDefaultPeriodIds(periods);
+    if (ids.length > 0) setPeriodFilter(ids);
+    periodDefaultsApplied.current = true;
+  }, [periods]);
 
   useEffect(() => {
     try {
@@ -387,8 +407,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   const filteredApplications = useMemo(() => {
     return scopedApplications.filter((app) => {
-      const d = dateOnly(app.createdAt);
-      if (filterActive && fromDate && toDate && (!d || d < fromDate || d > toDate)) return false;
+      if (createdAtDateFilterActive && !matchesCreatedAtRange(app.createdAt, appliedFromDate, appliedToDate)) return false;
       const program = programs.find((p) => p.id === app.programId);
       if (!matchesMultiFilter(normalizeApplicationStatus(app.status) as string, statusFilter.map((s) => normalizeApplicationStatus(s) as string), statusFilterMode)) return false;
       if (!matchesMultiFilter(program?.universityId, universityFilter, universityFilterMode)) return false;
@@ -399,14 +418,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
       if (!matchesMultiFilter(studentById.get(app.studentId)?.nationality, nationalityFilter, nationalityFilterMode)) return false;
       if (!matchesMultiFilter((app.currency || 'USD').toUpperCase(), currencyFilter, currencyFilterMode)) return false;
       if (canSeeAgencyCompany && !matchesMultiFilter(app.agencyCompanyId, agencyCompanyFilter, agencyCompanyFilterMode)) return false;
+      if (!matchesMultiFilter(getAppPeriodId(app, program), periodFilter, periodFilterMode)) return false;
       return true;
     });
-  }, [scopedApplications, filterActive, fromDate, toDate, programs, statusFilter, statusFilterMode, universityFilter, universityFilterMode, programFilter, programFilterMode, degreeFilter, degreeFilterMode, agentFilter, agentFilterMode, responsibleFilter, responsibleFilterMode, nationalityFilter, nationalityFilterMode, currencyFilter, currencyFilterMode, agencyCompanyFilter, agencyCompanyFilterMode, canSeeAgencyCompany, studentById, users]);
+  }, [scopedApplications, createdAtDateFilterActive, appliedFromDate, appliedToDate, programs, statusFilter, statusFilterMode, universityFilter, universityFilterMode, programFilter, programFilterMode, degreeFilter, degreeFilterMode, agentFilter, agentFilterMode, responsibleFilter, responsibleFilterMode, nationalityFilter, nationalityFilterMode, currencyFilter, currencyFilterMode, agencyCompanyFilter, agencyCompanyFilterMode, periodFilter, periodFilterMode, canSeeAgencyCompany, studentById, users]);
 
   const applicationsForPayableTotal = useMemo(() => {
     return scopedApplications.filter((app) => {
-      const d = dateOnly(app.createdAt);
-      if (filterActive && fromDate && toDate && (!d || d < fromDate || d > toDate)) return false;
+      if (createdAtDateFilterActive && !matchesCreatedAtRange(app.createdAt, appliedFromDate, appliedToDate)) return false;
       const program = programs.find((p) => p.id === app.programId);
       if (!matchesMultiFilter(program?.universityId, universityFilter, universityFilterMode)) return false;
       if (!matchesMultiFilter(app.programId, programFilter, programFilterMode)) return false;
@@ -416,12 +435,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
       if (!matchesMultiFilter(studentById.get(app.studentId)?.nationality, nationalityFilter, nationalityFilterMode)) return false;
       if (!matchesMultiFilter((app.currency || 'USD').toUpperCase(), currencyFilter, currencyFilterMode)) return false;
       if (canSeeAgencyCompany && !matchesMultiFilter(app.agencyCompanyId, agencyCompanyFilter, agencyCompanyFilterMode)) return false;
+      if (!matchesMultiFilter(getAppPeriodId(app, program), periodFilter, periodFilterMode)) return false;
       return true;
     });
-  }, [scopedApplications, filterActive, fromDate, toDate, programs, universityFilter, universityFilterMode, programFilter, programFilterMode, degreeFilter, degreeFilterMode, agentFilter, agentFilterMode, responsibleFilter, responsibleFilterMode, nationalityFilter, nationalityFilterMode, currencyFilter, currencyFilterMode, agencyCompanyFilter, agencyCompanyFilterMode, canSeeAgencyCompany, studentById, users]);
+  }, [scopedApplications, createdAtDateFilterActive, appliedFromDate, appliedToDate, programs, universityFilter, universityFilterMode, programFilter, programFilterMode, degreeFilter, degreeFilterMode, agentFilter, agentFilterMode, responsibleFilter, responsibleFilterMode, nationalityFilter, nationalityFilterMode, currencyFilter, currencyFilterMode, agencyCompanyFilter, agencyCompanyFilterMode, periodFilter, periodFilterMode, canSeeAgencyCompany, studentById, users]);
 
   const filteredStudents = useMemo(() => {
     const hasAppFilters =
+      createdAtDateFilterActive ||
       statusFilter.length > 0 ||
       universityFilter.length > 0 ||
       programFilter.length > 0 ||
@@ -430,6 +451,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       responsibleFilter.length > 0 ||
       nationalityFilter.length > 0 ||
       currencyFilter.length > 0 ||
+      periodFilter.length > 0 ||
       (canSeeAgencyCompany && agencyCompanyFilter.length > 0);
 
     if (hasAppFilters) {
@@ -437,17 +459,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
       return scopedStudents.filter((student) => studentIds.has(student.id));
     }
 
-    return scopedStudents.filter((s) => {
-      if (!filterActive || !fromDate || !toDate) return true;
-      const d = dateOnly(s.createdAt);
-      return !!(d && d >= fromDate && d <= toDate);
-    });
+    return scopedStudents;
   }, [
     scopedStudents,
     filteredApplications,
-    filterActive,
-    fromDate,
-    toDate,
+    createdAtDateFilterActive,
     statusFilter,
     universityFilter,
     programFilter,
@@ -457,23 +473,35 @@ export const Dashboard: React.FC<DashboardProps> = ({
     nationalityFilter,
     currencyFilter,
     agencyCompanyFilter,
+    periodFilter,
     canSeeAgencyCompany
   ]);
 
   const handleApply = () => {
-    if (fromDate && toDate) setFilterActive(true);
+    if (fromDate && toDate) {
+      setAppliedFromDate(fromDate);
+      setAppliedToDate(toDate);
+      setFilterActive(true);
+      return;
+    }
+    setAppliedFromDate('');
+    setAppliedToDate('');
+    setFilterActive(false);
   };
   const applyDatePreset = (presetId: string) => {
     const { from, to } = getDatePreset(presetId);
     setFromDate(from);
     setToDate(to);
+    setAppliedFromDate(from);
+    setAppliedToDate(to);
     setFilterActive(true);
   };
   const handleClearFilter = () => {
-    const range = getDatePreset('thisYear');
-    setFromDate(range.from);
-    setToDate(range.to);
-    setFilterActive(true);
+    setFromDate('');
+    setToDate('');
+    setAppliedFromDate('');
+    setAppliedToDate('');
+    setFilterActive(false);
     setStatusFilter([]);
     setUniversityFilter([]);
     setProgramFilter([]);
@@ -483,6 +511,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     setNationalityFilter([]);
     setCurrencyFilter([]);
     setAgencyCompanyFilter([]);
+    setPeriodFilter([...defaultPeriodIds]);
     setStatusFilterMode('include');
     setUniversityFilterMode('include');
     setProgramFilterMode('include');
@@ -492,7 +521,41 @@ export const Dashboard: React.FC<DashboardProps> = ({
     setNationalityFilterMode('include');
     setCurrencyFilterMode('include');
     setAgencyCompanyFilterMode('include');
+    setPeriodFilterMode('include');
   };
+
+  const hasFiltersToClear = useMemo(
+    () =>
+      Boolean(
+        appliedFromDate ||
+        appliedToDate ||
+        statusFilter.length > 0 ||
+        universityFilter.length > 0 ||
+        programFilter.length > 0 ||
+        degreeFilter.length > 0 ||
+        agentFilter.length > 0 ||
+        responsibleFilter.length > 0 ||
+        nationalityFilter.length > 0 ||
+        currencyFilter.length > 0 ||
+        agencyCompanyFilter.length > 0 ||
+        !sameIdSet(periodFilter, defaultPeriodIds)
+      ),
+    [
+      appliedFromDate,
+      appliedToDate,
+      statusFilter,
+      universityFilter,
+      programFilter,
+      degreeFilter,
+      agentFilter,
+      responsibleFilter,
+      nationalityFilter,
+      currencyFilter,
+      agencyCompanyFilter,
+      periodFilter,
+      defaultPeriodIds
+    ]
+  );
 
   const getProgramName = (progId: string) => programs.find((p) => p.id === progId)?.name || t.noPrograms;
   const getUniversityName = (uniId: string) => universities.find((u) => u.id === uniId)?.name || '—';
@@ -689,12 +752,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
       if (!payment.userId || !agentUsersById.has(payment.userId)) return sum;
       if (agentFilter.length > 0 && !selectedAgentIds.has(payment.userId)) return sum;
       const paymentDate = dateOnly(payment.paymentDate);
-      if (filterActive && fromDate && toDate && (!paymentDate || paymentDate < fromDate || paymentDate > toDate)) {
+      if (createdAtDateFilterActive && !matchesCreatedAtRange(payment.paymentDate, appliedFromDate, appliedToDate)) {
         return sum;
       }
       return sum + (Number(payment.paymentAmount) || 0);
     }, 0);
-  }, [outgoingPayments, users, agentFilter, filterActive, fromDate, toDate]);
+  }, [outgoingPayments, users, agentFilter, createdAtDateFilterActive, appliedFromDate, appliedToDate]);
 
   const totalPayableToAgents = useMemo(() => {
     const payableStatuses = new Set<ApplicationStatus>([
@@ -839,7 +902,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     let agents = [...agentFilter];
     let currencies = [...currencyFilter];
     let agencyCompanyIds = [...agencyCompanyFilter];
-    let periodIds: string[] = [];
+    let periodIds = [...periodFilter];
 
     switch (dimension) {
       case 'status':
@@ -885,8 +948,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     }
 
     onDrilldownToApplications({
-      ...(filterActive && fromDate ? { createdFrom: fromDate } : {}),
-      ...(filterActive && toDate ? { createdTo: toDate } : {}),
+      ...(createdAtDateFilterActive ? { createdFrom: appliedFromDate, createdTo: appliedToDate } : {}),
       ...(statuses.length > 0 ? { statuses } : {}),
       ...(universityIds.length > 0 ? { universityIds } : {}),
       ...(programIds.length > 0 ? { programIds } : {}),
@@ -935,8 +997,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     const statuses = resolveCardStatuses(cardStatuses);
     if (cardStatuses.length > 0 && statuses.length === 0) return;
     onDrilldownToApplications({
-      ...(filterActive && fromDate ? { createdFrom: fromDate } : {}),
-      ...(filterActive && toDate ? { createdTo: toDate } : {}),
+      ...(createdAtDateFilterActive ? { createdFrom: appliedFromDate, createdTo: appliedToDate } : {}),
       ...(statuses.length > 0 ? { statuses } : {}),
       ...(universityFilter.length > 0 ? { universityIds: [...universityFilter] } : {}),
       ...(programFilter.length > 0 ? { programIds: [...programFilter] } : {}),
@@ -946,6 +1007,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       ...(agentFilter.length > 0 ? { agents: [...agentFilter] } : {}),
       ...(currencyFilter.length > 0 ? { currencies: [...currencyFilter] } : {}),
       ...(agencyCompanyFilter.length > 0 ? { agencyCompanyIds: [...agencyCompanyFilter] } : {}),
+      ...(periodFilter.length > 0 ? { periodIds: [...periodFilter] } : {}),
     });
   };
 
@@ -988,7 +1050,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
     {
       label: t.totalPaidApplications,
       statuses: [
-        ApplicationStatus.DEPOSIT_PAYMENT_WAITING,
         ApplicationStatus.DEPOSIT_PAYMENT_UPLOAD_WAITING,
         ApplicationStatus.ACCEPTANCE_LETTER_WAITING,
         ApplicationStatus.ACCEPTANCE_LETTER_SEND_TO_COMPANY_WAITING,
@@ -1085,7 +1146,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <Filter size={16} />
             {t.applyFilter}
           </button>
-          {filterActive && (
+          {hasFiltersToClear && (
             <button
               type="button"
               onClick={handleClearFilter}
@@ -1106,6 +1167,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
           getFilters={() => ({
             fromDate,
             toDate,
+            appliedFromDate,
+            appliedToDate,
             filterActive,
             statusFilter,
             universityFilter,
@@ -1116,6 +1179,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             nationalityFilter,
             currencyFilter,
             agencyCompanyFilter,
+            periodFilter,
             statusFilterMode,
             universityFilterMode,
             programFilterMode,
@@ -1124,12 +1188,28 @@ export const Dashboard: React.FC<DashboardProps> = ({
             responsibleFilterMode,
             nationalityFilterMode,
             currencyFilterMode,
-            agencyCompanyFilterMode
+            agencyCompanyFilterMode,
+            periodFilterMode
           })}
           onApply={(f) => {
-            if (typeof f.fromDate === 'string') setFromDate(f.fromDate);
-            if (typeof f.toDate === 'string') setToDate(f.toDate);
-            if (typeof f.filterActive === 'boolean') setFilterActive(f.filterActive);
+            const nextFrom = typeof f.fromDate === 'string' ? f.fromDate : '';
+            const nextTo = typeof f.toDate === 'string' ? f.toDate : '';
+            setFromDate(nextFrom);
+            setToDate(nextTo);
+            const nextAppliedFrom = typeof f.appliedFromDate === 'string' ? f.appliedFromDate : nextFrom;
+            const nextAppliedTo = typeof f.appliedToDate === 'string' ? f.appliedToDate : nextTo;
+            const active = typeof f.filterActive === 'boolean'
+              ? f.filterActive
+              : Boolean(nextAppliedFrom && nextAppliedTo);
+            if (active && nextAppliedFrom && nextAppliedTo) {
+              setAppliedFromDate(nextAppliedFrom);
+              setAppliedToDate(nextAppliedTo);
+              setFilterActive(true);
+            } else {
+              setAppliedFromDate('');
+              setAppliedToDate('');
+              setFilterActive(false);
+            }
             setStatusFilter(Array.isArray(f.statusFilter) ? f.statusFilter as string[] : []);
             setUniversityFilter(Array.isArray(f.universityFilter) ? f.universityFilter as string[] : []);
             setProgramFilter(Array.isArray(f.programFilter) ? f.programFilter as string[] : []);
@@ -1139,6 +1219,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             setNationalityFilter(Array.isArray(f.nationalityFilter) ? f.nationalityFilter as string[] : []);
             setCurrencyFilter(Array.isArray(f.currencyFilter) ? f.currencyFilter as string[] : []);
             setAgencyCompanyFilter(Array.isArray(f.agencyCompanyFilter) ? f.agencyCompanyFilter as string[] : []);
+            setPeriodFilter(Array.isArray(f.periodFilter) ? f.periodFilter as string[] : []);
             setStatusFilterMode((f.statusFilterMode as MultiFilterMode) || 'include');
             setUniversityFilterMode((f.universityFilterMode as MultiFilterMode) || 'include');
             setProgramFilterMode((f.programFilterMode as MultiFilterMode) || 'include');
@@ -1148,6 +1229,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             setNationalityFilterMode((f.nationalityFilterMode as MultiFilterMode) || 'include');
             setCurrencyFilterMode((f.currencyFilterMode as MultiFilterMode) || 'include');
             setAgencyCompanyFilterMode((f.agencyCompanyFilterMode as MultiFilterMode) || 'include');
+            setPeriodFilterMode((f.periodFilterMode as MultiFilterMode) || 'include');
           }}
         />
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -1256,6 +1338,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
               noResultsText={t.searchNoResults}
             />
           )}
+          <SearchableMultiSelect
+            options={periods.map((p) => ({ value: p.id, label: p.name }))}
+            selected={periodFilter}
+            onChange={setPeriodFilter}
+            mode={periodFilterMode}
+            onModeChange={setPeriodFilterMode}
+            placeholder={`${t.period} (${t.filterAll})`}
+            searchPlaceholder={t.search}
+            noResultsText={t.searchNoResults}
+          />
         </div>
       </div>
 

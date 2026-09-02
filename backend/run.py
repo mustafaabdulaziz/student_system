@@ -118,6 +118,10 @@ if __name__ == '__main__':
                     if 'active' not in period_cols:
                         conn.execute(text('ALTER TABLE periods ADD COLUMN active BOOLEAN NOT NULL DEFAULT TRUE'))
                         conn.commit()
+                    period_cols = [c['name'] for c in inspector.get_columns('periods')]
+                    if 'is_default' not in period_cols:
+                        conn.execute(text('ALTER TABLE periods ADD COLUMN is_default BOOLEAN NOT NULL DEFAULT FALSE'))
+                        conn.commit()
             except Exception as e:
                 print('Periods active column check:', e)
             # Ensure agency_companies table exists
@@ -136,6 +140,14 @@ if __name__ == '__main__':
                     conn.commit()
             except Exception as e:
                 print('Payment sources table check:', e)
+            # Ensure payment_categories table exists
+            try:
+                table_names = inspector.get_table_names()
+                if 'payment_categories' not in table_names:
+                    conn.execute(text('CREATE TABLE payment_categories (id VARCHAR PRIMARY KEY, name VARCHAR NOT NULL)'))
+                    conn.commit()
+            except Exception as e:
+                print('Payment categories table check:', e)
             # Ensure user_university_commissions table exists
             try:
                 table_names = inspector.get_table_names()
@@ -313,6 +325,18 @@ if __name__ == '__main__':
                     if 'receipt_files' not in incoming_cols:
                         conn.execute(text('ALTER TABLE incoming_payments ADD COLUMN receipt_files VARCHAR[]'))
                         conn.commit()
+                    incoming_cols = [c['name'] for c in inspector.get_columns('incoming_payments')]
+                    if 'period_id' not in incoming_cols:
+                        conn.execute(text('ALTER TABLE incoming_payments ADD COLUMN period_id VARCHAR REFERENCES periods(id)'))
+                        conn.commit()
+                    incoming_cols = [c['name'] for c in inspector.get_columns('incoming_payments')]
+                    if 'payment_category_id' not in incoming_cols:
+                        conn.execute(text('ALTER TABLE incoming_payments ADD COLUMN payment_category_id VARCHAR'))
+                        conn.commit()
+                    incoming_cols = [c['name'] for c in inspector.get_columns('incoming_payments')]
+                    if 'payment_category' not in incoming_cols:
+                        conn.execute(text('ALTER TABLE incoming_payments ADD COLUMN payment_category VARCHAR'))
+                        conn.commit()
                 if 'outgoing_payments' in table_names:
                     outgoing_cols = [c['name'] for c in inspector.get_columns('outgoing_payments')]
                     if 'currency' not in outgoing_cols:
@@ -329,6 +353,10 @@ if __name__ == '__main__':
                         conn.commit()
                     if 'receipt_files' not in outgoing_cols:
                         conn.execute(text('ALTER TABLE outgoing_payments ADD COLUMN receipt_files VARCHAR[]'))
+                        conn.commit()
+                    outgoing_cols = [c['name'] for c in inspector.get_columns('outgoing_payments')]
+                    if 'period_id' not in outgoing_cols:
+                        conn.execute(text('ALTER TABLE outgoing_payments ADD COLUMN period_id VARCHAR REFERENCES periods(id)'))
                         conn.commit()
             except Exception as e:
                 print('Payments currency column check:', e)

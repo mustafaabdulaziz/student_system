@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Download, Pencil, Plus, Trash2, X, Paperclip, Upload } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { PaymentSource, User, UserRole } from '../types';
+import { PaymentSource, PaymentCategory, Period, User, UserRole, OutgoingPaymentListFilters } from '../types';
 import {
   OUTGOING_PAYMENT_REASON_LABELS,
   OUTGOING_PAYMENT_REASONS,
@@ -23,6 +23,7 @@ import {
 } from '../constants/incomingPayment';
 import { CreatedAtRangeFilter } from './CreatedAtRangeFilter';
 import { SavedQuickFilters } from './SavedQuickFilters';
+import { useTranslation } from '../hooks/useTranslation';
 
 type PaymentsMode = 'incoming' | 'outgoing';
 type CurrencyCode = 'USD' | 'TRY' | 'EUR';
@@ -37,6 +38,10 @@ interface PaymentsManagerProps {
   mode: PaymentsMode;
   currentUser: User;
   paymentSources?: PaymentSource[];
+  paymentCategories?: PaymentCategory[];
+  periods?: Period[];
+  initialListFilters?: OutgoingPaymentListFilters | null;
+  clearInitialListFilters?: () => void;
 }
 
 interface IncomingPaymentRow {
@@ -47,9 +52,13 @@ interface IncomingPaymentRow {
   paymentType: IncomingPaymentTypeCode;
   paymentSource: string;
   paymentSourceId?: string | null;
+  paymentCategory?: string | null;
+  paymentCategoryId?: string | null;
   currency: CurrencyCode;
   description1?: string;
   description2?: string;
+  periodId?: string | null;
+  periodName?: string | null;
   receiptFiles?: PaymentReceiptFile[];
 }
 
@@ -64,6 +73,8 @@ interface OutgoingPaymentRow {
   expenseType?: string | null;
   commissionShape?: string | null;
   description1?: string;
+  periodId?: string | null;
+  periodName?: string | null;
   userId?: string;
   userName?: string;
   userRole?: string;
@@ -77,7 +88,16 @@ const endpointByMode: Record<PaymentsMode, string> = {
   outgoing: '/api/outgoing-payments'
 };
 
-export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentUser, paymentSources = [] }) => {
+export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
+  mode,
+  currentUser,
+  paymentSources = [],
+  paymentCategories = [],
+  periods = [],
+  initialListFilters,
+  clearInitialListFilters
+}) => {
+  const { t } = useTranslation();
   const isAdmin = currentUser?.role === UserRole.ADMIN;
   const [rows, setRows] = useState<Row[]>([]);
   const [assignableUsers, setAssignableUsers] = useState<User[]>([]);
@@ -100,7 +120,10 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
     commissionShape: '',
     descriptionQuery: '',
     amountMin: '',
-    amountMax: ''
+    amountMax: '',
+    periodId: '',
+    paymentCategoryId: '',
+    userId: ''
   });
 
   const title = mode === 'incoming' ? 'Gelen Ödemeler' : 'Giden Ödemeler';
@@ -112,9 +135,12 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
     paymentType: 'Cash' as IncomingPaymentTypeCode,
     paymentSource: '',
     paymentSourceId: '',
+    paymentCategory: '',
+    paymentCategoryId: '',
     currency: 'USD' as CurrencyCode,
     description1: '',
-    description2: ''
+    description2: '',
+    periodId: ''
   });
   const [outgoingForm, setOutgoingForm] = useState({
     paymentDate: '',
@@ -125,12 +151,23 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
     expenseType: '' as '' | CompanyExpenseTypeCode,
     commissionShape: '' as '' | CommissionShapeCode,
     description1: '',
-    userId: ''
+    userId: '',
+    periodId: ''
   });
+
+  const defaultPeriodId = useMemo(
+    () => periods.find((p) => p.isDefault)?.id || '',
+    [periods]
+  );
+
+  const sortedPeriods = useMemo(
+    () => [...periods].sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime()),
+    [periods]
+  );
 
   const resetForm = () => {
     setEditingId(null);
-    setIncomingForm({ paymentDate: '', paymentAmount: '', paymentType: 'Cash', paymentSource: '', paymentSourceId: '', currency: 'USD', description1: '', description2: '' });
+    setIncomingForm({ paymentDate: '', paymentAmount: '', paymentType: 'Cash', paymentSource: '', paymentSourceId: '', paymentCategory: '', paymentCategoryId: '', currency: 'USD', description1: '', description2: '', periodId: '' });
     setOutgoingForm({
       paymentDate: '',
       paymentAmount: '',
@@ -140,7 +177,8 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
       expenseType: '',
       commissionShape: '',
       description1: '',
-      userId: ''
+      userId: '',
+      periodId: ''
     });
     setFormError('');
     setEditingReceipts([]);
@@ -230,6 +268,23 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
     loadUsers();
   }, [isAdmin]);
 
+  useEffect(() => {
+    if (!initialListFilters || mode !== 'outgoing') return;
+    setFilters((prev) => ({
+      ...prev,
+      dateFrom: initialListFilters.dateFrom ?? '',
+      dateTo: initialListFilters.dateTo ?? '',
+      currency: initialListFilters.currency ?? '',
+      paymentType: initialListFilters.paymentType ?? '',
+      paymentReason: initialListFilters.paymentReason ?? '',
+      expenseType: initialListFilters.expenseType ?? '',
+      commissionShape: initialListFilters.commissionShape ?? '',
+      periodId: initialListFilters.periodId ?? '',
+      userId: initialListFilters.userId ?? ''
+    }));
+    if (typeof clearInitialListFilters === 'function') clearInitialListFilters();
+  }, [initialListFilters, clearInitialListFilters, mode]);
+
   const sortedRows = useMemo(
     () => [...rows].sort((a, b) => (b.sequenceNumber || 0) - (a.sequenceNumber || 0)),
     [rows]
@@ -240,22 +295,32 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
     const dateTo = filters.dateTo;
     const currency = filters.currency;
     const descriptionQuery = filters.descriptionQuery.trim().toLowerCase();
-    const paymentSource = filters.paymentSource.trim().toLowerCase();
+    const paymentSourceId = filters.paymentSource;
     const paymentType = filters.paymentType;
     const paymentReason = filters.paymentReason.trim();
     const expenseType = filters.expenseType.trim();
     const commissionShape = filters.commissionShape.trim();
     const amountMin = filters.amountMin !== '' ? Number(filters.amountMin) : null;
     const amountMax = filters.amountMax !== '' ? Number(filters.amountMax) : null;
+    const periodId = filters.periodId;
+    const paymentCategoryId = filters.paymentCategoryId;
+    const userId = filters.userId;
 
     return sortedRows.filter((row) => {
       if (dateFrom && row.paymentDate < dateFrom) return false;
       if (dateTo && row.paymentDate > dateTo) return false;
       if (currency && row.currency !== currency) return false;
+      if (periodId && (row.periodId || '') !== periodId) return false;
 
       if (mode === 'incoming') {
         const incoming = row as IncomingPaymentRow;
-        if (paymentSource && !incoming.paymentSource.toLowerCase().includes(paymentSource)) return false;
+        if (paymentSourceId) {
+          const selected = paymentSources.find((ps) => ps.id === paymentSourceId);
+          if (!selected) return false;
+          const matchesId = (incoming.paymentSourceId || '') === paymentSourceId;
+          const matchesName = incoming.paymentSource === selected.name;
+          if (!matchesId && !matchesName) return false;
+        }
         if (paymentType && incoming.paymentType !== paymentType) return false;
         if (descriptionQuery) {
           const haystack = `${incoming.description1 || ''} ${incoming.description2 || ''}`.toLowerCase();
@@ -263,12 +328,14 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
         }
         if (amountMin !== null && incoming.paymentAmount < amountMin) return false;
         if (amountMax !== null && incoming.paymentAmount > amountMax) return false;
+        if (paymentCategoryId && (incoming.paymentCategoryId || '') !== paymentCategoryId) return false;
       } else {
         const outgoing = row as OutgoingPaymentRow;
         if (paymentType && outgoing.paymentType !== paymentType) return false;
         if (paymentReason && outgoing.paymentReason !== paymentReason) return false;
         if (expenseType && (outgoing.expenseType || '') !== expenseType) return false;
         if (commissionShape && (outgoing.commissionShape || '') !== commissionShape) return false;
+        if (userId && (outgoing.userId || '') !== userId) return false;
         if (descriptionQuery && !(outgoing.description1 || '').toLowerCase().includes(descriptionQuery)) return false;
         if (amountMin !== null && outgoing.paymentAmount < amountMin) return false;
         if (amountMax !== null && outgoing.paymentAmount > amountMax) return false;
@@ -276,7 +343,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
 
       return true;
     });
-  }, [sortedRows, filters, mode]);
+  }, [sortedRows, filters, mode, paymentSources]);
 
   const selectedRows = useMemo(() => filteredRows.filter(r => selectedIds.has(r.id)), [filteredRows, selectedIds]);
   const allFilteredSelected = filteredRows.length > 0 && filteredRows.every(r => selectedIds.has(r.id));
@@ -314,7 +381,10 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
       commissionShape: '',
       descriptionQuery: '',
       amountMin: '',
-      amountMax: ''
+      amountMax: '',
+      periodId: '',
+      paymentCategoryId: '',
+      userId: ''
     });
   };
 
@@ -333,6 +403,8 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
           Currency: r.currency,
           'Odeme Turu': formatIncomingPaymentType(r.paymentType),
           'Odeme Kaynagi': r.paymentSource,
+          'Odeme Kategorisi': r.paymentCategory || '',
+          Donem: r.periodName || '',
           'Aciklama 1': r.description1 || '',
           'Aciklama 2': r.description2 || ''
         };
@@ -345,6 +417,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
         Currency: r.currency,
         'Odeme Turu': r.paymentType === 'Cash' ? 'Nakit' : 'Banka',
         'Odeme Sebebi': formatOutgoingPaymentDisplay(r.paymentReason),
+        Donem: r.periodName || '',
         'Masraf Tipi': formatExpenseTypeDisplay(r.expenseType),
         'Komisyon Sekli': formatCommissionShapeDisplay(r.commissionShape),
         'Aciklama 1': r.description1 || '',
@@ -359,6 +432,10 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
 
   const openCreate = () => {
     resetForm();
+    if (defaultPeriodId) {
+      setIncomingForm((prev) => ({ ...prev, periodId: defaultPeriodId }));
+      setOutgoingForm((prev) => ({ ...prev, periodId: defaultPeriodId }));
+    }
     setShowForm(true);
   };
 
@@ -372,10 +449,13 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
         paymentAmount: String(incoming.paymentAmount ?? ''),
         paymentType: incoming.paymentType || 'Cash',
         paymentSource: incoming.paymentSource || '',
-        paymentSourceId: incoming.paymentSourceId || '',
+        paymentSourceId: incoming.paymentSourceId || paymentSources.find(ps => ps.name === incoming.paymentSource)?.id || '',
+        paymentCategory: incoming.paymentCategory || '',
+        paymentCategoryId: incoming.paymentCategoryId || paymentCategories.find(pc => pc.name === incoming.paymentCategory)?.id || '',
         currency: incoming.currency || 'USD',
         description1: incoming.description1 || '',
-        description2: incoming.description2 || ''
+        description2: incoming.description2 || '',
+        periodId: incoming.periodId || ''
       });
       setEditingReceipts(incoming.receiptFiles || []);
     } else {
@@ -396,7 +476,8 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
         expenseType: (expenseOk || et ? et : '') as '' | CompanyExpenseTypeCode,
         commissionShape: (shapeOk ? cs : '') as '' | CommissionShapeCode,
         description1: outgoing.description1 || '',
-        userId: outgoing.userId || ''
+        userId: outgoing.userId || '',
+        periodId: outgoing.periodId || ''
       });
       setEditingReceipts(outgoing.receiptFiles || []);
     }
@@ -433,7 +514,9 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
           ? {
               ...incomingForm,
               paymentSourceId: incomingForm.paymentSourceId || null,
+              paymentCategoryId: incomingForm.paymentCategoryId || null,
               paymentAmount: Number(incomingForm.paymentAmount),
+              periodId: incomingForm.periodId || null,
               role: currentUser.role
             }
           : {
@@ -448,6 +531,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
                 outgoingForm.paymentReason === 'commission' ? outgoingForm.commissionShape || null : null,
               description1: outgoingForm.description1,
               userId: outgoingForm.userId || null,
+              periodId: outgoingForm.periodId || null,
               role: currentUser.role
             };
       const isEdit = !!editingId;
@@ -611,6 +695,40 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
                   </select>
                 </div>
                 <div>
+                  <label className="block text-sm mb-1">{t.period}</label>
+                  <select
+                    value={incomingForm.periodId}
+                    onChange={e => setIncomingForm(prev => ({ ...prev, periodId: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2"
+                  >
+                    <option value="">Seçimsiz</option>
+                    {sortedPeriods.map((period) => (
+                      <option key={period.id} value={period.id}>{period.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm mb-1">Ödeme Kategorisi</label>
+                  <select
+                    value={incomingForm.paymentCategoryId}
+                    onChange={e => {
+                      const selectedId = e.target.value;
+                      const selected = paymentCategories.find(pc => pc.id === selectedId);
+                      setIncomingForm(prev => ({
+                        ...prev,
+                        paymentCategoryId: selectedId,
+                        paymentCategory: selected?.name || ''
+                      }));
+                    }}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2"
+                  >
+                    <option value="">Seçimsiz</option>
+                    {paymentCategories.map(pc => (
+                      <option key={pc.id} value={pc.id}>{pc.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
                   <label className="block text-sm mb-1">Açıklama 1</label>
                   <input
                     value={incomingForm.description1}
@@ -763,6 +881,19 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
                   </select>
                 </div>
                 <div>
+                  <label className="block text-sm mb-1">{t.period}</label>
+                  <select
+                    value={outgoingForm.periodId}
+                    onChange={e => setOutgoingForm(prev => ({ ...prev, periodId: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2"
+                  >
+                    <option value="">Seçimsiz</option>
+                    {sortedPeriods.map((period) => (
+                      <option key={period.id} value={period.id}>{period.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
                   <label className="block text-sm mb-1">Açıklama 1</label>
                   <input
                     value={outgoingForm.description1}
@@ -872,7 +1003,9 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
               commissionShape: typeof f.commissionShape === 'string' ? f.commissionShape : '',
               descriptionQuery: typeof f.descriptionQuery === 'string' ? f.descriptionQuery : '',
               amountMin: typeof f.amountMin === 'string' ? f.amountMin : '',
-              amountMax: typeof f.amountMax === 'string' ? f.amountMax : ''
+              amountMax: typeof f.amountMax === 'string' ? f.amountMax : '',
+              periodId: typeof f.periodId === 'string' ? f.periodId : '',
+              paymentCategoryId: typeof f.paymentCategoryId === 'string' ? f.paymentCategoryId : ''
             });
           }}
         />
@@ -893,6 +1026,16 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
             <option value="USD">USD</option>
             <option value="TRY">TRY</option>
             <option value="EUR">EUR</option>
+          </select>
+          <select
+            value={filters.periodId}
+            onChange={e => setFilters(prev => ({ ...prev, periodId: e.target.value }))}
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
+          >
+            <option value="">{t.period} (Tümü)</option>
+            {sortedPeriods.map((period) => (
+              <option key={period.id} value={period.id}>{period.name}</option>
+            ))}
           </select>
 
           {mode === 'incoming' ? (
@@ -923,18 +1066,32 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
                   <option key={type} value={type}>{formatIncomingPaymentType(type)}</option>
                 ))}
               </select>
-              <input
-                placeholder="Ödeme Kaynağı"
+              <select
                 value={filters.paymentSource}
                 onChange={e => setFilters(prev => ({ ...prev, paymentSource: e.target.value }))}
                 className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
-              />
+              >
+                <option value="">Ödeme Kaynağı (Tümü)</option>
+                {paymentSources.map((source) => (
+                  <option key={source.id} value={source.id}>{source.name}</option>
+                ))}
+              </select>
               <input
                 placeholder="Açıklama Ara"
                 value={filters.descriptionQuery}
                 onChange={e => setFilters(prev => ({ ...prev, descriptionQuery: e.target.value }))}
                 className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
               />
+              <select
+                value={filters.paymentCategoryId}
+                onChange={e => setFilters(prev => ({ ...prev, paymentCategoryId: e.target.value }))}
+                className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
+              >
+                <option value="">Ödeme Kategorisi (Tümü)</option>
+                {paymentCategories.map((category) => (
+                  <option key={category.id} value={category.id}>{category.name}</option>
+                ))}
+              </select>
             </>
           ) : (
             <>
@@ -993,6 +1150,16 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
                   <option key={code} value={code}>{COMMISSION_SHAPE_LABELS[code]}</option>
                 ))}
               </select>
+              <select
+                value={filters.userId}
+                onChange={e => setFilters(prev => ({ ...prev, userId: e.target.value }))}
+                className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
+              >
+                <option value="">Kullanıcı (tümü)</option>
+                {assignableUsers.map((user) => (
+                  <option key={user.id} value={user.id}>{user.name}</option>
+                ))}
+              </select>
               <input
                 placeholder="Açıklama Ara"
                 value={filters.descriptionQuery}
@@ -1020,12 +1187,14 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
                 </th>
                 <th className="px-4 py-3">Sequence No</th>
                 <th className="px-4 py-3">Ödeme Tarihi</th>
+                <th className="px-4 py-3">{t.period}</th>
                 {mode === 'incoming' ? (
                   <>
                     <th className="px-4 py-3">Ödeme Miktarı</th>
                     <th className="px-4 py-3">Currency</th>
                     <th className="px-4 py-3">Ödeme Türü</th>
                     <th className="px-4 py-3">Ödeme Kaynağı</th>
+                    <th className="px-4 py-3">Ödeme Kategorisi</th>
                     <th className="px-4 py-3">Açıklama 1</th>
                     <th className="px-4 py-3">Açıklama 2</th>
                     <th className="px-4 py-3">Dekont</th>
@@ -1050,7 +1219,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
               {!loading && filteredRows.length === 0 && (
                 <tr>
                   <td
-                    colSpan={mode === 'incoming' ? 11 : 13}
+                    colSpan={mode === 'incoming' ? 13 : 14}
                     className="px-4 py-8 text-center text-gray-500"
                   >
                     Kayıt bulunamadı.
@@ -1073,12 +1242,14 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({ mode, currentU
                   </td>
                   <td className="px-4 py-3 font-mono">{row.sequenceNumber}</td>
                   <td className="px-4 py-3">{row.paymentDate}</td>
+                  <td className="px-4 py-3">{row.periodName || '—'}</td>
                   {mode === 'incoming' ? (
                     <>
                       <td className="px-4 py-3">{(row as IncomingPaymentRow).paymentAmount}</td>
                       <td className="px-4 py-3">{(row as IncomingPaymentRow).currency}</td>
                       <td className="px-4 py-3">{formatIncomingPaymentType((row as IncomingPaymentRow).paymentType)}</td>
                       <td className="px-4 py-3">{(row as IncomingPaymentRow).paymentSource}</td>
+                      <td className="px-4 py-3">{(row as IncomingPaymentRow).paymentCategory || '—'}</td>
                       <td className="px-4 py-3">{(row as IncomingPaymentRow).description1 || '—'}</td>
                       <td className="px-4 py-3">{(row as IncomingPaymentRow).description2 || '—'}</td>
                       <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>

@@ -116,6 +116,10 @@ export interface Translations {
     totalsByFilter: string;
     totals: string;
     financialTable: string;
+    agentAccountTable: string;
+    amountPayable: string;
+    amountPaid: string;
+    remainingAmount: string;
     groupBy: string;
     applicationCount: string;
     totalCost: string;
@@ -381,6 +385,7 @@ export interface Translations {
     periodName: string;
     startDate: string;
     endDate: string;
+    periodDefault: string;
     noPeriods: string;
 
     // Notifications
@@ -560,6 +565,10 @@ export const translations: Record<Language, Translations> = {
         totalsByFilter: 'المجاميع حسب الفلتر',
         totals: 'المجاميع',
         financialTable: 'الجدول المالي',
+        agentAccountTable: 'جدول حسابات الوكيل',
+        amountPayable: 'المستحق',
+        amountPaid: 'المدفوع',
+        remainingAmount: 'المتبقي',
         groupBy: 'تجميع حسب',
         applicationCount: 'عدد الطلبات',
         totalCost: 'إجمالي التكلفة',
@@ -821,6 +830,7 @@ export const translations: Record<Language, Translations> = {
         periodName: 'اسم الدورة',
         startDate: 'تاريخ البداية',
         endDate: 'تاريخ النهاية',
+        periodDefault: 'الدورة الافتراضية',
         noPeriods: 'لا توجد دورات',
 
         // Notifications
@@ -999,6 +1009,10 @@ export const translations: Record<Language, Translations> = {
         totalsByFilter: 'Totals (filtered)',
         totals: 'Totals',
         financialTable: 'Financial Table',
+        agentAccountTable: 'Agent Account Table',
+        amountPayable: 'Payable',
+        amountPaid: 'Paid',
+        remainingAmount: 'Remaining',
         groupBy: 'Group by',
         applicationCount: 'Application count',
         totalCost: 'Total cost',
@@ -1260,6 +1274,7 @@ export const translations: Record<Language, Translations> = {
         periodName: 'Period Name',
         startDate: 'Start Date',
         endDate: 'End Date',
+        periodDefault: 'Default Period',
         noPeriods: 'No periods',
 
         // Notifications
@@ -1438,6 +1453,10 @@ export const translations: Record<Language, Translations> = {
         totalsByFilter: 'Toplamlar (filtreye göre)',
         totals: 'Toplamlar',
         financialTable: 'Finansal Tablo',
+        agentAccountTable: 'Agent Hesap Tablosu',
+        amountPayable: 'Ödenecek',
+        amountPaid: 'Ödenmiş',
+        remainingAmount: 'Kalan tutar',
         groupBy: 'Gruplama kriteri',
         applicationCount: 'Başvuru sayısı',
         totalCost: 'Toplam maliyet',
@@ -1699,6 +1718,7 @@ export const translations: Record<Language, Translations> = {
         periodName: 'Dönem Adı',
         startDate: 'Başlangıç Tarihi',
         endDate: 'Bitiş Tarihi',
+        periodDefault: 'Varsayılan Dönem',
         noPeriods: 'Dönem yok',
 
         // Notifications
