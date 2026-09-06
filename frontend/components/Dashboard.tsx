@@ -1162,7 +1162,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
         <SavedQuickFilters
           pageKey="dashboard"
           userId={currentUser?.id}
-          isAdmin={!!isAdmin}
           canSave
           getFilters={() => ({
             fromDate,

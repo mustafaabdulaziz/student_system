@@ -1121,17 +1121,17 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                   {isAdminOrUser && agentUsers.length > 0 && (
                     <div className="mb-4">
                       <label className="block text-sm font-medium text-gray-700 mb-1.5">{t.agent}</label>
-                      <select
-                        required
-                        className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                      <SearchableSelect
                         value={selectedAgentId}
-                        onChange={e => setSelectedAgentId(e.target.value)}
-                      >
-                        <option value="">{t.selectAgent}</option>
-                        {agentUsers.map(u => (
-                          <option key={u.id} value={u.id}>{u.name} {u.email ? `(${u.email})` : ''}</option>
-                        ))}
-                      </select>
+                        onChange={setSelectedAgentId}
+                        options={agentUsers.map(u => ({
+                          value: u.id,
+                          label: `${u.name}${u.email ? ` (${u.email})` : ''}`
+                        }))}
+                        placeholder={t.selectAgent}
+                        searchPlaceholder={t.search}
+                        noResultsText={t.searchNoResults}
+                      />
                     </div>
                   )}
                   <div className="space-y-4">
@@ -1677,11 +1677,9 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                     {t.clearFilters}
                   </button>
                 )}
-                {canManage && (
-                  <SavedQuickFilters
+                <SavedQuickFilters
                     pageKey="students"
                     userId={currentUser?.id}
-                    isAdmin
                     getFilters={() => ({
                       searchTerm,
                       filterNationalities,
@@ -1703,7 +1701,6 @@ export const StudentManager: React.FC<StudentManagerProps> = ({
                       setFilterStudentCreatedTo(typeof f.filterStudentCreatedTo === 'string' ? f.filterStudentCreatedTo : '');
                     }}
                   />
-                )}
               </div>
               <div className="flex rounded-lg border border-gray-200 p-0.5 bg-gray-50">
                 <div className="relative mr-2" ref={columnsRef}>

@@ -12,7 +12,8 @@ import {
 type SavedQuickFiltersProps<T extends Record<string, unknown>> = {
   pageKey: SavedFilterPageKey;
   userId?: string | null;
-  isAdmin: boolean;
+  /** @deprecated Ignored — every user manages their own presets */
+  isAdmin?: boolean;
   /** Current filters snapshot to save */
   getFilters: () => T;
   /** Apply a saved snapshot */
@@ -25,7 +26,6 @@ type SavedQuickFiltersProps<T extends Record<string, unknown>> = {
 export function SavedQuickFilters<T extends Record<string, unknown>>({
   pageKey,
   userId,
-  isAdmin,
   getFilters,
   onApply,
   canSave = true,
@@ -54,7 +54,7 @@ export function SavedQuickFilters<T extends Record<string, unknown>>({
     [presets, selectedId]
   );
 
-  if (!isAdmin) return null;
+  if (!userId) return null;
 
   const handleSelect = (id: string) => {
     setSelectedId(id);

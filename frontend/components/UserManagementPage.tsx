@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
-import { User, UserRole, University, AgentCommission } from '../types';
-import { Plus, Trash2, Pencil, UserX, UserCheck, ChevronLeft, FileEdit, ReceiptText, Printer } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { User, UserRole, University, AgentCommission, UserImportanceLevel, USER_IMPORTANCE_LEVELS } from '../types';
+import { Plus, Trash2, Pencil, UserX, UserCheck, ChevronLeft, FileEdit, ReceiptText, Printer, Search } from 'lucide-react';
 import { useTranslation } from '../hooks/useTranslation';
 import { formatExpenseTypeDisplay, formatOutgoingPaymentDisplay } from '../constants/outgoingPayment';
+import { canAccessLimitedSettings, isAdminRole } from '../utils/roles';
 
 interface UserManagementPageProps {
   users: User[];
@@ -21,8 +22,12 @@ const EMPTY_FORM = {
   confirmPassword: '',
   role: UserRole.USER as UserRole,
   phone: '',
-  countryCode: ''
+  countryCode: '',
+  importanceLevel: 'normal' as UserImportanceLevel
 };
+
+const importanceLabel = (level?: UserImportanceLevel | string) =>
+  USER_IMPORTANCE_LEVELS.find(x => x.value === level)?.label || 'Normal';
 
 const EMPTY_COMMISSION_ROW: AgentCommission = {
   universityId: '',
@@ -72,6 +77,8 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
   onSetUserActive
 }) => {
   const { t, translateRole, translateDegree } = useTranslation();
+  const canManageUsers = canAccessLimitedSettings(currentUser?.role);
+  const canEditAgentCommissions = isAdminRole(currentUser?.role);
   const [formMode, setFormMode] = useState<'add' | 'edit' | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [formData, setFormData] = useState(EMPTY_FORM);
@@ -80,6 +87,10 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
   const [formEditable, setFormEditable] = useState(true);
   const [statement, setStatement] = useState<StatementData | null>(null);
   const [statementLoading, setStatementLoading] = useState(false);
+  const [nameSearch, setNameSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState('');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [importanceFilter, setImportanceFilter] = useState('');
 
   const commissionRowKey = (row: Pick<AgentCommission, 'universityId' | 'degree'>) =>
     `${row.universityId}::${row.degree || ''}`;
@@ -111,14 +122,14 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
     });
   };
 
-  if (!currentUser || currentUser.role !== UserRole.ADMIN) {
+  if (!currentUser || !canManageUsers) {
     return <div className="p-8 text-center text-gray-500">{t.noUsers}</div>;
   }
 
   const handleAddSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (formData.name && formData.email && formData.password) {
-      if (formData.role === UserRole.AGENT) {
+      if (canEditAgentCommissions && formData.role === UserRole.AGENT) {
         const incomplete = agentCommissions.some(r => r.universityId || Number(r.commissionValue))
           && agentCommissions.some(r => !(r.universityId && Number.isFinite(Number(r.commissionValue))));
         if (incomplete) {
@@ -138,7 +149,10 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
         role: formData.role,
         phone: formData.phone || undefined,
         countryCode: formData.countryCode || undefined,
-        ...(formData.role === UserRole.AGENT ? { agentCommissions: agentCommissions.filter(r => r.universityId && Number.isFinite(Number(r.commissionValue))) } : {})
+        importanceLevel: formData.importanceLevel || 'normal',
+        ...(canEditAgentCommissions && formData.role === UserRole.AGENT
+          ? { agentCommissions: agentCommissions.filter(r => r.universityId && Number.isFinite(Number(r.commissionValue))) }
+          : {})
       });
       setFormEditable(true);
       setFormData(EMPTY_FORM);
@@ -155,7 +169,8 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
       confirmPassword: '',
       role: user.role as UserRole,
       phone: user.phone || '',
-      countryCode: user.countryCode || ''
+      countryCode: user.countryCode || '',
+      importanceLevel: (user.importanceLevel || 'normal') as UserImportanceLevel
     });
     setAgentCommissions(
       (user.agentCommissions && user.agentCommissions.length > 0
@@ -181,7 +196,7 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
         alert(t.passwordMismatch);
         return;
       }
-      if (formData.role === UserRole.AGENT) {
+      if (canEditAgentCommissions && formData.role === UserRole.AGENT) {
         const incomplete = agentCommissions.some(r => r.universityId || Number(r.commissionValue))
           && agentCommissions.some(r => !(r.universityId && Number.isFinite(Number(r.commissionValue))));
         if (incomplete) {
@@ -200,7 +215,12 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
         role: formData.role,
         phone: formData.phone || undefined,
         countryCode: formData.countryCode || undefined,
-        ...(formData.role === UserRole.AGENT ? { agentCommissions: agentCommissions.filter(r => r.universityId && Number.isFinite(Number(r.commissionValue))) } : { agentCommissions: [] })
+        importanceLevel: formData.importanceLevel || 'normal',
+        ...(canEditAgentCommissions
+          ? (formData.role === UserRole.AGENT
+            ? { agentCommissions: agentCommissions.filter(r => r.universityId && Number.isFinite(Number(r.commissionValue))) }
+            : { agentCommissions: [] })
+          : {})
       };
       if (formData.password) payload.password = formData.password;
       onEditUser(payload);
@@ -212,7 +232,8 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
         confirmPassword: '',
         role: payload.role as UserRole,
         phone: payload.phone || '',
-        countryCode: payload.countryCode || ''
+        countryCode: payload.countryCode || '',
+        importanceLevel: (payload.importanceLevel || 'normal') as UserImportanceLevel
       });
       setFormEditable(false);
     }
@@ -239,6 +260,25 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
     const next = !(user.active !== false);
     onSetUserActive(user.id, next);
   };
+
+  const filteredUsers = useMemo(() => {
+    const q = nameSearch.trim().toLocaleLowerCase('tr');
+    return users.filter(user => {
+      if (q && !(user.name || '').toLocaleLowerCase('tr').includes(q)) return false;
+      if (roleFilter) {
+        const userRole = (user.role || '').toString();
+        if (roleFilter === UserRole.AGENT) {
+          if (userRole.toLowerCase() !== 'agent') return false;
+        } else if (userRole.toUpperCase() !== roleFilter.toUpperCase()) {
+          return false;
+        }
+      }
+      if (activeFilter === 'active' && user.active === false) return false;
+      if (activeFilter === 'inactive' && user.active !== false) return false;
+      if (importanceFilter && (user.importanceLevel || 'normal') !== importanceFilter) return false;
+      return true;
+    });
+  }, [users, nameSearch, roleFilter, activeFilter, importanceFilter]);
 
   const loadStatement = async () => {
     if (!editingUser) return;
@@ -319,7 +359,7 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
             </div>
             {formMode === 'edit' && !formEditable && (
               <div className="flex items-center gap-2">
-                {editingUser?.role === UserRole.AGENT && (
+                {canEditAgentCommissions && editingUser?.role === UserRole.AGENT && (
                   <button
                     type="button"
                     onClick={loadStatement}
@@ -394,6 +434,19 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
                 <option value={UserRole.AGENT}>{t.agent}</option>
               </select>
             </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Önem Derecesi</label>
+              <select
+                disabled={!formEditable}
+                className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none disabled:bg-gray-50 disabled:text-gray-600"
+                value={formData.importanceLevel}
+                onChange={e => setFormData({ ...formData, importanceLevel: e.target.value as UserImportanceLevel })}
+              >
+                {USER_IMPORTANCE_LEVELS.map(opt => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            </div>
             <div className="grid grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">{t.countryCode}</label>
@@ -404,7 +457,7 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
                 <input type="text" disabled={!formEditable} placeholder="512345678" className="w-full border border-gray-300 rounded-lg p-2 disabled:bg-gray-50 disabled:text-gray-600" value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} />
               </div>
             </div>
-            {formData.role === UserRole.AGENT && (
+            {canEditAgentCommissions && formData.role === UserRole.AGENT && (
               <div className="rounded-lg border border-gray-200">
                 <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
                   <h4 className="font-semibold text-gray-800">Üniversite Komisyonları</h4>
@@ -617,6 +670,48 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
 
       {!formMode && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="p-4 border-b border-gray-100 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="relative">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                value={nameSearch}
+                onChange={e => setNameSearch(e.target.value)}
+                placeholder="İsme göre ara..."
+                className="w-full border border-gray-300 rounded-lg pl-9 pr-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+            </div>
+            <select
+              value={roleFilter}
+              onChange={e => setRoleFilter(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            >
+              <option value="">Tüm roller</option>
+              <option value={UserRole.USER}>{t.user}</option>
+              <option value={UserRole.OPERATOR}>{t.operator}</option>
+              <option value={UserRole.ADMIN}>{t.admin}</option>
+              <option value={UserRole.AGENT}>{t.agent}</option>
+            </select>
+            <select
+              value={activeFilter}
+              onChange={e => setActiveFilter(e.target.value as 'all' | 'active' | 'inactive')}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            >
+              <option value="all">Aktif / Pasif (Tümü)</option>
+              <option value="active">{t.active}</option>
+              <option value="inactive">{t.inactive}</option>
+            </select>
+            <select
+              value={importanceFilter}
+              onChange={e => setImportanceFilter(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            >
+              <option value="">Tüm önem dereceleri</option>
+              {USER_IMPORTANCE_LEVELS.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 text-gray-900 font-bold border-b border-gray-200">
@@ -624,17 +719,19 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
                   <th className="px-6 py-4 font-bold text-left">{t.userName}</th>
                   <th className="px-6 py-4 font-bold text-left">{t.email}</th>
                   <th className="px-6 py-4 font-bold text-left">{t.userRole}</th>
+                  <th className="px-6 py-4 font-bold text-left">Önem</th>
                   <th className="px-6 py-4 font-bold text-left">{t.phone}</th>
                   <th className="px-6 py-4 font-bold text-left">{t.active}</th>
                   <th className="px-6 py-4 font-bold text-center">{t.edit}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {users.map(user => (
+                {filteredUsers.map(user => (
                   <tr key={user.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 font-medium text-gray-900">{user.name}</td>
                     <td className="px-6 py-4 text-gray-900">{user.email}</td>
                     <td className="px-6 py-4 text-gray-900">{translateRole(user.role)}</td>
+                    <td className="px-6 py-4 text-gray-900">{importanceLabel(user.importanceLevel)}</td>
                     <td className="px-6 py-4 text-gray-900">{user.countryCode ? `${user.countryCode} ${user.phone || ''}` : (user.phone || '—')}</td>
                     <td className="px-6 py-4">
                       {user.id !== currentUser.id && (
@@ -673,9 +770,9 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
                     </td>
                   </tr>
                 ))}
-                {users.length === 0 && (
+                {filteredUsers.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-6 py-8 text-center text-gray-400">{t.noUsers}</td>
+                    <td colSpan={7} className="px-6 py-8 text-center text-gray-400">{t.noUsers}</td>
                   </tr>
                 )}
               </tbody>

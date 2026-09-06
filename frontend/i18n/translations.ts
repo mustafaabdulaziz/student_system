@@ -251,6 +251,8 @@ export interface Translations {
     deleteSavedFilterConfirm: string;
     filterCreatedFrom: string;
     filterCreatedTo: string;
+    filterPaymentDateFrom: string;
+    filterPaymentDateTo: string;
     number: string;
     bachelor: string;
     master: string;
@@ -696,6 +698,8 @@ export const translations: Record<Language, Translations> = {
         deleteSavedFilterConfirm: 'حذف الفلتر "{name}"؟',
         filterCreatedFrom: 'تاريخ بداية الإنشاء',
         filterCreatedTo: 'تاريخ نهاية الإنشاء',
+        filterPaymentDateFrom: 'تاريخ بداية الدفع',
+        filterPaymentDateTo: 'تاريخ نهاية الدفع',
         number: 'الرقم',
         bachelor: 'بكالوريوس',
         master: 'ماجستير',
@@ -1140,6 +1144,8 @@ export const translations: Record<Language, Translations> = {
         deleteSavedFilterConfirm: 'Delete filter "{name}"?',
         filterCreatedFrom: 'Start creation date',
         filterCreatedTo: 'End creation date',
+        filterPaymentDateFrom: 'Start payment date',
+        filterPaymentDateTo: 'End payment date',
         number: 'Number',
         bachelor: 'Bachelor',
         master: 'Master',
@@ -1584,6 +1590,8 @@ export const translations: Record<Language, Translations> = {
         deleteSavedFilterConfirm: '"{name}" filtresini silmek istiyor musunuz?',
         filterCreatedFrom: 'Başlangıç oluşturma tarihi',
         filterCreatedTo: 'Bitiş oluşturma tarihi',
+        filterPaymentDateFrom: 'Başlangıç ödeme tarihi',
+        filterPaymentDateTo: 'Bitiş ödeme tarihi',
         number: 'Numara',
         bachelor: 'Lisans',
         master: 'Yüksek Lisans',

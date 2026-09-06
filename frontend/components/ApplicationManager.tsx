@@ -284,7 +284,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const [columnsOpen, setColumnsOpen] = useState(false);
   const columnsRef = useRef<HTMLDivElement>(null);
   const applicationColumnKeys = useMemo(
-    () => ['number', 'status', 'agent', 'responsible', 'student', 'nationality', 'program', 'university', 'degree', 'agencyCompany', 'description', 'createdBy', 'createdAt', 'updatedAt'],
+    () => ['number', 'status', 'agent', 'responsible', 'student', 'nationality', 'program', 'university', 'degree', 'agencyCompany', 'annualPayment', 'description', 'createdBy', 'createdAt', 'updatedAt'],
     []
   );
   const [visibleTreeColumns, setVisibleTreeColumns] = useState<string[]>(applicationColumnKeys);
@@ -987,6 +987,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
         case 'university': va = (pA ? getUni(pA.universityId)?.name || '' : '').toLowerCase(); vb = (pB ? getUni(pB.universityId)?.name || '' : '').toLowerCase(); return dir * (va as string).localeCompare(vb as string);
         case 'degree': va = (pA?.degree || '').toLowerCase(); vb = (pB?.degree || '').toLowerCase(); return dir * (va as string).localeCompare(vb as string);
         case 'agencyCompany': va = (a.agencyCompanyName || '').toLowerCase(); vb = (b.agencyCompanyName || '').toLowerCase(); return dir * (va as string).localeCompare(vb as string);
+        case 'annualPayment': va = Number(a.annualPayment) || 0; vb = Number(b.annualPayment) || 0; return dir * ((va as number) - (vb as number));
         case 'description': va = (a.internalDescription || '').toLowerCase(); vb = (b.internalDescription || '').toLowerCase(); return dir * (va as string).localeCompare(vb as string);
         case 'createdBy': va = getCreatedByName(a).toLowerCase(); vb = getCreatedByName(b).toLowerCase(); return dir * (va as string).localeCompare(vb as string);
         case 'createdAt': va = new Date(a.createdAt || 0).getTime(); vb = new Date(b.createdAt || 0).getTime(); return dir * ((va as number) - (vb as number));
@@ -1251,6 +1252,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     { key: 'university', label: t.universityName },
     { key: 'degree', label: t.programDegree },
     { key: 'agencyCompany', label: t.agencyCompany },
+    { key: 'annualPayment', label: 'Yıllık ödeme' },
     { key: 'description', label: t.internalDescription },
     { key: 'createdBy', label: t.createdByUser },
     { key: 'createdAt', label: t.createdAt },
@@ -1289,6 +1291,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
       }
       if (!visibleTreeColumns.includes(col.key)) return false;
       if (!canSeeAgentColumn && (col.key === 'agent' || col.key === 'responsible' || col.key === 'agencyCompany' || col.key === 'description')) return false;
+      if (!isAdmin && col.key === 'annualPayment') return false;
       if (isAgent && col.key === 'updatedAt') return false;
       return true;
     });
@@ -1334,6 +1337,9 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
           case 'agencyCompany':
             value = app.agencyCompanyName || '—';
             break;
+          case 'annualPayment':
+            value = app.annualPayment != null ? Number(app.annualPayment) : '—';
+            break;
           case 'description':
             value = app.internalDescription || '—';
             break;
@@ -1376,6 +1382,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const financialStorageKey = `tree-columns:applications-financial:${currentUser?.id || 'guest'}`;
   const newColumnsMigrationKey = `${storageKey}:degree-nationality-v1`;
   const agencyDescriptionMigrationKey = `${storageKey}:agency-description-v1`;
+  const annualPaymentMigrationKey = `${storageKey}:annual-payment-v1`;
   const depositSupportMigrationKey = `${financialStorageKey}:deposit-support-v1`;
   const financialAgencyDescriptionMigrationKey = `${financialStorageKey}:agency-description-v1`;
 
@@ -1415,11 +1422,18 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
         }
         window.localStorage.setItem(agencyDescriptionMigrationKey, '1');
       }
+      if (isAdmin && !window.localStorage.getItem(annualPaymentMigrationKey)) {
+        if (!valid.includes('annualPayment')) {
+          const agencyIndex = valid.indexOf('agencyCompany');
+          valid.splice(agencyIndex >= 0 ? agencyIndex + 1 : valid.length, 0, 'annualPayment');
+        }
+        window.localStorage.setItem(annualPaymentMigrationKey, '1');
+      }
       if (valid.length > 0) setVisibleTreeColumns(valid);
     } catch {
       // ignore corrupted localStorage values
     }
-  }, [storageKey, newColumnsMigrationKey, agencyDescriptionMigrationKey, applicationColumnKeys]);
+  }, [storageKey, newColumnsMigrationKey, agencyDescriptionMigrationKey, annualPaymentMigrationKey, applicationColumnKeys, isAdmin]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1517,10 +1531,11 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     return base.filter(col => {
       if (!visibleActiveColumns.includes(col.key)) return false;
       if (!canSeeAgentColumn && (col.key === 'agent' || col.key === 'responsible' || col.key === 'agencyCompany' || col.key === 'description')) return false;
+      if (!isAdmin && col.key === 'annualPayment') return false;
       if (isAgent && col.key === 'updatedAt') return false;
       return true;
     });
-  }, [showFinancialTree, financialColumnOptions, applicationColumnOptions, visibleActiveColumns, canSeeAgentColumn, isAgent]);
+  }, [showFinancialTree, financialColumnOptions, applicationColumnOptions, visibleActiveColumns, canSeeAgentColumn, isAgent, isAdmin]);
 
   const togglePinnedColumn = (key: string) => {
     const setter = showFinancialTree ? setPinnedFinancialColumns : setPinnedTreeColumns;
@@ -1635,12 +1650,12 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
 
   useEffect(() => {
     const hiddenByConfig = sortBy && applicationColumnKeys.includes(sortBy) && !visibleTreeColumns.includes(sortBy);
-    const hiddenByRole = ((sortBy === 'responsible' || sortBy === 'agent' || sortBy === 'agencyCompany' || sortBy === 'description') && !canSeeAgentColumn) || (sortBy === 'updatedAt' && isAgent);
+    const hiddenByRole = ((sortBy === 'responsible' || sortBy === 'agent' || sortBy === 'agencyCompany' || sortBy === 'description') && !canSeeAgentColumn) || (sortBy === 'annualPayment' && !isAdmin) || (sortBy === 'updatedAt' && isAgent);
     if (hiddenByConfig || hiddenByRole) {
       setSortBy(null);
       setSortDir('asc');
     }
-  }, [sortBy, visibleTreeColumns, canSeeAgentColumn, isAgent, applicationColumnKeys]);
+  }, [sortBy, visibleTreeColumns, canSeeAgentColumn, isAgent, isAdmin, applicationColumnKeys]);
 
   const toggleTreeColumn = (key: string) => {
     setVisibleTreeColumns(prev => {
@@ -1666,6 +1681,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     let allowed = canSeeAgentColumn
       ? applicationColumnKeys
       : applicationColumnKeys.filter(k => k !== 'agent' && k !== 'responsible' && k !== 'agencyCompany' && k !== 'description');
+    if (!isAdmin) allowed = allowed.filter(k => k !== 'annualPayment');
     if (isAgent) allowed = allowed.filter(k => k !== 'updatedAt');
     const normalized = visibleTreeColumns.filter(k => allowed.includes(k));
     if (normalized.length !== visibleTreeColumns.length) {
@@ -1673,7 +1689,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
       return;
     }
     if (normalized.length === 0) setVisibleTreeColumns(allowed);
-  }, [canSeeAgentColumn, isAgent, applicationColumnKeys, visibleTreeColumns]);
+  }, [canSeeAgentColumn, isAgent, isAdmin, applicationColumnKeys, visibleTreeColumns]);
   const SortTh = ({ colKey, label, className = '' }: { colKey: string; label: string; className?: string }) => (
     <th
       data-pin-key={colKey}
@@ -3174,11 +3190,9 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                   <Filter size={18} className="text-purple-500" />
                   <span className="text-sm font-medium">{t.filter}</span>
                 </div>
-                {isAdmin && (
-                  <SavedQuickFilters
+                <SavedQuickFilters
                     pageKey="applications"
                     userId={currentUser?.id}
-                    isAdmin
                     getFilters={() => ({
                       searchApplicationNumber,
                       searchStudentName,
@@ -3232,7 +3246,6 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                       setFilterAppCreatedTo(typeof f.filterAppCreatedTo === 'string' ? f.filterAppCreatedTo : '');
                     }}
                   />
-                )}
                 {(searchApplicationNumber || searchStudentName || (!isAgent && (filterAgents.length > 0 || filterResponsibles.length > 0 || filterCurrencies.length > 0 || filterAgencyCompanies.length > 0)) || filterUniversities.length > 0 || filterPrograms.length > 0 || filterNationalities.length > 0 || filterStatuses.length > 0 || filterDegrees.length > 0 || filterPeriods.length > 0 || filterAppCreatedFrom || filterAppCreatedTo) && (
                   <button
                     type="button"
@@ -3303,6 +3316,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                         ? financialColumnOptions
                         : applicationColumnOptions.filter(col => {
                             if (!canSeeAgentColumn && (col.key === 'agent' || col.key === 'responsible' || col.key === 'agencyCompany' || col.key === 'description')) return false;
+                            if (!isAdmin && col.key === 'annualPayment') return false;
                             if (isAgent && col.key === 'updatedAt') return false;
                             return true;
                           })
@@ -3821,6 +3835,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                     {visibleTreeColumns.includes('university') && <SortTh colKey="university" label={t.universityName} />}
                     {visibleTreeColumns.includes('degree') && <SortTh colKey="degree" label={t.programDegree} />}
                     {isAdminOrUser && visibleTreeColumns.includes('agencyCompany') && <SortTh colKey="agencyCompany" label={t.agencyCompany} />}
+                    {isAdmin && visibleTreeColumns.includes('annualPayment') && <SortTh colKey="annualPayment" label="Yıllık ödeme" />}
                     {isAdminOrUser && visibleTreeColumns.includes('description') && <SortTh colKey="description" label={t.internalDescription} />}
                     {visibleTreeColumns.includes('createdBy') && <SortTh colKey="createdBy" label={t.createdByUser} />}
                     {visibleTreeColumns.includes('createdAt') && <SortTh colKey="createdAt" label={t.createdAt} />}
@@ -3896,6 +3911,11 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                           )}
                           {isAdminOrUser && visibleTreeColumns.includes('agencyCompany') && (
                             <td style={pinCellStyle('agencyCompany')} className={`px-6 py-4 text-gray-900 ${pinCellClass('agencyCompany')}`}>{app.agencyCompanyName || '—'}</td>
+                          )}
+                          {isAdmin && visibleTreeColumns.includes('annualPayment') && (
+                            <td style={pinCellStyle('annualPayment')} className={`px-6 py-4 text-gray-900 whitespace-nowrap ${pinCellClass('annualPayment')}`}>
+                              {app.annualPayment != null ? Number(app.annualPayment).toLocaleString() : '—'}
+                            </td>
                           )}
                           {isAdminOrUser && visibleTreeColumns.includes('description') && (
                             <td style={pinCellStyle('description')} className={`px-6 py-4 text-gray-900 max-w-[240px] ${pinCellClass('description')}`}>

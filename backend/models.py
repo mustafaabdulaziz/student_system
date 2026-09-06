@@ -11,6 +11,7 @@ class User(db.Model):
     phone = db.Column(db.String, nullable=True)
     country_code = db.Column(db.String, nullable=True)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
+    importance_level = db.Column(db.String, nullable=False, default='normal')  # normal | important | very_important
 
 class Student(db.Model):
     __tablename__ = 'students'

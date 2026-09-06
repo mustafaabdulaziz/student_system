@@ -5,7 +5,8 @@ export type SavedFilterPageKey =
   | 'applications'
   | 'universities'
   | 'incoming-payments'
-  | 'outgoing-payments';
+  | 'outgoing-payments'
+  | 'payment-dashboard-applications';
 
 export type SavedFilterPreset<T = Record<string, unknown>> = {
   id: string;

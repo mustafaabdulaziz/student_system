@@ -42,6 +42,11 @@ if __name__ == '__main__':
                     conn.execute(text('ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT TRUE'))
                 except Exception:
                     pass
+            if 'importance_level' not in cols:
+                try:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN importance_level VARCHAR NOT NULL DEFAULT 'normal'"))
+                except Exception:
+                    pass
             # Add logo column to universities if not exists
             try:
                 uni_cols = [c['name'] for c in inspector.get_columns('universities')]

@@ -28,6 +28,11 @@ export function canManageCatalog(role?: string | null): boolean {
   return ['ADMIN', 'OPERATOR'].includes(normalizeRole(role));
 }
 
+/** Settings: users, periods, agency companies (not payment lists). */
+export function canAccessLimitedSettings(role?: string | null): boolean {
+  return canManageCatalog(role);
+}
+
 /** Financial totals, application finance, university finance, payments. */
 export function canSeeFinance(role?: string | null): boolean {
   return isAdminRole(role);

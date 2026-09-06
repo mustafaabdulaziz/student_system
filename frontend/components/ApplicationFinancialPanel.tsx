@@ -16,6 +16,7 @@ import { normalizeApplicationStatus } from '../utils/applicationStatus';
 import { matchesCreatedAtRange } from '../utils/createdAtRangeFilter';
 import { matchesMultiFilter, type MultiFilterMode } from '../utils/multiFilter';
 import { SearchableMultiSelect } from './SearchableMultiSelect';
+import { SavedQuickFilters } from './SavedQuickFilters';
 import { isAgentRole } from '../utils/roles';
 import { getDefaultPeriodIds } from '../utils/defaultPeriods';
 
@@ -24,7 +25,14 @@ type FinancialTableGroup = 'university' | 'agent' | 'period' | 'nationality';
 interface OutgoingPaymentRow {
   paymentDate: string;
   paymentAmount: number;
+  paymentReason?: string | null;
   userId?: string | null;
+  periodId?: string | null;
+}
+
+interface IncomingPaymentRow {
+  paymentDate: string;
+  paymentAmount: number;
   periodId?: string | null;
 }
 
@@ -46,19 +54,17 @@ export const FINANCIAL_TABLE_FIELDS: Array<{ key: keyof Application; label: stri
 
 const FINANCIAL_TABLE_COLUMN_KEYS = FINANCIAL_TABLE_FIELDS.map((field) => String(field.key));
 
-/** Ödeme panosu: yalnızca bu durumlardaki başvurular toplam ve finansal tabloya dahil edilir. */
-export const PAYMENT_PANEL_APPLICATION_STATUSES: ApplicationStatus[] = [
-  ApplicationStatus.DEPOSIT_PAYMENT_UPLOAD_WAITING,
-  ApplicationStatus.ACCEPTANCE_LETTER_WAITING,
-  ApplicationStatus.ACCEPTANCE_LETTER_SEND_TO_COMPANY_WAITING,
-  ApplicationStatus.STUDENT_DOCUMENT_WAITING,
+/** Ödeme panosu başvuru durum filtresi: varsayılan seçili durumlar. */
+export const PAYMENT_PANEL_DEFAULT_STATUSES: ApplicationStatus[] = [
   ApplicationStatus.STUDENT_DOCUMENT_DELIVERED,
   ApplicationStatus.ANNUAL_PAYMENT_RECEIPT_WAITING,
   ApplicationStatus.UNIVERSITY_ACCOUNTING_APPROVAL_WAITING,
   ApplicationStatus.COMPLETED,
 ];
 
-const PAYMENT_PANEL_STATUS_VALUES = PAYMENT_PANEL_APPLICATION_STATUSES.map((status) => status as string);
+const PAYMENT_PANEL_DEFAULT_STATUS_VALUES = PAYMENT_PANEL_DEFAULT_STATUSES.map((status) => status as string);
+
+const ALL_APPLICATION_STATUS_VALUES = Object.values(ApplicationStatus) as string[];
 
 function dateOnly(iso: string | undefined): string {
   if (!iso) return '';
@@ -78,6 +84,7 @@ interface ApplicationFinancialPanelProps {
   students: Student[];
   agencyCompanies?: AgencyCompany[];
   currentUser: User;
+  incomingPayments?: IncomingPaymentRow[];
   outgoingPayments?: OutgoingPaymentRow[];
   paymentDateFrom?: string;
   paymentDateTo?: string;
@@ -95,6 +102,7 @@ export const ApplicationFinancialPanel: React.FC<ApplicationFinancialPanelProps>
   students,
   agencyCompanies = [],
   currentUser,
+  incomingPayments = [],
   outgoingPayments = [],
   paymentDateFrom = '',
   paymentDateTo = '',
@@ -106,7 +114,7 @@ export const ApplicationFinancialPanel: React.FC<ApplicationFinancialPanelProps>
   const displayStatus = (status: string) => translateStatus(status, currentUser?.role);
   const periodDefaultsApplied = useRef(false);
 
-  const [statusFilter, setStatusFilter] = useState<string[]>(() => [...PAYMENT_PANEL_STATUS_VALUES]);
+  const [statusFilter, setStatusFilter] = useState<string[]>(() => [...PAYMENT_PANEL_DEFAULT_STATUS_VALUES]);
   const [universityFilter, setUniversityFilter] = useState<string[]>([]);
   const [degreeFilter, setDegreeFilter] = useState<string[]>([]);
   const [agentFilter, setAgentFilter] = useState<string[]>([]);
@@ -120,8 +128,6 @@ export const ApplicationFinancialPanel: React.FC<ApplicationFinancialPanelProps>
   const [agentFilterMode, setAgentFilterMode] = useState<MultiFilterMode>('include');
   const [agencyCompanyFilterMode, setAgencyCompanyFilterMode] = useState<MultiFilterMode>('include');
   const [periodFilterMode, setPeriodFilterMode] = useState<MultiFilterMode>('include');
-  const [createdFrom, setCreatedFrom] = useState('');
-  const [createdTo, setCreatedTo] = useState('');
 
   useEffect(() => {
     if (periodFilterProp !== undefined || periodDefaultsApplied.current) return;
@@ -197,20 +203,8 @@ export const ApplicationFinancialPanel: React.FC<ApplicationFinancialPanelProps>
     return applications;
   }, [applications, currentUser]);
 
-  const allowedPaymentStatusSet = useMemo(
-    () => new Set(PAYMENT_PANEL_STATUS_VALUES.map((status) => normalizeApplicationStatus(status) as string)),
-    []
-  );
-
-  const statusScopedApplications = useMemo(() => {
-    return scopedApplications.filter((app) =>
-      allowedPaymentStatusSet.has(normalizeApplicationStatus(app.status) as string)
-    );
-  }, [scopedApplications, allowedPaymentStatusSet]);
-
   const filteredApplications = useMemo(() => {
-    return statusScopedApplications.filter((app) => {
-      if (!matchesCreatedAtRange(app.createdAt, createdFrom, createdTo)) return false;
+    return scopedApplications.filter((app) => {
       const program = programById.get(app.programId);
       if (!matchesMultiFilter(
         normalizeApplicationStatus(app.status) as string,
@@ -225,19 +219,19 @@ export const ApplicationFinancialPanel: React.FC<ApplicationFinancialPanelProps>
       return true;
     });
   }, [
-    statusScopedApplications, createdFrom, createdTo, statusFilter, statusFilterMode, universityFilter, universityFilterMode,
+    scopedApplications, statusFilter, statusFilterMode, universityFilter, universityFilterMode,
     degreeFilter, degreeFilterMode, agentFilter, agentFilterMode, agencyCompanyFilter,
     agencyCompanyFilterMode, periodFilter, periodFilterMode, programById, users
   ]);
 
   const uniqueAgents = useMemo(() => {
     const names = new Set<string>();
-    statusScopedApplications.forEach((app) => {
+    scopedApplications.forEach((app) => {
       const name = getAgentName(app);
       if (name && name !== '—') names.add(name);
     });
     return Array.from(names).sort().map((name) => ({ value: name, label: name }));
-  }, [statusScopedApplications, users]);
+  }, [scopedApplications, users]);
 
   const uniqueDegrees = useMemo(() => {
     return Array.from(new Set(programs.map((p) => p.degree).filter(Boolean)))
@@ -290,6 +284,35 @@ export const ApplicationFinancialPanel: React.FC<ApplicationFinancialPanelProps>
       remainingMax
     };
   }, [filteredApplications]);
+
+  const totalIncomingPayments = useMemo(() => {
+    return incomingPayments.reduce((sum, payment) => {
+      if (!matchesCreatedAtRange(payment.paymentDate, paymentDateFrom, paymentDateTo)) return sum;
+      if (periodFilter.length > 0 && !periodFilter.includes(payment.periodId || '')) return sum;
+      return sum + (Number(payment.paymentAmount) || 0);
+    }, 0);
+  }, [incomingPayments, paymentDateFrom, paymentDateTo, periodFilter]);
+
+  const totalOutgoingPayments = useMemo(() => {
+    return outgoingPayments.reduce((sum, payment) => {
+      if (!matchesCreatedAtRange(payment.paymentDate, paymentDateFrom, paymentDateTo)) return sum;
+      if (periodFilter.length > 0 && !periodFilter.includes(payment.periodId || '')) return sum;
+      return sum + (Number(payment.paymentAmount) || 0);
+    }, 0);
+  }, [outgoingPayments, paymentDateFrom, paymentDateTo, periodFilter]);
+
+  const totalCommissionOutgoingPayments = useMemo(() => {
+    return outgoingPayments.reduce((sum, payment) => {
+      if (payment.paymentReason !== 'commission') return sum;
+      if (!matchesCreatedAtRange(payment.paymentDate, paymentDateFrom, paymentDateTo)) return sum;
+      if (periodFilter.length > 0 && !periodFilter.includes(payment.periodId || '')) return sum;
+      return sum + (Number(payment.paymentAmount) || 0);
+    }, 0);
+  }, [outgoingPayments, paymentDateFrom, paymentDateTo, periodFilter]);
+
+  const cashBalance = totalIncomingPayments - totalOutgoingPayments;
+  const tevrikteProfit =
+    totals.remainingMax - (totalOutgoingPayments - totalCommissionOutgoingPayments);
 
   const totalPaidToAgents = useMemo(() => {
     const agentUsersById = new Map(
@@ -518,15 +541,51 @@ export const ApplicationFinancialPanel: React.FC<ApplicationFinancialPanelProps>
     { label: 'Toplam ödenecek', value: totalPayableToAgents, bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-100' },
     { label: 'Acenta anlaşma miktarı', value: totals.agencyContractAmount, bg: 'bg-fuchsia-50', text: 'text-fuchsia-700', border: 'border-fuchsia-100' },
     { label: 'Kalan Min', value: totals.remainingMin, bg: 'bg-lime-50', text: 'text-lime-700', border: 'border-lime-100' },
-    { label: 'Kalan Max', value: totals.remainingMax, bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-100' }
+    { label: 'Kalan Max', value: totals.remainingMax, bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-100' },
+    { label: 'Gelen ödeme toplamı', value: totalIncomingPayments, bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-100' },
+    { label: 'Giden ödeme toplamı', value: totalOutgoingPayments, bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-100' },
+    { label: 'Nakit bakiye', value: cashBalance, bg: 'bg-slate-50', text: 'text-slate-700', border: 'border-slate-200' },
+    { label: 'Tevrikte Profit', value: tevrikteProfit, bg: 'bg-emerald-50', text: 'text-emerald-800', border: 'border-emerald-100' }
   ];
 
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 space-y-3">
+        <SavedQuickFilters
+          pageKey="payment-dashboard-applications"
+          userId={currentUser?.id}
+          getFilters={() => ({
+            statusFilter,
+            universityFilter,
+            degreeFilter,
+            agentFilter,
+            agencyCompanyFilter,
+            periodFilter,
+            statusFilterMode,
+            universityFilterMode,
+            degreeFilterMode,
+            agentFilterMode,
+            agencyCompanyFilterMode,
+            periodFilterMode
+          })}
+          onApply={(f) => {
+            setStatusFilter(Array.isArray(f.statusFilter) ? (f.statusFilter as string[]) : []);
+            setUniversityFilter(Array.isArray(f.universityFilter) ? (f.universityFilter as string[]) : []);
+            setDegreeFilter(Array.isArray(f.degreeFilter) ? (f.degreeFilter as string[]) : []);
+            setAgentFilter(Array.isArray(f.agentFilter) ? (f.agentFilter as string[]) : []);
+            setAgencyCompanyFilter(Array.isArray(f.agencyCompanyFilter) ? (f.agencyCompanyFilter as string[]) : []);
+            setPeriodFilter(Array.isArray(f.periodFilter) ? (f.periodFilter as string[]) : []);
+            setStatusFilterMode((f.statusFilterMode as MultiFilterMode) || 'include');
+            setUniversityFilterMode((f.universityFilterMode as MultiFilterMode) || 'include');
+            setDegreeFilterMode((f.degreeFilterMode as MultiFilterMode) || 'include');
+            setAgentFilterMode((f.agentFilterMode as MultiFilterMode) || 'include');
+            setAgencyCompanyFilterMode((f.agencyCompanyFilterMode as MultiFilterMode) || 'include');
+            setPeriodFilterMode((f.periodFilterMode as MultiFilterMode) || 'include');
+          }}
+        />
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
           <SearchableMultiSelect
-            options={PAYMENT_PANEL_APPLICATION_STATUSES.map((status) => ({
+            options={ALL_APPLICATION_STATUS_VALUES.map((status) => ({
               value: status,
               label: displayStatus(status)
             }))}
@@ -588,24 +647,6 @@ export const ApplicationFinancialPanel: React.FC<ApplicationFinancialPanelProps>
             searchPlaceholder={t.search}
             noResultsText={t.searchNoResults}
           />
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">{t.filterCreatedFrom}</label>
-            <input
-              type="date"
-              value={createdFrom}
-              onChange={(e) => setCreatedFrom(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">{t.filterCreatedTo}</label>
-            <input
-              type="date"
-              value={createdTo}
-              onChange={(e) => setCreatedTo(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
-            />
-          </div>
         </div>
       </div>
 

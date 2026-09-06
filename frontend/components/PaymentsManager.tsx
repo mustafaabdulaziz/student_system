@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Download, Pencil, Plus, Trash2, X, Paperclip, Upload } from 'lucide-react';
+import { ArrowLeft, Download, Pencil, Plus, Trash2, X, Paperclip, Upload } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { PaymentSource, PaymentCategory, Period, User, UserRole, OutgoingPaymentListFilters } from '../types';
 import {
@@ -23,7 +23,33 @@ import {
 } from '../constants/incomingPayment';
 import { CreatedAtRangeFilter } from './CreatedAtRangeFilter';
 import { SavedQuickFilters } from './SavedQuickFilters';
+import { SearchableMultiSelect } from './SearchableMultiSelect';
 import { useTranslation } from '../hooks/useTranslation';
+import { FILTER_DATE_PRESETS, getDatePreset } from '../utils/datePresets';
+import { matchesMultiFilter } from '../utils/multiFilter';
+
+function asStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string' && item !== '');
+  if (typeof value === 'string' && value) return [value];
+  return [];
+}
+
+const EMPTY_PAYMENT_FILTERS = {
+  dateFrom: '',
+  dateTo: '',
+  currencies: [] as string[],
+  paymentSources: [] as string[],
+  paymentTypes: [] as string[],
+  paymentReasons: [] as string[],
+  expenseTypes: [] as string[],
+  commissionShapes: [] as string[],
+  descriptionQuery: '',
+  amountMin: '',
+  amountMax: '',
+  periodIds: [] as string[],
+  paymentCategoryIds: [] as string[],
+  userIds: [] as string[]
+};
 
 type PaymentsMode = 'incoming' | 'outgoing';
 type CurrencyCode = 'USD' | 'TRY' | 'EUR';
@@ -109,22 +135,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
   const [pendingReceiptFiles, setPendingReceiptFiles] = useState<File[]>([]);
   const [receiptUploading, setReceiptUploading] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [filters, setFilters] = useState({
-    dateFrom: '',
-    dateTo: '',
-    currency: '',
-    paymentSource: '',
-    paymentType: '',
-    paymentReason: '',
-    expenseType: '',
-    commissionShape: '',
-    descriptionQuery: '',
-    amountMin: '',
-    amountMax: '',
-    periodId: '',
-    paymentCategoryId: '',
-    userId: ''
-  });
+  const [filters, setFilters] = useState({ ...EMPTY_PAYMENT_FILTERS });
 
   const title = mode === 'incoming' ? 'Gelen Ödemeler' : 'Giden Ödemeler';
   const endpoint = endpointByMode[mode];
@@ -274,13 +285,13 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
       ...prev,
       dateFrom: initialListFilters.dateFrom ?? '',
       dateTo: initialListFilters.dateTo ?? '',
-      currency: initialListFilters.currency ?? '',
-      paymentType: initialListFilters.paymentType ?? '',
-      paymentReason: initialListFilters.paymentReason ?? '',
-      expenseType: initialListFilters.expenseType ?? '',
-      commissionShape: initialListFilters.commissionShape ?? '',
-      periodId: initialListFilters.periodId ?? '',
-      userId: initialListFilters.userId ?? ''
+      currencies: asStringArray(initialListFilters.currency),
+      paymentTypes: asStringArray(initialListFilters.paymentType),
+      paymentReasons: asStringArray(initialListFilters.paymentReason),
+      expenseTypes: asStringArray(initialListFilters.expenseType),
+      commissionShapes: asStringArray(initialListFilters.commissionShape),
+      periodIds: asStringArray(initialListFilters.periodId),
+      userIds: asStringArray(initialListFilters.userId)
     }));
     if (typeof clearInitialListFilters === 'function') clearInitialListFilters();
   }, [initialListFilters, clearInitialListFilters, mode]);
@@ -293,49 +304,41 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
   const filteredRows = useMemo(() => {
     const dateFrom = filters.dateFrom;
     const dateTo = filters.dateTo;
-    const currency = filters.currency;
     const descriptionQuery = filters.descriptionQuery.trim().toLowerCase();
-    const paymentSourceId = filters.paymentSource;
-    const paymentType = filters.paymentType;
-    const paymentReason = filters.paymentReason.trim();
-    const expenseType = filters.expenseType.trim();
-    const commissionShape = filters.commissionShape.trim();
     const amountMin = filters.amountMin !== '' ? Number(filters.amountMin) : null;
     const amountMax = filters.amountMax !== '' ? Number(filters.amountMax) : null;
-    const periodId = filters.periodId;
-    const paymentCategoryId = filters.paymentCategoryId;
-    const userId = filters.userId;
 
     return sortedRows.filter((row) => {
       if (dateFrom && row.paymentDate < dateFrom) return false;
       if (dateTo && row.paymentDate > dateTo) return false;
-      if (currency && row.currency !== currency) return false;
-      if (periodId && (row.periodId || '') !== periodId) return false;
+      if (!matchesMultiFilter(row.currency, filters.currencies)) return false;
+      if (!matchesMultiFilter(row.periodId || '', filters.periodIds)) return false;
 
       if (mode === 'incoming') {
         const incoming = row as IncomingPaymentRow;
-        if (paymentSourceId) {
-          const selected = paymentSources.find((ps) => ps.id === paymentSourceId);
-          if (!selected) return false;
-          const matchesId = (incoming.paymentSourceId || '') === paymentSourceId;
-          const matchesName = incoming.paymentSource === selected.name;
+        if (filters.paymentSources.length > 0) {
+          const matchesId = matchesMultiFilter(incoming.paymentSourceId || '', filters.paymentSources);
+          const selectedNames = filters.paymentSources
+            .map((id) => paymentSources.find((ps) => ps.id === id)?.name)
+            .filter(Boolean) as string[];
+          const matchesName = selectedNames.includes(incoming.paymentSource || '');
           if (!matchesId && !matchesName) return false;
         }
-        if (paymentType && incoming.paymentType !== paymentType) return false;
+        if (!matchesMultiFilter(incoming.paymentType, filters.paymentTypes)) return false;
+        if (!matchesMultiFilter(incoming.paymentCategoryId || '', filters.paymentCategoryIds)) return false;
         if (descriptionQuery) {
           const haystack = `${incoming.description1 || ''} ${incoming.description2 || ''}`.toLowerCase();
           if (!haystack.includes(descriptionQuery)) return false;
         }
         if (amountMin !== null && incoming.paymentAmount < amountMin) return false;
         if (amountMax !== null && incoming.paymentAmount > amountMax) return false;
-        if (paymentCategoryId && (incoming.paymentCategoryId || '') !== paymentCategoryId) return false;
       } else {
         const outgoing = row as OutgoingPaymentRow;
-        if (paymentType && outgoing.paymentType !== paymentType) return false;
-        if (paymentReason && outgoing.paymentReason !== paymentReason) return false;
-        if (expenseType && (outgoing.expenseType || '') !== expenseType) return false;
-        if (commissionShape && (outgoing.commissionShape || '') !== commissionShape) return false;
-        if (userId && (outgoing.userId || '') !== userId) return false;
+        if (!matchesMultiFilter(outgoing.paymentType, filters.paymentTypes)) return false;
+        if (!matchesMultiFilter(outgoing.paymentReason, filters.paymentReasons)) return false;
+        if (!matchesMultiFilter(outgoing.expenseType || '', filters.expenseTypes)) return false;
+        if (!matchesMultiFilter(outgoing.commissionShape || '', filters.commissionShapes)) return false;
+        if (!matchesMultiFilter(outgoing.userId || '', filters.userIds)) return false;
         if (descriptionQuery && !(outgoing.description1 || '').toLowerCase().includes(descriptionQuery)) return false;
         if (amountMin !== null && outgoing.paymentAmount < amountMin) return false;
         if (amountMax !== null && outgoing.paymentAmount > amountMax) return false;
@@ -347,6 +350,17 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
 
   const selectedRows = useMemo(() => filteredRows.filter(r => selectedIds.has(r.id)), [filteredRows, selectedIds]);
   const allFilteredSelected = filteredRows.length > 0 && filteredRows.every(r => selectedIds.has(r.id));
+
+  const filteredTotalsByCurrency = useMemo(() => {
+    const map = new Map<string, number>();
+    filteredRows.forEach((row) => {
+      const currency = row.currency || 'USD';
+      map.set(currency, (map.get(currency) || 0) + (Number(row.paymentAmount) || 0));
+    });
+    return Array.from(map.entries())
+      .map(([currency, total]) => ({ currency, total }))
+      .sort((a, b) => a.currency.localeCompare(b.currency));
+  }, [filteredRows]);
 
   const toggleRow = (id: string) => {
     setSelectedIds(prev => {
@@ -370,22 +384,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
   };
 
   const clearFilters = () => {
-    setFilters({
-      dateFrom: '',
-      dateTo: '',
-      currency: '',
-      paymentSource: '',
-      paymentType: '',
-      paymentReason: '',
-      expenseType: '',
-      commissionShape: '',
-      descriptionQuery: '',
-      amountMin: '',
-      amountMax: '',
-      periodId: '',
-      paymentCategoryId: '',
-      userId: ''
-    });
+    setFilters({ ...EMPTY_PAYMENT_FILTERS });
   };
 
   const exportSelectedToExcel = () => {
@@ -594,39 +593,43 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-2xl font-bold text-gray-900">{title}</h2>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={exportSelectedToExcel}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 hover:bg-gray-50"
-          >
-            <Download size={16} />
-            Export Selected to Excel
-          </button>
-          <button
-            type="button"
-            onClick={openCreate}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
-          >
-            <Plus size={16} />
-            Yeni Kayıt
-          </button>
-        </div>
-      </div>
-
-      {showForm && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-            <h3 className="font-semibold text-gray-900">{editingId ? 'Kaydı Düzenle' : 'Yeni Kayıt'}</h3>
-            <button type="button" onClick={closeFormView} className="p-1 rounded hover:bg-gray-100">
-              <X size={18} />
-            </button>
+      {showForm ? (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 min-h-[calc(100vh-8rem)] overflow-hidden flex flex-col">
+          <div className="flex items-center justify-between gap-4 p-6 bg-gradient-to-r from-slate-50 to-white border-b border-gray-200 shrink-0">
+            <div className="flex items-center gap-4 min-w-0">
+              <button
+                type="button"
+                onClick={closeFormView}
+                className="flex items-center gap-2 text-gray-600 hover:text-gray-900 hover:bg-white rounded-xl px-3 py-2.5 border border-gray-200 hover:border-gray-300 transition-colors shadow-sm"
+              >
+                <ArrowLeft size={20} />
+                <span className="font-medium">{t.back}</span>
+              </button>
+              <h2 className="text-xl font-bold text-gray-800 truncate">
+                {editingId ? 'Kaydı Düzenle' : 'Yeni Kayıt'}
+              </h2>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={closeFormView}
+                className="px-4 py-2.5 text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 font-medium transition-colors shadow-sm"
+              >
+                {t.cancel}
+              </button>
+              <button
+                type="submit"
+                form="payment-form"
+                disabled={receiptUploading}
+                className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-medium transition-colors shadow-md shadow-blue-600/20 disabled:opacity-50"
+              >
+                {receiptUploading ? 'Yükleniyor…' : editingId ? 'Güncelle' : t.save}
+              </button>
+            </div>
           </div>
-          <form onSubmit={submitForm} className="p-4 space-y-4">
+          <form id="payment-form" onSubmit={submitForm} className="flex-1 overflow-y-auto p-6 md:p-8 space-y-4">
             {mode === 'incoming' ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-w-5xl">
                 <div>
                   <label className="block text-sm mb-1">Ödeme Tarihi</label>
                   <input
@@ -746,7 +749,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
                 </div>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-w-5xl">
                 <div>
                   <label className="block text-sm mb-1">Ödeme Tarihi</label>
                   <input
@@ -809,9 +812,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
                   >
                     <option value="" disabled>Seçiniz…</option>
                     {OUTGOING_PAYMENT_REASONS.map(code => (
-                      <option key={code} value={code}>
-                        {OUTGOING_PAYMENT_REASON_LABELS[code]}
-                      </option>
+                      <option key={code} value={code}>{OUTGOING_PAYMENT_REASON_LABELS[code]}</option>
                     ))}
                   </select>
                 </div>
@@ -837,9 +838,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
                         </option>
                       )}
                     {COMPANY_EXPENSE_TYPES.map(code => (
-                      <option key={code} value={code}>
-                        {COMPANY_EXPENSE_TYPE_LABELS[code]}
-                      </option>
+                      <option key={code} value={code}>{COMPANY_EXPENSE_TYPE_LABELS[code]}</option>
                     ))}
                   </select>
                 </div>
@@ -859,9 +858,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
                   >
                     <option value="" disabled>Seçiniz…</option>
                     {COMMISSION_SHAPES.map(code => (
-                      <option key={code} value={code}>
-                        {COMMISSION_SHAPE_LABELS[code]}
-                      </option>
+                      <option key={code} value={code}>{COMMISSION_SHAPE_LABELS[code]}</option>
                     ))}
                   </select>
                 </div>
@@ -904,7 +901,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
               </div>
             )}
 
-            <div className="border-t border-gray-100 pt-4">
+            <div className="border-t border-gray-100 pt-4 max-w-5xl">
               <label className="block text-sm font-medium text-gray-700 mb-2">Dekont</label>
               {editingId && editingReceipts.length > 0 && (
                 <ul className="space-y-2 mb-3">
@@ -973,360 +970,423 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
             </div>
 
             {formError && <p className="text-sm text-red-600">{formError}</p>}
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <button type="button" onClick={closeFormView} className="px-3 py-2 rounded-lg border border-gray-200">
-                İptal
-              </button>
-              <button type="submit" disabled={receiptUploading} className="px-3 py-2 rounded-lg bg-blue-600 text-white disabled:opacity-50">
-                {receiptUploading ? 'Yükleniyor…' : editingId ? 'Güncelle' : 'Kaydet'}
-              </button>
-            </div>
           </form>
         </div>
-      )}
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-2xl font-bold text-gray-900">{title}</h2>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={exportSelectedToExcel}
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 hover:bg-gray-50"
+              >
+                <Download size={16} />
+                Export Selected to Excel
+              </button>
+              <button
+                type="button"
+                onClick={openCreate}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+              >
+                <Plus size={16} />
+                Yeni Kayıt
+              </button>
+            </div>
+          </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 space-y-3">
-        <SavedQuickFilters
-          pageKey={mode === 'incoming' ? 'incoming-payments' : 'outgoing-payments'}
-          userId={currentUser?.id}
-          isAdmin={!!isAdmin}
-          getFilters={() => ({ ...filters })}
-          onApply={(f) => {
-            setFilters({
-              dateFrom: typeof f.dateFrom === 'string' ? f.dateFrom : '',
-              dateTo: typeof f.dateTo === 'string' ? f.dateTo : '',
-              currency: typeof f.currency === 'string' ? f.currency : '',
-              paymentSource: typeof f.paymentSource === 'string' ? f.paymentSource : '',
-              paymentType: typeof f.paymentType === 'string' ? f.paymentType : '',
-              paymentReason: typeof f.paymentReason === 'string' ? f.paymentReason : '',
-              expenseType: typeof f.expenseType === 'string' ? f.expenseType : '',
-              commissionShape: typeof f.commissionShape === 'string' ? f.commissionShape : '',
-              descriptionQuery: typeof f.descriptionQuery === 'string' ? f.descriptionQuery : '',
-              amountMin: typeof f.amountMin === 'string' ? f.amountMin : '',
-              amountMax: typeof f.amountMax === 'string' ? f.amountMax : '',
-              periodId: typeof f.periodId === 'string' ? f.periodId : '',
-              paymentCategoryId: typeof f.paymentCategoryId === 'string' ? f.paymentCategoryId : ''
-            });
-          }}
-        />
-        <CreatedAtRangeFilter
-          from={filters.dateFrom}
-          to={filters.dateTo}
-          onFromChange={(value) => setFilters(prev => ({ ...prev, dateFrom: value }))}
-          onToChange={(value) => setFilters(prev => ({ ...prev, dateTo: value }))}
-          presetPosition="above"
-        />
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          <select
-            value={filters.currency}
-            onChange={e => setFilters(prev => ({ ...prev, currency: e.target.value }))}
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
-          >
-            <option value="">Tüm Currency</option>
-            <option value="USD">USD</option>
-            <option value="TRY">TRY</option>
-            <option value="EUR">EUR</option>
-          </select>
-          <select
-            value={filters.periodId}
-            onChange={e => setFilters(prev => ({ ...prev, periodId: e.target.value }))}
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
-          >
-            <option value="">{t.period} (Tümü)</option>
-            {sortedPeriods.map((period) => (
-              <option key={period.id} value={period.id}>{period.name}</option>
-            ))}
-          </select>
-
-          {mode === 'incoming' ? (
-            <>
-              <input
-                type="number"
-                step="0.01"
-                placeholder="Min Tutar"
-                value={filters.amountMin}
-                onChange={e => setFilters(prev => ({ ...prev, amountMin: e.target.value }))}
-                className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
-              />
-              <input
-                type="number"
-                step="0.01"
-                placeholder="Max Tutar"
-                value={filters.amountMax}
-                onChange={e => setFilters(prev => ({ ...prev, amountMax: e.target.value }))}
-                className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
-              />
-              <select
-                value={filters.paymentType}
-                onChange={e => setFilters(prev => ({ ...prev, paymentType: e.target.value }))}
-                className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
-              >
-                <option value="">Ödeme Türü (Tümü)</option>
-                {INCOMING_PAYMENT_TYPES.map((type) => (
-                  <option key={type} value={type}>{formatIncomingPaymentType(type)}</option>
-                ))}
-              </select>
-              <select
-                value={filters.paymentSource}
-                onChange={e => setFilters(prev => ({ ...prev, paymentSource: e.target.value }))}
-                className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
-              >
-                <option value="">Ödeme Kaynağı (Tümü)</option>
-                {paymentSources.map((source) => (
-                  <option key={source.id} value={source.id}>{source.name}</option>
-                ))}
-              </select>
-              <input
-                placeholder="Açıklama Ara"
-                value={filters.descriptionQuery}
-                onChange={e => setFilters(prev => ({ ...prev, descriptionQuery: e.target.value }))}
-                className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
-              />
-              <select
-                value={filters.paymentCategoryId}
-                onChange={e => setFilters(prev => ({ ...prev, paymentCategoryId: e.target.value }))}
-                className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
-              >
-                <option value="">Ödeme Kategorisi (Tümü)</option>
-                {paymentCategories.map((category) => (
-                  <option key={category.id} value={category.id}>{category.name}</option>
-                ))}
-              </select>
-            </>
-          ) : (
-            <>
-              <input
-                type="number"
-                step="0.01"
-                placeholder="Min Tutar"
-                value={filters.amountMin}
-                onChange={e => setFilters(prev => ({ ...prev, amountMin: e.target.value }))}
-                className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
-              />
-              <input
-                type="number"
-                step="0.01"
-                placeholder="Max Tutar"
-                value={filters.amountMax}
-                onChange={e => setFilters(prev => ({ ...prev, amountMax: e.target.value }))}
-                className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
-              />
-              <select
-                value={filters.paymentType}
-                onChange={e => setFilters(prev => ({ ...prev, paymentType: e.target.value }))}
-                className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
-              >
-                <option value="">Ödeme Türü (Tümü)</option>
-                <option value="Cash">Nakit</option>
-                <option value="Bank">Banka</option>
-              </select>
-              <select
-                value={filters.paymentReason}
-                onChange={e => setFilters(prev => ({ ...prev, paymentReason: e.target.value }))}
-                className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
-              >
-                <option value="">Ödeme sebebi (tümü)</option>
-                {OUTGOING_PAYMENT_REASONS.map((code) => (
-                  <option key={code} value={code}>{OUTGOING_PAYMENT_REASON_LABELS[code]}</option>
-                ))}
-              </select>
-              <select
-                value={filters.expenseType}
-                onChange={e => setFilters(prev => ({ ...prev, expenseType: e.target.value }))}
-                className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
-              >
-                <option value="">Masraf tipi (tümü)</option>
-                {COMPANY_EXPENSE_TYPES.map((code) => (
-                  <option key={code} value={code}>{COMPANY_EXPENSE_TYPE_LABELS[code]}</option>
-                ))}
-              </select>
-              <select
-                value={filters.commissionShape}
-                onChange={e => setFilters(prev => ({ ...prev, commissionShape: e.target.value }))}
-                className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
-              >
-                <option value="">Komisyon şekli (tümü)</option>
-                {COMMISSION_SHAPES.map((code) => (
-                  <option key={code} value={code}>{COMMISSION_SHAPE_LABELS[code]}</option>
-                ))}
-              </select>
-              <select
-                value={filters.userId}
-                onChange={e => setFilters(prev => ({ ...prev, userId: e.target.value }))}
-                className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
-              >
-                <option value="">Kullanıcı (tümü)</option>
-                {assignableUsers.map((user) => (
-                  <option key={user.id} value={user.id}>{user.name}</option>
-                ))}
-              </select>
-              <input
-                placeholder="Açıklama Ara"
-                value={filters.descriptionQuery}
-                onChange={e => setFilters(prev => ({ ...prev, descriptionQuery: e.target.value }))}
-                className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
-              />
-            </>
-          )}
-        </div>
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-gray-600">Seçili: {selectedRows.length} / Filtreli: {filteredRows.length}</span>
-          <button type="button" onClick={clearFilters} className="text-blue-600 hover:text-blue-700">
-            Filtreleri Temizle
-          </button>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left">
-            <thead className="bg-gray-50 border-b border-gray-100">
-              <tr>
-                <th className="px-4 py-3">
-                  <input type="checkbox" checked={allFilteredSelected} onChange={toggleAllFiltered} />
-                </th>
-                <th className="px-4 py-3">Sequence No</th>
-                <th className="px-4 py-3">Ödeme Tarihi</th>
-                <th className="px-4 py-3">{t.period}</th>
-                {mode === 'incoming' ? (
-                  <>
-                    <th className="px-4 py-3">Ödeme Miktarı</th>
-                    <th className="px-4 py-3">Currency</th>
-                    <th className="px-4 py-3">Ödeme Türü</th>
-                    <th className="px-4 py-3">Ödeme Kaynağı</th>
-                    <th className="px-4 py-3">Ödeme Kategorisi</th>
-                    <th className="px-4 py-3">Açıklama 1</th>
-                    <th className="px-4 py-3">Açıklama 2</th>
-                    <th className="px-4 py-3">Dekont</th>
-                  </>
-                ) : (
-                  <>
-                    <th className="px-4 py-3">Ödeme Miktarı</th>
-                    <th className="px-4 py-3">Currency</th>
-                    <th className="px-4 py-3">Ödeme Türü</th>
-                    <th className="px-4 py-3">Ödeme Sebebi</th>
-                    <th className="px-4 py-3">Masraf Tipi</th>
-                    <th className="px-4 py-3">Komisyon Şekli</th>
-                    <th className="px-4 py-3">Kullanıcı</th>
-                    <th className="px-4 py-3">Açıklama 1</th>
-                    <th className="px-4 py-3">Dekont</th>
-                  </>
-                )}
-                <th className="px-4 py-3 text-right">İşlem</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {!loading && filteredRows.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={mode === 'incoming' ? 13 : 14}
-                    className="px-4 py-8 text-center text-gray-500"
-                  >
-                    Kayıt bulunamadı.
-                  </td>
-                </tr>
-              )}
-              {filteredRows.map((row) => (
-                <tr
-                  key={row.id}
-                  onClick={() => openEdit(row)}
-                  className="cursor-pointer hover:bg-gray-50"
-                >
-                  <td className="px-4 py-3">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 space-y-3">
+            <SavedQuickFilters
+              pageKey={mode === 'incoming' ? 'incoming-payments' : 'outgoing-payments'}
+              userId={currentUser?.id}
+              getFilters={() => ({ ...filters })}
+              onApply={(f) => {
+                setFilters({
+                  dateFrom: typeof f.dateFrom === 'string' ? f.dateFrom : '',
+                  dateTo: typeof f.dateTo === 'string' ? f.dateTo : '',
+                  currencies: asStringArray(f.currencies ?? f.currency),
+                  paymentSources: asStringArray(f.paymentSources ?? f.paymentSource),
+                  paymentTypes: asStringArray(f.paymentTypes ?? f.paymentType),
+                  paymentReasons: asStringArray(f.paymentReasons ?? f.paymentReason),
+                  expenseTypes: asStringArray(f.expenseTypes ?? f.expenseType),
+                  commissionShapes: asStringArray(f.commissionShapes ?? f.commissionShape),
+                  descriptionQuery: typeof f.descriptionQuery === 'string' ? f.descriptionQuery : '',
+                  amountMin: typeof f.amountMin === 'string' ? f.amountMin : '',
+                  amountMax: typeof f.amountMax === 'string' ? f.amountMax : '',
+                  periodIds: asStringArray(f.periodIds ?? f.periodId),
+                  paymentCategoryIds: asStringArray(f.paymentCategoryIds ?? f.paymentCategoryId),
+                  userIds: asStringArray(f.userIds ?? f.userId)
+                });
+              }}
+            />
+            {mode === 'incoming' ? (
+              <>
+                <CreatedAtRangeFilter
+                  from={filters.dateFrom}
+                  to={filters.dateTo}
+                  onFromChange={(value) => setFilters(prev => ({ ...prev, dateFrom: value }))}
+                  onToChange={(value) => setFilters(prev => ({ ...prev, dateTo: value }))}
+                  presetPosition="above"
+                />
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  <SearchableMultiSelect
+                    options={['USD', 'TRY', 'EUR']}
+                    selected={filters.currencies}
+                    onChange={(v) => setFilters((prev) => ({ ...prev, currencies: v }))}
+                    placeholder={`Currency (${t.filterAll})`}
+                    searchPlaceholder={t.search}
+                    noResultsText={t.searchNoResults}
+                  />
+                  <SearchableMultiSelect
+                    options={sortedPeriods.map((period) => ({ value: period.id, label: period.name }))}
+                    selected={filters.periodIds}
+                    onChange={(v) => setFilters((prev) => ({ ...prev, periodIds: v }))}
+                    placeholder={`${t.period} (${t.filterAll})`}
+                    searchPlaceholder={t.search}
+                    noResultsText={t.searchNoResults}
+                  />
+                  <input
+                    type="number"
+                    step="0.01"
+                    placeholder="Min Tutar"
+                    value={filters.amountMin}
+                    onChange={e => setFilters(prev => ({ ...prev, amountMin: e.target.value }))}
+                    className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                  />
+                  <input
+                    type="number"
+                    step="0.01"
+                    placeholder="Max Tutar"
+                    value={filters.amountMax}
+                    onChange={e => setFilters(prev => ({ ...prev, amountMax: e.target.value }))}
+                    className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                  />
+                  <SearchableMultiSelect
+                    options={INCOMING_PAYMENT_TYPES.map((type) => ({ value: type, label: formatIncomingPaymentType(type) }))}
+                    selected={filters.paymentTypes}
+                    onChange={(v) => setFilters((prev) => ({ ...prev, paymentTypes: v }))}
+                    placeholder={`Ödeme Türü (${t.filterAll})`}
+                    searchPlaceholder={t.search}
+                    noResultsText={t.searchNoResults}
+                  />
+                  <SearchableMultiSelect
+                    options={paymentSources.map((source) => ({ value: source.id, label: source.name }))}
+                    selected={filters.paymentSources}
+                    onChange={(v) => setFilters((prev) => ({ ...prev, paymentSources: v }))}
+                    placeholder={`Ödeme Kaynağı (${t.filterAll})`}
+                    searchPlaceholder={t.search}
+                    noResultsText={t.searchNoResults}
+                  />
+                  <input
+                    placeholder="Açıklama Ara"
+                    value={filters.descriptionQuery}
+                    onChange={e => setFilters(prev => ({ ...prev, descriptionQuery: e.target.value }))}
+                    className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                  />
+                  <SearchableMultiSelect
+                    options={paymentCategories.map((category) => ({ value: category.id, label: category.name }))}
+                    selected={filters.paymentCategoryIds}
+                    onChange={(v) => setFilters((prev) => ({ ...prev, paymentCategoryIds: v }))}
+                    placeholder={`Ödeme Kategorisi (${t.filterAll})`}
+                    searchPlaceholder={t.search}
+                    noResultsText={t.searchNoResults}
+                  />
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex flex-wrap gap-1.5">
+                  {FILTER_DATE_PRESETS.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => {
+                        const range = getDatePreset(preset.id);
+                        setFilters((prev) => ({ ...prev, dateFrom: range.from, dateTo: range.to }));
+                      }}
+                      className="px-2.5 py-1 text-xs rounded-lg bg-gray-100 hover:bg-blue-100 text-gray-700 hover:text-blue-800 transition-colors"
+                    >
+                      {t[preset.labelKey as keyof typeof t] as string}
+                    </button>
+                  ))}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">{t.filterCreatedFrom}</label>
                     <input
-                      type="checkbox"
-                      checked={selectedIds.has(row.id)}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={() => toggleRow(row.id)}
+                      type="date"
+                      value={filters.dateFrom}
+                      onChange={(e) => setFilters((prev) => ({ ...prev, dateFrom: e.target.value }))}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
                     />
-                  </td>
-                  <td className="px-4 py-3 font-mono">{row.sequenceNumber}</td>
-                  <td className="px-4 py-3">{row.paymentDate}</td>
-                  <td className="px-4 py-3">{row.periodName || '—'}</td>
-                  {mode === 'incoming' ? (
-                    <>
-                      <td className="px-4 py-3">{(row as IncomingPaymentRow).paymentAmount}</td>
-                      <td className="px-4 py-3">{(row as IncomingPaymentRow).currency}</td>
-                      <td className="px-4 py-3">{formatIncomingPaymentType((row as IncomingPaymentRow).paymentType)}</td>
-                      <td className="px-4 py-3">{(row as IncomingPaymentRow).paymentSource}</td>
-                      <td className="px-4 py-3">{(row as IncomingPaymentRow).paymentCategory || '—'}</td>
-                      <td className="px-4 py-3">{(row as IncomingPaymentRow).description1 || '—'}</td>
-                      <td className="px-4 py-3">{(row as IncomingPaymentRow).description2 || '—'}</td>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">{t.filterCreatedTo}</label>
+                    <input
+                      type="date"
+                      value={filters.dateTo}
+                      onChange={(e) => setFilters((prev) => ({ ...prev, dateTo: e.target.value }))}
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                    />
+                  </div>
+                  <SearchableMultiSelect
+                    options={['USD', 'TRY', 'EUR']}
+                    selected={filters.currencies}
+                    onChange={(v) => setFilters((prev) => ({ ...prev, currencies: v }))}
+                    placeholder={`Currency (${t.filterAll})`}
+                    searchPlaceholder={t.search}
+                    noResultsText={t.searchNoResults}
+                    className="self-end"
+                  />
+                  <SearchableMultiSelect
+                    options={sortedPeriods.map((period) => ({ value: period.id, label: period.name }))}
+                    selected={filters.periodIds}
+                    onChange={(v) => setFilters((prev) => ({ ...prev, periodIds: v }))}
+                    placeholder={`${t.period} (${t.filterAll})`}
+                    searchPlaceholder={t.search}
+                    noResultsText={t.searchNoResults}
+                    className="self-end"
+                  />
+                  <input
+                    type="number"
+                    step="0.01"
+                    placeholder="Min Tutar"
+                    value={filters.amountMin}
+                    onChange={e => setFilters(prev => ({ ...prev, amountMin: e.target.value }))}
+                    className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                  />
+                  <input
+                    type="number"
+                    step="0.01"
+                    placeholder="Max Tutar"
+                    value={filters.amountMax}
+                    onChange={e => setFilters(prev => ({ ...prev, amountMax: e.target.value }))}
+                    className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                  />
+                  <SearchableMultiSelect
+                    options={[
+                      { value: 'Cash', label: 'Nakit' },
+                      { value: 'Bank', label: 'Banka' }
+                    ]}
+                    selected={filters.paymentTypes}
+                    onChange={(v) => setFilters((prev) => ({ ...prev, paymentTypes: v }))}
+                    placeholder={`Ödeme Türü (${t.filterAll})`}
+                    searchPlaceholder={t.search}
+                    noResultsText={t.searchNoResults}
+                  />
+                  <SearchableMultiSelect
+                    options={OUTGOING_PAYMENT_REASONS.map((code) => ({ value: code, label: OUTGOING_PAYMENT_REASON_LABELS[code] }))}
+                    selected={filters.paymentReasons}
+                    onChange={(v) => setFilters((prev) => ({ ...prev, paymentReasons: v }))}
+                    placeholder={`Ödeme Sebebi (${t.filterAll})`}
+                    searchPlaceholder={t.search}
+                    noResultsText={t.searchNoResults}
+                  />
+                  <SearchableMultiSelect
+                    options={COMPANY_EXPENSE_TYPES.map((code) => ({ value: code, label: COMPANY_EXPENSE_TYPE_LABELS[code] }))}
+                    selected={filters.expenseTypes}
+                    onChange={(v) => setFilters((prev) => ({ ...prev, expenseTypes: v }))}
+                    placeholder={`Masraf Tipi (${t.filterAll})`}
+                    searchPlaceholder={t.search}
+                    noResultsText={t.searchNoResults}
+                  />
+                  <SearchableMultiSelect
+                    options={COMMISSION_SHAPES.map((code) => ({ value: code, label: COMMISSION_SHAPE_LABELS[code] }))}
+                    selected={filters.commissionShapes}
+                    onChange={(v) => setFilters((prev) => ({ ...prev, commissionShapes: v }))}
+                    placeholder={`Komisyon Şekli (${t.filterAll})`}
+                    searchPlaceholder={t.search}
+                    noResultsText={t.searchNoResults}
+                  />
+                  <SearchableMultiSelect
+                    options={assignableUsers.map((user) => ({ value: user.id, label: user.name }))}
+                    selected={filters.userIds}
+                    onChange={(v) => setFilters((prev) => ({ ...prev, userIds: v }))}
+                    placeholder={`Kullanıcı (${t.filterAll})`}
+                    searchPlaceholder={t.search}
+                    noResultsText={t.searchNoResults}
+                  />
+                  <input
+                    placeholder="Açıklama Ara"
+                    value={filters.descriptionQuery}
+                    onChange={e => setFilters(prev => ({ ...prev, descriptionQuery: e.target.value }))}
+                    className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                  />
+                </div>
+              </>
+            )}
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-gray-600">Seçili: {selectedRows.length} / Filtreli: {filteredRows.length}</span>
+              <button type="button" onClick={clearFilters} className="text-blue-600 hover:text-blue-700">
+                Filtreleri Temizle
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-100 bg-slate-50 flex flex-wrap items-center justify-between gap-2">
+              <span className="text-sm font-semibold text-gray-800">Ödeme Toplamı</span>
+              {filteredTotalsByCurrency.length === 0 ? (
+                <span className="text-sm text-gray-500">0</span>
+              ) : (
+                <div className="flex flex-wrap items-center gap-3">
+                  {filteredTotalsByCurrency.map(({ currency, total }) => (
+                    <span key={currency} className="text-sm font-bold text-gray-900">
+                      {total.toLocaleString(undefined, { maximumFractionDigits: 2 })} {currency}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left">
+                <thead className="bg-gray-50 border-b border-gray-100">
+                  <tr>
+                    <th className="px-4 py-3">
+                      <input type="checkbox" checked={allFilteredSelected} onChange={toggleAllFiltered} />
+                    </th>
+                    <th className="px-4 py-3">Sequence No</th>
+                    <th className="px-4 py-3">Ödeme Tarihi</th>
+                    <th className="px-4 py-3">{t.period}</th>
+                    {mode === 'incoming' ? (
+                      <>
+                        <th className="px-4 py-3">Ödeme Miktarı</th>
+                        <th className="px-4 py-3">Currency</th>
+                        <th className="px-4 py-3">Ödeme Türü</th>
+                        <th className="px-4 py-3">Ödeme Kaynağı</th>
+                        <th className="px-4 py-3">Ödeme Kategorisi</th>
+                        <th className="px-4 py-3">Açıklama 1</th>
+                        <th className="px-4 py-3">Açıklama 2</th>
+                        <th className="px-4 py-3">Dekont</th>
+                      </>
+                    ) : (
+                      <>
+                        <th className="px-4 py-3">Ödeme Miktarı</th>
+                        <th className="px-4 py-3">Currency</th>
+                        <th className="px-4 py-3">Ödeme Türü</th>
+                        <th className="px-4 py-3">Ödeme Sebebi</th>
+                        <th className="px-4 py-3">Masraf Tipi</th>
+                        <th className="px-4 py-3">Komisyon Şekli</th>
+                        <th className="px-4 py-3">Kullanıcı</th>
+                        <th className="px-4 py-3">Açıklama 1</th>
+                        <th className="px-4 py-3">Dekont</th>
+                      </>
+                    )}
+                    <th className="px-4 py-3 text-right">İşlem</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading ? (
+                    <tr>
+                      <td colSpan={14} className="px-4 py-8 text-center text-gray-500">Yükleniyor...</td>
+                    </tr>
+                  ) : filteredRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={14} className="px-4 py-8 text-center text-gray-500">Kayıt bulunamadı</td>
+                    </tr>
+                  ) : filteredRows.map((row) => (
+                    <tr
+                      key={row.id}
+                      className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer"
+                      onClick={() => openEdit(row)}
+                    >
                       <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                        {(row.receiptFiles?.length || 0) > 0 ? (
-                          <span className="inline-flex items-center gap-1 text-blue-600">
-                            <Paperclip size={14} />
-                            <span>{row.receiptFiles!.length}</span>
-                          </span>
-                        ) : (
-                          '—'
-                        )}
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(row.id)}
+                          onChange={() => toggleRow(row.id)}
+                        />
                       </td>
-                    </>
-                  ) : (
-                    <>
-                      <td className="px-4 py-3">{(row as OutgoingPaymentRow).paymentAmount}</td>
-                      <td className="px-4 py-3">{(row as OutgoingPaymentRow).currency}</td>
-                      <td className="px-4 py-3">{(row as OutgoingPaymentRow).paymentType === 'Cash' ? 'Nakit' : 'Banka'}</td>
-                      <td className="px-4 py-3">{formatOutgoingPaymentDisplay((row as OutgoingPaymentRow).paymentReason)}</td>
+                      <td className="px-4 py-3">{row.sequenceNumber}</td>
+                      <td className="px-4 py-3">{row.paymentDate}</td>
+                      <td className="px-4 py-3">{row.periodName || '—'}</td>
+                      {mode === 'incoming' ? (
+                        <>
+                          <td className="px-4 py-3">{(row as IncomingPaymentRow).paymentAmount}</td>
+                          <td className="px-4 py-3">{(row as IncomingPaymentRow).currency}</td>
+                          <td className="px-4 py-3">{formatIncomingPaymentType((row as IncomingPaymentRow).paymentType)}</td>
+                          <td className="px-4 py-3">{(row as IncomingPaymentRow).paymentSource}</td>
+                          <td className="px-4 py-3">{(row as IncomingPaymentRow).paymentCategory || '—'}</td>
+                          <td className="px-4 py-3">{(row as IncomingPaymentRow).description1 || '—'}</td>
+                          <td className="px-4 py-3">{(row as IncomingPaymentRow).description2 || '—'}</td>
+                          <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                            {(row.receiptFiles?.length || 0) > 0 ? (
+                              <span className="inline-flex items-center gap-1 text-blue-600">
+                                <Paperclip size={14} />
+                                <span>{row.receiptFiles!.length}</span>
+                              </span>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                        </>
+                      ) : (
+                        <>
+                          <td className="px-4 py-3">{(row as OutgoingPaymentRow).paymentAmount}</td>
+                          <td className="px-4 py-3">{(row as OutgoingPaymentRow).currency}</td>
+                          <td className="px-4 py-3">{(row as OutgoingPaymentRow).paymentType === 'Cash' ? 'Nakit' : 'Banka'}</td>
+                          <td className="px-4 py-3">{formatOutgoingPaymentDisplay((row as OutgoingPaymentRow).paymentReason)}</td>
+                          <td className="px-4 py-3">
+                            {(row as OutgoingPaymentRow).expenseType
+                              ? formatExpenseTypeDisplay((row as OutgoingPaymentRow).expenseType)
+                              : '—'}
+                          </td>
+                          <td className="px-4 py-3">
+                            {(row as OutgoingPaymentRow).commissionShape
+                              ? formatCommissionShapeDisplay((row as OutgoingPaymentRow).commissionShape)
+                              : '—'}
+                          </td>
+                          <td className="px-4 py-3">
+                            {(row as OutgoingPaymentRow).userName
+                              ? `${(row as OutgoingPaymentRow).userName} (${((row as OutgoingPaymentRow).userRole || '').toLowerCase()})`
+                              : '—'}
+                          </td>
+                          <td className="px-4 py-3">{(row as OutgoingPaymentRow).description1 || '—'}</td>
+                          <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                            {(row.receiptFiles?.length || 0) > 0 ? (
+                              <span className="inline-flex items-center gap-1 text-blue-600">
+                                <Paperclip size={14} />
+                                <span>{row.receiptFiles!.length}</span>
+                              </span>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                        </>
+                      )}
                       <td className="px-4 py-3">
-                        {(row as OutgoingPaymentRow).expenseType
-                          ? formatExpenseTypeDisplay((row as OutgoingPaymentRow).expenseType)
-                          : '—'}
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openEdit(row);
+                            }}
+                            className="p-2 rounded hover:bg-gray-100 text-gray-700"
+                          >
+                            <Pencil size={16} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeRow(row.id);
+                            }}
+                            className="p-2 rounded hover:bg-red-50 text-red-600"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
                       </td>
-                      <td className="px-4 py-3">
-                        {(row as OutgoingPaymentRow).commissionShape
-                          ? formatCommissionShapeDisplay((row as OutgoingPaymentRow).commissionShape)
-                          : '—'}
-                      </td>
-                      <td className="px-4 py-3">
-                        {(row as OutgoingPaymentRow).userName
-                          ? `${(row as OutgoingPaymentRow).userName} (${((row as OutgoingPaymentRow).userRole || '').toLowerCase()})`
-                          : '—'}
-                      </td>
-                      <td className="px-4 py-3">{(row as OutgoingPaymentRow).description1 || '—'}</td>
-                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                        {(row.receiptFiles?.length || 0) > 0 ? (
-                          <span className="inline-flex items-center gap-1 text-blue-600">
-                            <Paperclip size={14} />
-                            <span>{row.receiptFiles!.length}</span>
-                          </span>
-                        ) : (
-                          '—'
-                        )}
-                      </td>
-                    </>
-                  )}
-                  <td className="px-4 py-3">
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openEdit(row);
-                        }}
-                        className="p-2 rounded hover:bg-gray-100 text-gray-700"
-                      >
-                        <Pencil size={16} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          removeRow(row.id);
-                        }}
-                        className="p-2 rounded hover:bg-red-50 text-red-600"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 };

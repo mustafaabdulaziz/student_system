@@ -17,12 +17,16 @@ type DegreeCommissionFormRow = {
   degree: '' | typeof DEGREE_COMMISSION_OPTIONS[number];
   commissionKind: '' | 'rate' | 'amount';
   commissionValue: string;
+  bonusMin: string;
+  bonusMax: string;
 };
 
 const EMPTY_DEGREE_COMMISSION_ROW: DegreeCommissionFormRow = {
   degree: '',
   commissionKind: '',
-  commissionValue: ''
+  commissionValue: '',
+  bonusMin: '',
+  bonusMax: ''
 };
 
 interface UniversityManagerProps {
@@ -203,7 +207,9 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
       (uni.degreeCommissions || []).map((row) => ({
         degree: row.degree,
         commissionKind: row.commissionKind,
-        commissionValue: String(row.commissionValue)
+        commissionValue: String(row.commissionValue),
+        bonusMin: row.bonusMin != null && !Number.isNaN(Number(row.bonusMin)) ? String(row.bonusMin) : '',
+        bonusMax: row.bonusMax != null && !Number.isNaN(Number(row.bonusMax)) ? String(row.bonusMax) : ''
       }))
     );
     setLogoPreview(uni.logo || null); setLogoBase64(uni.logo || null);
@@ -223,7 +229,9 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
       const degree = row.degree;
       const kind = row.commissionKind;
       const raw = row.commissionValue.trim();
-      const empty = !degree && !kind && raw === '';
+      const bonusMinRaw = (row.bonusMin || '').trim();
+      const bonusMaxRaw = (row.bonusMax || '').trim();
+      const empty = !degree && !kind && raw === '' && bonusMinRaw === '' && bonusMaxRaw === '';
       if (empty) continue;
       if (!degree || !kind || raw === '') {
         alert('Derece komisyon satırlarında derece, komisyon türü ve tutar/oran zorunludur.');
@@ -234,12 +242,28 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
         alert('Derece komisyon tutar/oran değeri geçerli bir sayı olmalıdır.');
         return null;
       }
+      let bonusMin: number | null = null;
+      let bonusMax: number | null = null;
+      if (bonusMinRaw !== '') {
+        bonusMin = Number(bonusMinRaw);
+        if (!Number.isFinite(bonusMin)) {
+          alert('Bonus Min değeri geçerli bir sayı olmalıdır.');
+          return null;
+        }
+      }
+      if (bonusMaxRaw !== '') {
+        bonusMax = Number(bonusMaxRaw);
+        if (!Number.isFinite(bonusMax)) {
+          alert('Bonus Max değeri geçerli bir sayı olmalıdır.');
+          return null;
+        }
+      }
       if (seen.has(degree)) {
         alert('Aynı derece için birden fazla komisyon satırı eklenemez.');
         return null;
       }
       seen.add(degree);
-      out.push({ degree, commissionKind: kind, commissionValue: value });
+      out.push({ degree, commissionKind: kind, commissionValue: value, bonusMin, bonusMax });
     }
     return out;
   };
@@ -707,6 +731,8 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                               <th className="px-3 py-2 text-left font-semibold text-gray-700">Derece</th>
                               <th className="px-3 py-2 text-left font-semibold text-gray-700">Komisyon türü</th>
                               <th className="px-3 py-2 text-left font-semibold text-gray-700">Tutar / Oran</th>
+                              <th className="px-3 py-2 text-left font-semibold text-gray-700">Bonus Min</th>
+                              <th className="px-3 py-2 text-left font-semibold text-gray-700">Bonus Max</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-gray-100">
@@ -717,6 +743,8 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                                 <td className="px-3 py-2">
                                   {row.commissionKind === 'rate' ? `${row.commissionValue}%` : row.commissionValue}
                                 </td>
+                                <td className="px-3 py-2">{row.bonusMin != null ? row.bonusMin : '—'}</td>
+                                <td className="px-3 py-2">{row.bonusMax != null ? row.bonusMax : '—'}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -917,7 +945,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                     ) : (
                       <div className="space-y-2">
                         {degreeCommissionRows.map((row, idx) => (
-                          <div key={idx} className="grid grid-cols-1 sm:grid-cols-[1.2fr_1.2fr_1fr_auto] gap-2 items-end bg-white/80 rounded-xl p-2 border border-amber-100">
+                          <div key={idx} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1.1fr_1.1fr_0.9fr_0.9fr_0.9fr_auto] gap-2 items-end bg-white/80 rounded-xl p-2 border border-amber-100">
                             <div>
                               <label className="block text-xs font-medium text-gray-600 mb-1">Derece *</label>
                               <select
@@ -958,6 +986,26 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                                 onChange={(e) => setDegreeCommissionRows(prev => prev.map((r, i) => i === idx ? { ...r, commissionValue: e.target.value } : r))}
                               />
                             </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">Bonus Min</label>
+                              <input
+                                type="number"
+                                step="any"
+                                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+                                value={row.bonusMin}
+                                onChange={(e) => setDegreeCommissionRows(prev => prev.map((r, i) => i === idx ? { ...r, bonusMin: e.target.value } : r))}
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">Bonus Max</label>
+                              <input
+                                type="number"
+                                step="any"
+                                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+                                value={row.bonusMax}
+                                onChange={(e) => setDegreeCommissionRows(prev => prev.map((r, i) => i === idx ? { ...r, bonusMax: e.target.value } : r))}
+                              />
+                            </div>
                             <button
                               type="button"
                               onClick={() => setDegreeCommissionRows(prev => prev.filter((_, i) => i !== idx))}
@@ -988,17 +1036,14 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
           <p className="text-gray-500">{t.universities}</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          {canManage && (
-            <SavedQuickFilters
+          <SavedQuickFilters
               pageKey="universities"
               userId={currentUser?.id}
-              isAdmin
               getFilters={() => ({ searchQuery })}
               onApply={(f) => {
                 setSearchQuery(typeof f.searchQuery === 'string' ? f.searchQuery : '');
               }}
             />
-          )}
           {/* Search + View toggle */}
           <div className="flex items-center gap-2 flex-1 min-w-[200px] max-w-md">
             <div className="relative flex-1">

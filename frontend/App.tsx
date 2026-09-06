@@ -34,7 +34,7 @@ import { PaymentSourceManager } from './components/PaymentSourceManager';
 import { PaymentCategoryManager } from './components/PaymentCategoryManager';
 import { NotificationsPage } from './components/NotificationsPage';
 import { NotificationProvider } from './contexts/NotificationContext';
-import { isAdminRole, isStaffRole, canManageCatalog } from './utils/roles';
+import { isAdminRole, isStaffRole, canManageCatalog, canAccessLimitedSettings } from './utils/roles';
 
 const NewsAndUpdates = lazy(() => import('./components/NewsAndUpdates').then(m => ({ default: m.NewsAndUpdates })));
 
@@ -176,13 +176,15 @@ export default function App() {
     const role = state.currentUser?.role;
     const shouldBlockPage =
       (role && !canManageCatalog(role) && activePage === 'activity-dashboard') ||
-      (!isAdminRole(role) && (
+      (role && !canAccessLimitedSettings(role) && (
         activePage === 'users' ||
         activePage === 'periods' ||
+        activePage === 'agency-companies'
+      )) ||
+      (!isAdminRole(role) && (
         activePage === 'incoming-payments' ||
         activePage === 'outgoing-payments' ||
         activePage === 'payment-dashboard' ||
-        activePage === 'agency-companies' ||
         activePage === 'payment-sources' ||
         activePage === 'payment-categories'
       ));
@@ -1089,6 +1091,7 @@ export default function App() {
   const editUser = async (user: User & { password?: string }) => {
     try {
       const role = state.currentUser?.role || 'ADMIN';
+      const canEditCommissions = isAdminRole(role);
       const res = await fetch(`/api/users/${user.id}?role=${encodeURIComponent(role)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -1098,7 +1101,8 @@ export default function App() {
           role: user.role,
           phone: user.phone,
           countryCode: user.countryCode,
-          agentCommissions: user.agentCommissions ?? [],
+          importanceLevel: user.importanceLevel || 'normal',
+          ...(canEditCommissions ? { agentCommissions: user.agentCommissions ?? [] } : {}),
           ...(user.password ? { password: user.password } : {})
         })
       });
@@ -1213,7 +1217,11 @@ export default function App() {
           agencyCompanies: responses[5] || [],
           paymentSources: responses[6] || [],
           paymentCategories: responses[7] || [],
-          users: canLoadUsers ? (responses[8] || []).map((u: any) => ({ ...u, active: u.active !== false })) : []
+          users: canLoadUsers ? (responses[8] || []).map((u: any) => ({
+            ...u,
+            active: u.active !== false,
+            importanceLevel: u.importanceLevel || 'normal'
+          })) : []
         }));
       } catch (err) {
         console.error('Error fetching data:', err);
@@ -1301,7 +1309,7 @@ export default function App() {
           />
         );
       case 'periods':
-        if (state.currentUser?.role !== UserRole.ADMIN) {
+        if (!canAccessLimitedSettings(state.currentUser?.role)) {
           return (
             <Dashboard
               students={state.students}
@@ -1344,7 +1352,7 @@ export default function App() {
           />
         );
       case 'users':
-        if (state.currentUser?.role !== UserRole.ADMIN) {
+        if (!canAccessLimitedSettings(state.currentUser?.role)) {
           return (
             <Dashboard
               students={state.students}
@@ -1361,7 +1369,6 @@ export default function App() {
         return (
           <UserManagementPage
             users={state.users}
-            agencyCompanies={state.agencyCompanies}
             universities={state.universities}
             currentUser={state.currentUser}
             onAddUser={addUser}
@@ -1448,7 +1455,7 @@ export default function App() {
           />
         );
       case 'agency-companies':
-        if (state.currentUser?.role !== UserRole.ADMIN) {
+        if (!canAccessLimitedSettings(state.currentUser?.role)) {
           return (
             <Dashboard
               students={state.students}

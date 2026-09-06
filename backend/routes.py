@@ -785,12 +785,23 @@ def _normalize_degree_commissions(rows):
             commission_value = float(row.get('commissionValue'))
         except (TypeError, ValueError):
             continue
-        seen.add(degree)
-        out.append({
+        item = {
             'degree': degree,
             'commissionKind': commission_kind,
-            'commissionValue': commission_value
-        })
+            'commissionValue': commission_value,
+            'bonusMin': None,
+            'bonusMax': None
+        }
+        for key in ('bonusMin', 'bonusMax'):
+            raw = row.get(key)
+            if raw is None or raw == '':
+                continue
+            try:
+                item[key] = float(raw)
+            except (TypeError, ValueError):
+                continue
+        seen.add(degree)
+        out.append(item)
     return out
 
 
@@ -810,7 +821,16 @@ def _university_degree_commission(university, degree):
             value = float(row.get('commissionValue'))
         except (TypeError, ValueError):
             continue
-        return {'kind': kind, 'value': value}
+        result = {'kind': kind, 'value': value, 'bonusMin': None, 'bonusMax': None}
+        for key in ('bonusMin', 'bonusMax'):
+            raw = row.get(key)
+            if raw is None or raw == '':
+                continue
+            try:
+                result[key] = float(raw)
+            except (TypeError, ValueError):
+                continue
+        return result
     return None
 
 
@@ -918,6 +938,7 @@ def _compute_application_finance(
     program = Program.query.get(application.program_id) if application.program_id else None
     university = University.query.get(program.university_id) if program and program.university_id else None
     program_degree = getattr(program, 'degree', None) if program else None
+    degree_cfg = _university_degree_commission(university, program_degree) if university else None
 
     # Defaults from program/university
     if application.annual_payment is None and program:
@@ -930,12 +951,18 @@ def _compute_application_finance(
     if application.abroad_vat_rate is None and university:
         uv = getattr(university, 'abroad_vat_rate', None)
         application.abroad_vat_rate = float(uv) if uv is not None else None
-    if application.bonus_max is None and university:
-        uv = getattr(university, 'bonus_max', None)
-        application.bonus_max = float(uv) if uv is not None else None
-    if application.bonus_min is None and university:
-        uv = getattr(university, 'bonus_min', None)
-        application.bonus_min = float(uv) if uv is not None else None
+    if application.bonus_max is None:
+        if degree_cfg and degree_cfg.get('bonusMax') is not None:
+            application.bonus_max = float(degree_cfg['bonusMax'])
+        elif university:
+            uv = getattr(university, 'bonus_max', None)
+            application.bonus_max = float(uv) if uv is not None else None
+    if application.bonus_min is None:
+        if degree_cfg and degree_cfg.get('bonusMin') is not None:
+            application.bonus_min = float(degree_cfg['bonusMin'])
+        elif university:
+            uv = getattr(university, 'bonus_min', None)
+            application.bonus_min = float(uv) if uv is not None else None
 
     annual = float(application.annual_payment) if application.annual_payment is not None else None
     edu_rate = float(application.education_vat_rate) if application.education_vat_rate is not None else None
@@ -947,7 +974,6 @@ def _compute_application_finance(
     # --- Brüt komisyon ---
     # Kaynak: üniversite derece komisyonu → yoksa üniversite genel komisyonu
     if not preserve_gross_commission:
-        degree_cfg = _university_degree_commission(university, program_degree) if university else None
         if degree_cfg:
             ck, cv = degree_cfg['kind'], degree_cfg['value']
         elif university:
@@ -1063,11 +1089,17 @@ def _compute_application_finance(
 # إضافة مستخدم جديد (خاص بالمسؤول)
 @api_bp.route('/users', methods=['POST'])
 def add_user():
+    manager_err = _require_manager()
+    if manager_err:
+        return manager_err
     data = request.json
     if not data.get('name') or not data.get('email') or not data.get('password'):
         return jsonify({'message': 'يجب تعبئة جميع الحقول'}), 400
     if User.query.filter_by(email=data['email']).first():
         return jsonify({'message': 'الإيميل مستخدم بالفعل'}), 409
+    importance = (data.get('importanceLevel') or 'normal').strip()
+    if importance not in ('normal', 'important', 'very_important'):
+        importance = 'normal'
     user = User(
         id=str(uuid.uuid4()),
         name=data['name'],
@@ -1076,11 +1108,12 @@ def add_user():
         role=data.get('role', 'USER'),
         phone=data.get('phone'),
         country_code=data.get('countryCode'),
-        is_active=True
+        is_active=True,
+        importance_level=importance
     )
     db.session.add(user)
     db.session.flush()
-    if (user.role or '').lower() == 'agent':
+    if _can_see_finance() and (user.role or '').lower() == 'agent':
         raw_commissions = data.get('agentCommissions')
         if _agent_commissions_have_duplicate(raw_commissions):
             db.session.rollback()
@@ -1155,6 +1188,7 @@ def get_users():
         'phone': u.phone,
         'countryCode': getattr(u, 'country_code', None),
         'active': getattr(u, 'is_active', True),
+        'importanceLevel': getattr(u, 'importance_level', None) or 'normal',
         'agentCommissions': commissions_by_user.get(u.id, [])
     } for u in users])
 
@@ -1188,9 +1222,9 @@ def _user_delete_block_message(blockers):
 
 @api_bp.route('/users/<user_id>', methods=['DELETE'])
 def delete_user(user_id):
-    admin_err = _require_admin()
-    if admin_err:
-        return admin_err
+    manager_err = _require_manager()
+    if manager_err:
+        return manager_err
     user = User.query.get(user_id)
     if not user:
         return jsonify({'message': 'Kullanıcı bulunamadı'}), 404
@@ -1218,9 +1252,9 @@ def delete_user(user_id):
 # تحديث مستخدم (تعديل + تفعيل/إلغاء تفعيل)
 @api_bp.route('/users/<user_id>', methods=['PUT'])
 def update_user(user_id):
-    admin_err = _require_admin()
-    if admin_err:
-        return admin_err
+    manager_err = _require_manager()
+    if manager_err:
+        return manager_err
     user = User.query.get(user_id)
     if not user:
         return jsonify({'message': 'Kullanıcı bulunamadı'}), 404
@@ -1244,7 +1278,12 @@ def update_user(user_id):
         user.password = new_password
     if 'active' in data:
         user.is_active = bool(data['active'])
-    if 'agentCommissions' in data or (user.role or '').lower() == 'agent':
+    if 'importanceLevel' in data:
+        importance = (data.get('importanceLevel') or 'normal').strip()
+        if importance not in ('normal', 'important', 'very_important'):
+            importance = 'normal'
+        user.importance_level = importance
+    if _can_see_finance() and 'agentCommissions' in data:
         raw_commissions = data.get('agentCommissions')
         if (user.role or '').lower() == 'agent' and _agent_commissions_have_duplicate(raw_commissions):
             return jsonify({'message': 'Aynı üniversite ve derece için iki satır eklenemez'}), 400

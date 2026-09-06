@@ -5,6 +5,14 @@ export enum UserRole {
   AGENT = 'agent',
 }
 
+export type UserImportanceLevel = 'normal' | 'important' | 'very_important';
+
+export const USER_IMPORTANCE_LEVELS: { value: UserImportanceLevel; label: string }[] = [
+  { value: 'normal', label: 'Normal' },
+  { value: 'important', label: 'Önemli' },
+  { value: 'very_important', label: 'Çok Önemli' },
+];
+
 export interface User {
   id: string;
   name: string;
@@ -14,6 +22,7 @@ export interface User {
   countryCode?: string;
   password?: string;
   active?: boolean;
+  importanceLevel?: UserImportanceLevel;
   agentCommissions?: AgentCommission[];
 }
 
@@ -29,6 +38,8 @@ export type UniversityDegreeCommission = {
   degree: 'Diploma' | 'Bachelor' | 'Master' | 'PhD';
   commissionKind: 'rate' | 'amount';
   commissionValue: number;
+  bonusMin?: number | null;
+  bonusMax?: number | null;
 };
 
 export interface University {

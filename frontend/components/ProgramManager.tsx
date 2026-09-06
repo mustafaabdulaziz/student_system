@@ -1364,11 +1364,9 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
               {t.clearFilters}
             </button>
           )}
-          {canManage && (
-            <SavedQuickFilters
+          <SavedQuickFilters
               pageKey="programs"
               userId={currentUser?.id}
-              isAdmin={canManage}
               className="ml-1"
               getFilters={() => ({
                 searchProgramName,
@@ -1389,7 +1387,6 @@ export const ProgramManager: React.FC<ProgramManagerProps> = ({
                 setFilterFeeMax(typeof f.filterFeeMax === 'string' ? f.filterFeeMax : '');
               }}
             />
-          )}
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <div>

@@ -14,12 +14,12 @@ import {
 } from '../types';
 import {
   COMPANY_EXPENSE_TYPE_LABELS,
+  COMMISSION_SHAPE_LABELS,
   OUTGOING_PAYMENT_REASON_LABELS,
   formatCommissionShapeDisplay,
   formatExpenseTypeDisplay,
   formatOutgoingPaymentDisplay
 } from '../constants/outgoingPayment';
-import { formatIncomingPaymentType } from '../constants/incomingPayment';
 import { CreatedAtRangeFilter } from './CreatedAtRangeFilter';
 import { SearchableMultiSelect } from './SearchableMultiSelect';
 import { useTranslation } from '../hooks/useTranslation';
@@ -35,6 +35,9 @@ interface IncomingPaymentRow {
   paymentAmount: number;
   paymentType: 'Cash' | 'Bank' | 'Scholarship';
   paymentSource: string;
+  paymentSourceId?: string | null;
+  paymentCategory?: string | null;
+  paymentCategoryId?: string | null;
   currency: CurrencyCode;
   periodId?: string | null;
 }
@@ -69,42 +72,11 @@ function uniq(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean))).sort((a, b) => a.localeCompare(b, 'tr'));
 }
 
-function formatPaymentType(value: string): string {
-  return formatIncomingPaymentType(value);
-}
-
 const CHART_COLORS = ['#2563eb', '#16a34a', '#f59e0b', '#dc2626', '#7c3aed', '#0891b2'];
 
-function sumByCurrency<T extends { currency?: string; paymentAmount?: number }>(rows: T[]): Record<string, number> {
-  const map: Record<string, number> = {};
-  rows.forEach((row) => {
-    const currency = row.currency || 'USD';
-    map[currency] = (map[currency] || 0) + (Number(row.paymentAmount) || 0);
-  });
-  return map;
-}
-
-function buildMatrixByGroup<T extends { currency?: string; paymentAmount?: number }>(
+function buildPaymentGroupStats<T extends { paymentAmount?: number }>(
   rows: T[],
-  getGroupLabel: (row: T) => string
-) {
-  const grouped = new Map<string, Record<string, number>>();
-  rows.forEach((row) => {
-    const label = getGroupLabel(row) || '—';
-    const currency = row.currency || 'USD';
-    const current = grouped.get(label) || {};
-    current[currency] = (current[currency] || 0) + (Number(row.paymentAmount) || 0);
-    grouped.set(label, current);
-  });
-
-  return Array.from(grouped.entries())
-    .map(([label, totals]) => ({ label, totals }))
-    .sort((a, b) => a.label.localeCompare(b.label, 'tr'));
-}
-
-function buildPaymentGroupStats(
-  rows: OutgoingPaymentRow[],
-  getKey: (row: OutgoingPaymentRow) => string,
+  getKey: (row: T) => string,
   getLabel: (key: string) => string
 ) {
   const grouped = new Map<string, number>();
@@ -121,7 +93,7 @@ type PaymentGroupStat = { key: string; label: string; total: number };
 type PaymentSortKey = 'label' | 'total';
 type PaymentSortDir = 'asc' | 'desc';
 
-interface OutgoingPaymentSummaryWidgetProps {
+interface PaymentSummaryWidgetProps {
   title: string;
   stats: PaymentGroupStat[];
   chartLimit?: number;
@@ -130,7 +102,7 @@ interface OutgoingPaymentSummaryWidgetProps {
   onTotalClick?: () => void;
 }
 
-const OutgoingPaymentSummaryWidget: React.FC<OutgoingPaymentSummaryWidgetProps> = ({
+const PaymentSummaryWidget: React.FC<PaymentSummaryWidgetProps> = ({
   title,
   stats,
   chartLimit,
@@ -355,14 +327,14 @@ export const PaymentDashboard: React.FC<PaymentDashboardProps> = ({
   const [incomingFilters, setIncomingFilters] = useState({
     currencies: [] as string[],
     paymentSources: [] as string[],
-    paymentTypes: [] as string[]
+    paymentCategories: [] as string[]
   });
 
   const [outgoingFilters, setOutgoingFilters] = useState({
     currencies: [] as string[],
-    paymentTypes: [] as string[],
     paymentReasons: [] as string[],
     expenseTypes: [] as string[],
+    commissionShapes: [] as string[],
     users: [] as string[]
   });
 
@@ -389,19 +361,26 @@ export const PaymentDashboard: React.FC<PaymentDashboardProps> = ({
   const incomingOptions = useMemo(() => {
     const currencies = uniq(incomingRows.map((r) => r.currency || 'USD'));
     const paymentSources = uniq(incomingRows.map((r) => r.paymentSource || '—'));
-    const paymentTypes = uniq(incomingRows.map((r) => r.paymentType || 'Cash'));
+    const categoryMap = new Map<string, string>();
+    incomingRows.forEach((r) => {
+      const id = r.paymentCategoryId || r.paymentCategory || '';
+      if (!id) return;
+      categoryMap.set(id, r.paymentCategory || id);
+    });
     return {
       currencies: currencies.map((v) => ({ value: v, label: v })),
       paymentSources: paymentSources.map((v) => ({ value: v, label: v })),
-      paymentTypes: paymentTypes.map((v) => ({ value: v, label: formatIncomingPaymentType(v) }))
+      paymentCategories: Array.from(categoryMap.entries())
+        .map(([value, label]) => ({ value, label }))
+        .sort((a, b) => a.label.localeCompare(b.label, 'tr'))
     };
   }, [incomingRows]);
 
   const outgoingOptions = useMemo(() => {
     const currencies = uniq(outgoingRows.map((r) => r.currency || 'USD'));
-    const paymentTypes = uniq(outgoingRows.map((r) => r.paymentType || 'Cash'));
     const paymentReasons = uniq(outgoingRows.map((r) => r.paymentReason || ''));
     const expenseTypes = uniq(outgoingRows.map((r) => r.expenseType || ''));
+    const commissionShapes = uniq(outgoingRows.map((r) => r.commissionShape || ''));
     const users = uniq(outgoingRows.map((r) => r.userId || ''));
     const userLabelMap = new Map<string, string>();
     outgoingRows.forEach((r) => {
@@ -409,7 +388,6 @@ export const PaymentDashboard: React.FC<PaymentDashboardProps> = ({
     });
     return {
       currencies: currencies.map((v) => ({ value: v, label: v })),
-      paymentTypes: paymentTypes.map((v) => ({ value: v, label: v === 'Cash' ? 'Nakit' : 'Banka' })),
       paymentReasons: paymentReasons.map((v) => ({
         value: v,
         label: OUTGOING_PAYMENT_REASON_LABELS[v as keyof typeof OUTGOING_PAYMENT_REASON_LABELS] || formatOutgoingPaymentDisplay(v)
@@ -417,6 +395,10 @@ export const PaymentDashboard: React.FC<PaymentDashboardProps> = ({
       expenseTypes: expenseTypes.map((v) => ({
         value: v,
         label: COMPANY_EXPENSE_TYPE_LABELS[v as keyof typeof COMPANY_EXPENSE_TYPE_LABELS] || formatExpenseTypeDisplay(v)
+      })),
+      commissionShapes: commissionShapes.map((v) => ({
+        value: v,
+        label: COMMISSION_SHAPE_LABELS[v as keyof typeof COMMISSION_SHAPE_LABELS] || formatCommissionShapeDisplay(v)
       })),
       users: users.map((v) => ({ value: v, label: userLabelMap.get(v) || v }))
     };
@@ -428,7 +410,10 @@ export const PaymentDashboard: React.FC<PaymentDashboardProps> = ({
       if (periodFilter.length > 0 && !periodFilter.includes(r.periodId || '')) return false;
       if (incomingFilters.currencies.length > 0 && !incomingFilters.currencies.includes(r.currency)) return false;
       if (incomingFilters.paymentSources.length > 0 && !incomingFilters.paymentSources.includes(r.paymentSource || '—')) return false;
-      if (incomingFilters.paymentTypes.length > 0 && !incomingFilters.paymentTypes.includes(r.paymentType)) return false;
+      if (incomingFilters.paymentCategories.length > 0) {
+        const categoryKey = r.paymentCategoryId || r.paymentCategory || '';
+        if (!incomingFilters.paymentCategories.includes(categoryKey)) return false;
+      }
       return true;
     });
   }, [incomingRows, dateFrom, dateTo, incomingFilters, periodFilter]);
@@ -438,19 +423,39 @@ export const PaymentDashboard: React.FC<PaymentDashboardProps> = ({
       if (!matchesCreatedAtRange(r.paymentDate, dateFrom, dateTo)) return false;
       if (periodFilter.length > 0 && !periodFilter.includes(r.periodId || '')) return false;
       if (outgoingFilters.currencies.length > 0 && !outgoingFilters.currencies.includes(r.currency)) return false;
-      if (outgoingFilters.paymentTypes.length > 0 && !outgoingFilters.paymentTypes.includes(r.paymentType)) return false;
       if (outgoingFilters.paymentReasons.length > 0 && !outgoingFilters.paymentReasons.includes(r.paymentReason || '')) return false;
       if (outgoingFilters.expenseTypes.length > 0 && !outgoingFilters.expenseTypes.includes(r.expenseType || '')) return false;
+      if (outgoingFilters.commissionShapes.length > 0 && !outgoingFilters.commissionShapes.includes(r.commissionShape || '')) return false;
       if (outgoingFilters.users.length > 0 && !outgoingFilters.users.includes(r.userId || '')) return false;
       return true;
     });
   }, [outgoingRows, dateFrom, dateTo, outgoingFilters, periodFilter]);
 
-  const incomingTotalsByCurrency = useMemo(() => {
-    return sumByCurrency(filteredIncoming);
-  }, [filteredIncoming]);
+  const incomingSourceStats = useMemo(
+    () =>
+      buildPaymentGroupStats(
+        filteredIncoming,
+        (r) => r.paymentSource || '—',
+        (key) => key
+      ),
+    [filteredIncoming]
+  );
 
-  const incomingCurrencies = useMemo(() => uniq(filteredIncoming.map((r) => r.currency || 'USD')), [filteredIncoming]);
+  const incomingCategoryStats = useMemo(
+    () =>
+      buildPaymentGroupStats(
+        filteredIncoming,
+        (r) => r.paymentCategoryId || r.paymentCategory || '—',
+        (key) => {
+          if (key === '—') return '—';
+          const row = filteredIncoming.find(
+            (r) => (r.paymentCategoryId || r.paymentCategory || '') === key
+          );
+          return row?.paymentCategory || key;
+        }
+      ),
+    [filteredIncoming]
+  );
 
   const companyExpenseRows = useMemo(
     () => filteredOutgoing.filter((r) => r.paymentReason === 'company_expense'),
@@ -462,6 +467,20 @@ export const PaymentDashboard: React.FC<PaymentDashboardProps> = ({
   );
   const debtRows = useMemo(
     () => filteredOutgoing.filter((r) => r.paymentReason === 'debt'),
+    [filteredOutgoing]
+  );
+
+  const paymentReasonStats = useMemo(
+    () =>
+      buildPaymentGroupStats(
+        filteredOutgoing,
+        (r) => r.paymentReason || '—',
+        (key) =>
+          key === '—'
+            ? '—'
+            : OUTGOING_PAYMENT_REASON_LABELS[key as keyof typeof OUTGOING_PAYMENT_REASON_LABELS] ||
+              formatOutgoingPaymentDisplay(key)
+      ),
     [filteredOutgoing]
   );
 
@@ -518,7 +537,10 @@ export const PaymentDashboard: React.FC<PaymentDashboardProps> = ({
     dateTo: dateTo || undefined,
     periodId: periodFilter.length === 1 ? periodFilter[0] : undefined,
     currency: outgoingFilters.currencies.length === 1 ? outgoingFilters.currencies[0] : undefined,
-    paymentType: outgoingFilters.paymentTypes.length === 1 ? outgoingFilters.paymentTypes[0] : undefined,
+    paymentReason: outgoingFilters.paymentReasons.length === 1 ? outgoingFilters.paymentReasons[0] : undefined,
+    expenseType: outgoingFilters.expenseTypes.length === 1 ? outgoingFilters.expenseTypes[0] : undefined,
+    commissionShape: outgoingFilters.commissionShapes.length === 1 ? outgoingFilters.commissionShapes[0] : undefined,
+    userId: outgoingFilters.users.length === 1 ? outgoingFilters.users[0] : undefined,
     ...extra
   });
 
@@ -526,20 +548,6 @@ export const PaymentDashboard: React.FC<PaymentDashboardProps> = ({
     if (!onNavigateToOutgoingPayments) return;
     onNavigateToOutgoingPayments(buildOutgoingDrilldown(extra));
   };
-
-  const incomingChartData = useMemo(
-    () => Object.entries(incomingTotalsByCurrency).map(([currency, total]) => ({ name: currency, value: total })),
-    [incomingTotalsByCurrency]
-  );
-
-  const incomingBySource = useMemo(
-    () => buildMatrixByGroup<IncomingPaymentRow>(filteredIncoming, (r) => r.paymentSource || '—'),
-    [filteredIncoming]
-  );
-  const incomingByType = useMemo(
-    () => buildMatrixByGroup<IncomingPaymentRow>(filteredIncoming, (r) => formatPaymentType(r.paymentType)),
-    [filteredIncoming]
-  );
 
   if (!isAdmin) {
     return (
@@ -564,13 +572,15 @@ export const PaymentDashboard: React.FC<PaymentDashboardProps> = ({
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">Tarih Aralığı (opsiyonel)</h3>
+        <h3 className="text-sm font-semibold text-gray-700 mb-3">Ödeme Tarihi Aralığı (opsiyonel)</h3>
         <CreatedAtRangeFilter
           from={dateFrom}
           to={dateTo}
           onFromChange={setDateFrom}
           onToChange={setDateTo}
           presetPosition="above"
+          fromLabel={t.filterPaymentDateFrom}
+          toLabel={t.filterPaymentDateTo}
         />
       </div>
 
@@ -584,6 +594,7 @@ export const PaymentDashboard: React.FC<PaymentDashboardProps> = ({
         agencyCompanies={agencyCompanies}
         currentUser={currentUser}
         outgoingPayments={outgoingRows}
+        incomingPayments={incomingRows}
         paymentDateFrom={dateFrom}
         paymentDateTo={dateTo}
         periodFilter={periodFilter}
@@ -611,119 +622,26 @@ export const PaymentDashboard: React.FC<PaymentDashboardProps> = ({
             noResultsText={t.searchNoResults}
           />
           <SearchableMultiSelect
-            options={incomingOptions.paymentTypes}
-            selected={incomingFilters.paymentTypes}
-            onChange={(v) => setIncomingFilters((p) => ({ ...p, paymentTypes: v }))}
-            placeholder={`Ödeme Türü (${t.filterAll})`}
+            options={incomingOptions.paymentCategories}
+            selected={incomingFilters.paymentCategories}
+            onChange={(v) => setIncomingFilters((p) => ({ ...p, paymentCategories: v }))}
+            placeholder={`Ödeme Kategorisi (${t.filterAll})`}
             searchPlaceholder={t.search}
             noResultsText={t.searchNoResults}
           />
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-          <div className="rounded-lg border border-gray-200 p-3 min-w-0">
-            <h4 className="text-sm font-semibold text-gray-700 mb-2">Currency Bazlı Grafik</h4>
-            {incomingChartData.length === 0 ? (
-              <p className="text-sm text-gray-500">Kayıt yok</p>
-            ) : (
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Tooltip />
-                    <Pie data={incomingChartData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90} label>
-                      {incomingChartData.map((_, idx) => (
-                        <Cell key={`incoming-cell-${idx}`} fill={CHART_COLORS[idx % CHART_COLORS.length]} />
-                      ))}
-                    </Pie>
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-          </div>
-
-          <div className="rounded-lg border border-gray-200 overflow-x-auto min-w-0">
-            <h4 className="text-sm font-semibold text-gray-700 p-3">Ödeme Kaynağı x Currency</h4>
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-3 py-2 text-left">Ödeme Kaynağı</th>
-                  {incomingCurrencies.map((currency) => (
-                    <th key={currency} className="px-3 py-2 text-right">{currency}</th>
-                  ))}
-                  <th className="px-3 py-2 text-right">Toplam</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr className="border-t border-gray-100 bg-blue-50/40 font-semibold">
-                  <td className="px-3 py-2">Toplam</td>
-                  {incomingCurrencies.map((currency) => (
-                    <td key={currency} className="px-3 py-2 text-right">{(incomingTotalsByCurrency[currency] || 0).toFixed(2)}</td>
-                  ))}
-                  <td className="px-3 py-2 text-right">
-                    {incomingCurrencies.reduce((s, c) => s + (incomingTotalsByCurrency[c] || 0), 0).toFixed(2)}
-                  </td>
-                </tr>
-                {incomingBySource.map((row) => (
-                  <tr key={row.label} className="border-t border-gray-100">
-                    <td className="px-3 py-2">{row.label}</td>
-                    {incomingCurrencies.map((currency) => (
-                      <td key={currency} className="px-3 py-2 text-right">{(row.totals[currency] || 0).toFixed(2)}</td>
-                    ))}
-                    <td className="px-3 py-2 text-right">
-                      {incomingCurrencies.reduce((s, c) => s + (row.totals[c] || 0), 0).toFixed(2)}
-                    </td>
-                  </tr>
-                ))}
-                {incomingBySource.length === 0 && (
-                  <tr className="border-t border-gray-100">
-                    <td colSpan={incomingCurrencies.length + 2} className="px-3 py-4 text-center text-gray-500">Kayıt yok</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="rounded-lg border border-gray-200 overflow-x-auto min-w-0">
-            <h4 className="text-sm font-semibold text-gray-700 p-3">Ödeme Türü x Currency</h4>
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-3 py-2 text-left">Ödeme Türü</th>
-                  {incomingCurrencies.map((currency) => (
-                    <th key={currency} className="px-3 py-2 text-right">{currency}</th>
-                  ))}
-                  <th className="px-3 py-2 text-right">Toplam</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr className="border-t border-gray-100 bg-blue-50/40 font-semibold">
-                  <td className="px-3 py-2">Toplam</td>
-                  {incomingCurrencies.map((currency) => (
-                    <td key={currency} className="px-3 py-2 text-right">{(incomingTotalsByCurrency[currency] || 0).toFixed(2)}</td>
-                  ))}
-                  <td className="px-3 py-2 text-right">
-                    {incomingCurrencies.reduce((s, c) => s + (incomingTotalsByCurrency[c] || 0), 0).toFixed(2)}
-                  </td>
-                </tr>
-                {incomingByType.map((row) => (
-                  <tr key={row.label} className="border-t border-gray-100">
-                    <td className="px-3 py-2">{row.label}</td>
-                    {incomingCurrencies.map((currency) => (
-                      <td key={currency} className="px-3 py-2 text-right">{(row.totals[currency] || 0).toFixed(2)}</td>
-                    ))}
-                    <td className="px-3 py-2 text-right">
-                      {incomingCurrencies.reduce((s, c) => s + (row.totals[c] || 0), 0).toFixed(2)}
-                    </td>
-                  </tr>
-                ))}
-                {incomingByType.length === 0 && (
-                  <tr className="border-t border-gray-100">
-                    <td colSpan={incomingCurrencies.length + 2} className="px-3 py-4 text-center text-gray-500">Kayıt yok</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+          <PaymentSummaryWidget
+            title="Ödeme Kaynağı"
+            stats={incomingSourceStats}
+            chartType="pie"
+          />
+          <PaymentSummaryWidget
+            title="Ödeme Kategorisi"
+            stats={incomingCategoryStats}
+            chartType="pie"
+          />
         </div>
       </div>
 
@@ -735,14 +653,6 @@ export const PaymentDashboard: React.FC<PaymentDashboardProps> = ({
             selected={outgoingFilters.currencies}
             onChange={(v) => setOutgoingFilters((p) => ({ ...p, currencies: v }))}
             placeholder={`Currency (${t.filterAll})`}
-            searchPlaceholder={t.search}
-            noResultsText={t.searchNoResults}
-          />
-          <SearchableMultiSelect
-            options={outgoingOptions.paymentTypes}
-            selected={outgoingFilters.paymentTypes}
-            onChange={(v) => setOutgoingFilters((p) => ({ ...p, paymentTypes: v }))}
-            placeholder={`Ödeme Türü (${t.filterAll})`}
             searchPlaceholder={t.search}
             noResultsText={t.searchNoResults}
           />
@@ -763,6 +673,14 @@ export const PaymentDashboard: React.FC<PaymentDashboardProps> = ({
             noResultsText={t.searchNoResults}
           />
           <SearchableMultiSelect
+            options={outgoingOptions.commissionShapes}
+            selected={outgoingFilters.commissionShapes}
+            onChange={(v) => setOutgoingFilters((p) => ({ ...p, commissionShapes: v }))}
+            placeholder={`Komisyon Şekli (${t.filterAll})`}
+            searchPlaceholder={t.search}
+            noResultsText={t.searchNoResults}
+          />
+          <SearchableMultiSelect
             options={outgoingOptions.users}
             selected={outgoingFilters.users}
             onChange={(v) => setOutgoingFilters((p) => ({ ...p, users: v }))}
@@ -773,21 +691,28 @@ export const PaymentDashboard: React.FC<PaymentDashboardProps> = ({
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-          <OutgoingPaymentSummaryWidget
+          <PaymentSummaryWidget
+            title="Ödeme Sebebi"
+            stats={paymentReasonStats}
+            chartType="pie"
+            onItemClick={(key) => navigateOutgoing({ paymentReason: key })}
+            onTotalClick={() => navigateOutgoing({})}
+          />
+          <PaymentSummaryWidget
             title="Firma Masrafı — Masraf Tipi"
             stats={expenseTypeStats}
             chartType="pie"
             onItemClick={(key) => navigateOutgoing({ paymentReason: 'company_expense', expenseType: key })}
             onTotalClick={() => navigateOutgoing({ paymentReason: 'company_expense' })}
           />
-          <OutgoingPaymentSummaryWidget
+          <PaymentSummaryWidget
             title="Komisyon — Komisyon Şekli"
             stats={commissionShapeStats}
             chartType="pie"
             onItemClick={(key) => navigateOutgoing({ paymentReason: 'commission', commissionShape: key })}
             onTotalClick={() => navigateOutgoing({ paymentReason: 'commission' })}
           />
-          <OutgoingPaymentSummaryWidget
+          <PaymentSummaryWidget
             title="Komisyon — Kullanıcı"
             stats={commissionUserStats}
             chartType="bar"
@@ -795,7 +720,7 @@ export const PaymentDashboard: React.FC<PaymentDashboardProps> = ({
             onItemClick={(key) => navigateOutgoing({ paymentReason: 'commission', userId: key })}
             onTotalClick={() => navigateOutgoing({ paymentReason: 'commission' })}
           />
-          <OutgoingPaymentSummaryWidget
+          <PaymentSummaryWidget
             title="Borç — Kullanıcı"
             stats={debtUserStats}
             chartType="bar"

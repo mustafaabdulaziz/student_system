@@ -19,8 +19,8 @@ import {
   Settings,
   Tags
 } from 'lucide-react';
-import { User, UserRole } from '../types';
-import { canManageCatalog } from '../utils/roles';
+import { User } from '../types';
+import { canManageCatalog, canAccessLimitedSettings, isAdminRole } from '../utils/roles';
 import { NotificationDropdown } from './NotificationDropdown';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -70,17 +70,19 @@ export const Layout: React.FC<LayoutProps> = ({
   ];
 
   const settingsSubItems =
-    currentUser?.role === UserRole.ADMIN
+    canAccessLimitedSettings(currentUser?.role)
       ? [
           { id: 'users', label: t.usersTitle, icon: UserCog },
           { id: 'periods', label: t.period, icon: CalendarRange },
           { id: 'agency-companies', label: 'Aracı Firma Listesi', icon: Building2 },
-          { id: 'payment-sources', label: 'Ödeme Kaynağı Listesi', icon: Building2 }
+          ...(isAdminRole(currentUser?.role)
+            ? [{ id: 'payment-sources', label: 'Ödeme Kaynağı Listesi', icon: Building2 }]
+            : [])
         ]
       : [];
 
   const paymentsSubItems =
-    currentUser?.role === UserRole.ADMIN
+    isAdminRole(currentUser?.role)
       ? [
           { id: 'incoming-payments', label: 'Gelen Ödemeler', icon: HandCoins },
           { id: 'outgoing-payments', label: 'Giden Ödemeler', icon: HandCoins },
@@ -97,7 +99,7 @@ export const Layout: React.FC<LayoutProps> = ({
   const isPaymentsPage = activePage === 'incoming-payments' || activePage === 'outgoing-payments' || activePage === 'payment-dashboard' || activePage === 'payment-categories';
 
   useEffect(() => {
-    if (currentUser?.role !== UserRole.ADMIN) {
+    if (!canAccessLimitedSettings(currentUser?.role)) {
       setSettingsOpen(false);
       return;
     }
@@ -107,7 +109,7 @@ export const Layout: React.FC<LayoutProps> = ({
   }, [activePage, currentUser?.role, isSettingsPage]);
 
   useEffect(() => {
-    if (currentUser?.role !== UserRole.ADMIN) {
+    if (!isAdminRole(currentUser?.role)) {
       setPaymentsOpen(false);
       return;
     }

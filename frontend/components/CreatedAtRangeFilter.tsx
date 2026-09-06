@@ -11,6 +11,10 @@ interface CreatedAtRangeFilterProps {
   presetPosition?: 'above' | 'below';
   /** Optional filter rendered before the date inputs (e.g. agent) */
   leadingFilter?: React.ReactNode;
+  /** Override start date label (defaults to creation date) */
+  fromLabel?: string;
+  /** Override end date label (defaults to creation date) */
+  toLabel?: string;
 }
 
 export const CreatedAtRangeFilter: React.FC<CreatedAtRangeFilterProps> = ({
@@ -19,9 +23,13 @@ export const CreatedAtRangeFilter: React.FC<CreatedAtRangeFilterProps> = ({
   onFromChange,
   onToChange,
   presetPosition = 'below',
-  leadingFilter
+  leadingFilter,
+  fromLabel,
+  toLabel
 }) => {
   const { t } = useTranslation();
+  const startLabel = fromLabel ?? t.filterCreatedFrom;
+  const endLabel = toLabel ?? t.filterCreatedTo;
 
   const applyPreset = (presetId: string) => {
     const range = getDatePreset(presetId);
@@ -47,7 +55,7 @@ export const CreatedAtRangeFilter: React.FC<CreatedAtRangeFilterProps> = ({
   const dateInputs = (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
       <div>
-        <label className="block text-xs text-gray-500 mb-1">{t.filterCreatedFrom}</label>
+        <label className="block text-xs text-gray-500 mb-1">{startLabel}</label>
         <input
           type="date"
           value={from}
@@ -56,7 +64,7 @@ export const CreatedAtRangeFilter: React.FC<CreatedAtRangeFilterProps> = ({
         />
       </div>
       <div>
-        <label className="block text-xs text-gray-500 mb-1">{t.filterCreatedTo}</label>
+        <label className="block text-xs text-gray-500 mb-1">{endLabel}</label>
         <input
           type="date"
           value={to}
