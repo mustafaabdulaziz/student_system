@@ -3283,7 +3283,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                 )}
               </div>
               <div className="flex items-center gap-2 flex-wrap">
-                {isAdmin && listViewMode === 'tree' && (
+                {canManageRecords && listViewMode === 'tree' && (
                   <button
                     type="button"
                     onClick={exportSelectedApplicationsToExcel}
