@@ -243,6 +243,7 @@ class OutgoingPayment(db.Model):
     payment_reason = db.Column(db.String, nullable=False)  # commission / debt / company_expense
     expense_type = db.Column(db.String, nullable=True)  # when company_expense: salaries, advertising, ...
     commission_shape = db.Column(db.String, nullable=True)  # when commission: agency / employee / student_referral
+    commission_type = db.Column(db.String, nullable=True)  # when commission: cash_commission / scholarship_commission
     description_1 = db.Column(db.String, nullable=True)
     period_id = db.Column(db.String, db.ForeignKey('periods.id'), nullable=True)
     period = db.relationship('Period', foreign_keys=[period_id])

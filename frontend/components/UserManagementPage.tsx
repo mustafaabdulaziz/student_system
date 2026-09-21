@@ -177,6 +177,7 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
         ? user.agentCommissions
         : []
       ).map((r) => ({
+        id: r.id,
         universityId: r.universityId,
         degree: r.degree || '',
         commissionKind: r.commissionKind,

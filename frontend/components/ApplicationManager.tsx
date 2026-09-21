@@ -4,7 +4,7 @@ import {
   Plus, Filter, FileText,
   MessageSquare, User as UserIcon, GraduationCap,
   Send, Upload, Paperclip, ChevronLeft, MapPin, Trash2, Mail, Phone, FileEdit,
-  List, LayoutGrid, Search, X, ChevronDown, ChevronUp, ChevronRight, DollarSign, Download, Pin
+  List, LayoutGrid, Search, X, ChevronDown, ChevronUp, ChevronRight, DollarSign, Download, Pin, RefreshCw
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useTranslation } from '../hooks/useTranslation';
@@ -205,6 +205,7 @@ interface ApplicationManagerProps {
     paymentDeserved?: boolean;
     internalDescription?: string | null;
   }, opts?: { silent?: boolean }) => void | Promise<boolean | void>;
+  onRefreshCommissions?: (ids: string[]) => void | Promise<boolean | void>;
   onDeleteApplication?: (id: string) => void | Promise<void>;
   onSyncApplicationTimestamps?: (payload: {
     applicationId: string;
@@ -228,7 +229,7 @@ interface ApplicationManagerProps {
 }
 
 export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
-  applications, students, programs, universities, periods = [], agencyCompanies = [], users = [], onAddApplication, onUpdateStatus, onUpdateApplication, onDeleteApplication,
+  applications, students, programs, universities, periods = [], agencyCompanies = [], users = [], onAddApplication, onUpdateStatus, onUpdateApplication, onRefreshCommissions, onDeleteApplication,
   onSyncApplicationTimestamps, onStudentFilesChange,
   initialStudentId, clearInitialStudent, targetApplicationId, clearTargetApplication,
   initialListFilters, clearInitialListFilters,
@@ -351,6 +352,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const [detailEditMode, setDetailEditMode] = useState(false);
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [refreshingCommissions, setRefreshingCommissions] = useState(false);
   const [massEditOpen, setMassEditOpen] = useState(false);
   const [massEditApplying, setMassEditApplying] = useState(false);
   const [selectedApplicationIds, setSelectedApplicationIds] = useState<Set<string>>(() => new Set());
@@ -1057,6 +1059,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const showBulkDelete = !!(canManageRecords && onDeleteApplication && listViewMode === 'tree' && view === 'list');
   const showMassEdit = !!(isAdminOrUser && onUpdateApplication && listViewMode === 'tree' && view === 'list');
   const showBulkSelect = showBulkDelete || showMassEdit;
+  const showRefreshCommissions = !!(isAdmin && onRefreshCommissions && listViewMode === 'tree' && view === 'list');
 
   useEffect(() => {
     const el = selectAllCheckboxRef.current;
@@ -1115,6 +1118,20 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
       }
     } finally {
       setBulkDeleting(false);
+    }
+  };
+
+  const handleRefreshCommissions = async () => {
+    if (!onRefreshCommissions || selectedApplicationIds.size === 0) return;
+    const ok = window.confirm(
+      `Seçili ${selectedApplicationIds.size} başvurunun komisyon alanları üniversite ve acente tanımlarından yeniden hesaplanacak. Devam edilsin mi?`
+    );
+    if (!ok) return;
+    setRefreshingCommissions(true);
+    try {
+      await onRefreshCommissions(Array.from(selectedApplicationIds));
+    } finally {
+      setRefreshingCommissions(false);
     }
   };
 
@@ -3594,6 +3611,20 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                     <span>{t.deleteSelected}</span>
                     {selectedApplicationIds.size > 0 && (
                       <span className="text-xs font-bold bg-red-100 text-red-700 px-2 py-0.5 rounded-full">{selectedApplicationIds.size}</span>
+                    )}
+                  </button>
+                )}
+                {showRefreshCommissions && (
+                  <button
+                    type="button"
+                    onClick={handleRefreshCommissions}
+                    disabled={selectedApplicationIds.size === 0 || refreshingCommissions}
+                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-amber-700 hover:bg-amber-50 border border-transparent hover:border-amber-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed font-medium text-sm"
+                  >
+                    <RefreshCw size={16} className={refreshingCommissions ? 'animate-spin' : ''} />
+                    <span>Komisyonları güncelle</span>
+                    {selectedApplicationIds.size > 0 && (
+                      <span className="text-xs font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">{selectedApplicationIds.size}</span>
                     )}
                   </button>
                 )}

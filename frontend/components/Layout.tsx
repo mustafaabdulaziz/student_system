@@ -17,7 +17,8 @@ import {
   HandCoins,
   Building2,
   Settings,
-  Tags
+  Tags,
+  Percent
 } from 'lucide-react';
 import { User } from '../types';
 import { canManageCatalog, canAccessLimitedSettings, isAdminRole } from '../utils/roles';
@@ -73,6 +74,9 @@ export const Layout: React.FC<LayoutProps> = ({
     canAccessLimitedSettings(currentUser?.role)
       ? [
           { id: 'users', label: t.usersTitle, icon: UserCog },
+          ...(isAdminRole(currentUser?.role)
+            ? [{ id: 'agent-commissions', label: 'Acente Komisyonları', icon: Percent }]
+            : []),
           { id: 'periods', label: t.period, icon: CalendarRange },
           { id: 'agency-companies', label: 'Aracı Firma Listesi', icon: Building2 },
           ...(isAdminRole(currentUser?.role)
@@ -93,6 +97,7 @@ export const Layout: React.FC<LayoutProps> = ({
 
   const isSettingsPage =
     activePage === 'users' ||
+    activePage === 'agent-commissions' ||
     activePage === 'periods' ||
     activePage === 'agency-companies' ||
     activePage === 'payment-sources';

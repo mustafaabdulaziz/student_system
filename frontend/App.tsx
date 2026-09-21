@@ -23,13 +23,17 @@ import {
   UserRole,
   ApplicationStatus,
   ApplicationListFilters,
-  OutgoingPaymentListFilters
+  OutgoingPaymentListFilters,
+  IncomingPaymentListFilters,
+  AgentCommission,
+  AgentCommissionListRow
 } from './types';
 import { PeriodManager } from './components/PeriodManager';
 import { PaymentsManager } from './components/PaymentsManager';
 import { PaymentDashboard } from './components/PaymentDashboard';
 import { ActivityDashboard } from './components/ActivityDashboard';
 import { AgencyCompanyManager } from './components/AgencyCompanyManager';
+import { AgentCommissionsPage } from './components/AgentCommissionsPage';
 import { PaymentSourceManager } from './components/PaymentSourceManager';
 import { PaymentCategoryManager } from './components/PaymentCategoryManager';
 import { NotificationsPage } from './components/NotificationsPage';
@@ -60,6 +64,7 @@ const PATH_TO_PAGE: Record<string, string> = {
   '/applications': 'applications',
   '/periods': 'periods',
   '/users': 'users',
+  '/agent-commissions': 'agent-commissions',
   '/incoming-payments': 'incoming-payments',
   '/outgoing-payments': 'outgoing-payments',
   '/payment-dashboard': 'payment-dashboard',
@@ -80,6 +85,7 @@ const PAGE_TO_PATH: Record<string, string> = {
   applications: '/applications',
   periods: '/periods',
   users: '/users',
+  'agent-commissions': '/agent-commissions',
   'incoming-payments': '/incoming-payments',
   'outgoing-payments': '/outgoing-payments',
   'payment-dashboard': '/payment-dashboard',
@@ -110,6 +116,7 @@ export default function App() {
   const [targetStudentId, setTargetStudentId] = useState<string | null>(null);
   const [applicationListFilters, setApplicationListFilters] = useState<ApplicationListFilters | null>(null);
   const [outgoingPaymentListFilters, setOutgoingPaymentListFilters] = useState<OutgoingPaymentListFilters | null>(null);
+  const [incomingPaymentListFilters, setIncomingPaymentListFilters] = useState<IncomingPaymentListFilters | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
 
   const navigateTo = (page: string) => {
@@ -186,7 +193,8 @@ export default function App() {
         activePage === 'outgoing-payments' ||
         activePage === 'payment-dashboard' ||
         activePage === 'payment-sources' ||
-        activePage === 'payment-categories'
+        activePage === 'payment-categories' ||
+        activePage === 'agent-commissions'
       ));
     if (state.currentUser && shouldBlockPage) {
       setActivePage('dashboard');
@@ -239,6 +247,11 @@ export default function App() {
   const openOutgoingPaymentsWithFilters = (filters: OutgoingPaymentListFilters) => {
     setOutgoingPaymentListFilters(filters);
     navigateTo('outgoing-payments');
+  };
+
+  const openIncomingPaymentsWithFilters = (filters: IncomingPaymentListFilters) => {
+    setIncomingPaymentListFilters(filters);
+    navigateTo('incoming-payments');
   };
 
   // State Updates
@@ -774,6 +787,58 @@ export default function App() {
     }
   };
 
+  const refreshApplicationCommissions = async (ids: string[]): Promise<boolean> => {
+    try {
+      const role = state.currentUser?.role || 'ADMIN';
+      const res = await fetch(`/api/applications/refresh-commissions?role=${encodeURIComponent(role)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.message || t.errorUpdate);
+        return false;
+      }
+      const updatedList: any[] = Array.isArray(data.applications) ? data.applications : [];
+      const byId = new Map(updatedList.map((row) => [row.id, row]));
+      setState(prev => ({
+        ...prev,
+        applications: prev.applications.map(app => {
+          const updated = byId.get(app.id);
+          if (!updated) return app;
+          return {
+            ...app,
+            educationVatRate: updated.educationVatRate ?? undefined,
+            educationVat: updated.educationVat ?? undefined,
+            grossCommissionKind: updated.grossCommissionKind || 'amount',
+            grossCommissionRate: updated.grossCommissionRate ?? undefined,
+            grossCommission: updated.grossCommission ?? undefined,
+            abroadVatRate: updated.abroadVatRate ?? undefined,
+            abroadVat: updated.abroadVat ?? undefined,
+            netCommission: updated.netCommission ?? undefined,
+            agencyCommissionKind: updated.agencyCommissionKind || 'amount',
+            agencyCommissionRate: updated.agencyCommissionRate ?? undefined,
+            agencyCommission: updated.agencyCommission ?? undefined,
+            agencyContractAmount: updated.agencyContractAmount ?? undefined,
+            remainingMin: updated.remainingMin ?? undefined,
+            remainingMax: updated.remainingMax ?? undefined,
+            ...(updated.updatedAt ? { updatedAt: updated.updatedAt } : {})
+          };
+        }),
+        students: prev.students.map(s => {
+          const related = updatedList.find((row) => row.studentId === s.id && row.studentUpdatedAt);
+          return related?.studentUpdatedAt ? { ...s, updatedAt: related.studentUpdatedAt } : s;
+        })
+      }));
+      alert(data.message || `${updatedList.length} başvuru güncellendi`);
+      return true;
+    } catch {
+      alert(t.errorConnection);
+      return false;
+    }
+  };
+
   const addAgencyCompany = async (name: string) => {
     try {
       const res = await fetch('/api/agency-companies', {
@@ -1151,6 +1216,124 @@ export default function App() {
     }
   };
 
+  const syncUserCommissionState = (
+    userId: string,
+    updater: (commissions: AgentCommission[]) => AgentCommission[]
+  ) => {
+    setState(prev => ({
+      ...prev,
+      users: prev.users.map(u =>
+        u.id === userId ? { ...u, agentCommissions: updater(u.agentCommissions || []) } : u
+      )
+    }));
+  };
+
+  const addAgentCommission = async (payload: {
+    userId: string;
+    universityId: string;
+    degree?: string;
+    commissionKind: 'rate' | 'amount';
+    commissionValue: number;
+    depositSupport?: number | null;
+  }) => {
+    try {
+      const role = state.currentUser?.role || 'ADMIN';
+      const res = await fetch(`/api/agent-commissions?role=${encodeURIComponent(role)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.message || t.errorAddUser);
+        return false;
+      }
+      const next: AgentCommission = {
+        id: data.id,
+        universityId: data.universityId,
+        degree: data.degree || '',
+        commissionKind: data.commissionKind,
+        commissionValue: data.commissionValue,
+        depositSupport: data.depositSupport ?? null
+      };
+      syncUserCommissionState(payload.userId, prev => [...prev, next]);
+      return true;
+    } catch {
+      alert(t.errorConnection);
+      return false;
+    }
+  };
+
+  const editAgentCommission = async (
+    id: string,
+    payload: {
+      userId: string;
+      universityId: string;
+      degree?: string;
+      commissionKind: 'rate' | 'amount';
+      commissionValue: number;
+      depositSupport?: number | null;
+    }
+  ) => {
+    try {
+      const role = state.currentUser?.role || 'ADMIN';
+      const existing = state.users
+        .flatMap(u => (u.agentCommissions || []).map(c => ({ ...c, userId: u.id })))
+        .find(c => c.id === id);
+      const previousUserId = existing?.userId;
+      const res = await fetch(`/api/agent-commissions/${id}?role=${encodeURIComponent(role)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.message || t.errorUpdate);
+        return false;
+      }
+      const next: AgentCommission = {
+        id: data.id || id,
+        universityId: data.universityId,
+        degree: data.degree || '',
+        commissionKind: data.commissionKind,
+        commissionValue: data.commissionValue,
+        depositSupport: data.depositSupport ?? null
+      };
+      if (previousUserId && previousUserId !== payload.userId) {
+        syncUserCommissionState(previousUserId, prev => prev.filter(c => c.id !== id));
+        syncUserCommissionState(payload.userId, prev => [...prev, next]);
+      } else {
+        syncUserCommissionState(payload.userId, prev => prev.map(c => (c.id === id ? next : c)));
+      }
+      return true;
+    } catch {
+      alert(t.errorConnection);
+      return false;
+    }
+  };
+
+  const deleteAgentCommission = async (id: string) => {
+    try {
+      const role = state.currentUser?.role || 'ADMIN';
+      const owner = state.users.find(u => (u.agentCommissions || []).some(c => c.id === id));
+      const res = await fetch(`/api/agent-commissions/${id}?role=${encodeURIComponent(role)}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || t.errorDelete);
+        return false;
+      }
+      if (owner) {
+        syncUserCommissionState(owner.id, prev => prev.filter(c => c.id !== id));
+      }
+      return true;
+    } catch {
+      alert(t.errorConnection);
+      return false;
+    }
+  };
+
   React.useEffect(() => {
     if (!state.currentUser) return;
     const fetchAll = async () => {
@@ -1261,7 +1444,7 @@ export default function App() {
       case 'students':
         return <StudentManager students={state.students} applications={state.applications} programs={state.programs} universities={state.universities} periods={state.periods} users={state.users} agencyCompanies={state.agencyCompanies} onAddStudent={addStudent} onEditStudent={updateStudent} onDeleteStudent={deleteStudent} onUploadStudentFiles={uploadStudentFiles} onUploadApplicationFiles={uploadApplicationFiles} onStudentFilesChange={syncStudentFiles} onCreateApplicationForStudent={openCreateApplicationForStudent} onAddApplicationForStudent={(app) => addApplication(app)} onUpdateApplicationStatus={updateAppStatus} onUpdateApplication={updateApplication} onDeleteApplication={deleteApplication} onSyncApplicationTimestamps={onSyncApplicationTimestamps} onViewApplication={openApplicationDetails} currentUser={state.currentUser} targetStudentId={targetStudentId} clearTargetStudent={() => setTargetStudentId(null)} />;
       case 'applications':
-        return <ApplicationManager applications={state.applications} students={state.students} programs={state.programs} universities={state.universities} periods={state.periods} agencyCompanies={state.agencyCompanies} users={state.users} onAddApplication={addApplication} onUpdateStatus={updateAppStatus} onUpdateApplication={updateApplication} onDeleteApplication={deleteApplication} onSyncApplicationTimestamps={onSyncApplicationTimestamps} onStudentFilesChange={syncStudentFiles} initialStudentId={prefillStudentIdForApp} clearInitialStudent={() => setPrefillStudentIdForApp(null)} targetApplicationId={targetApplicationId} clearTargetApplication={() => setTargetApplicationId(null)} initialListFilters={applicationListFilters} clearInitialListFilters={() => setApplicationListFilters(null)} onOpenStudent={openStudentDetails} currentUser={state.currentUser} />;
+        return <ApplicationManager applications={state.applications} students={state.students} programs={state.programs} universities={state.universities} periods={state.periods} agencyCompanies={state.agencyCompanies} users={state.users} onAddApplication={addApplication} onUpdateStatus={updateAppStatus} onUpdateApplication={updateApplication} onRefreshCommissions={refreshApplicationCommissions} onDeleteApplication={deleteApplication} onSyncApplicationTimestamps={onSyncApplicationTimestamps} onStudentFilesChange={syncStudentFiles} initialStudentId={prefillStudentIdForApp} clearInitialStudent={() => setPrefillStudentIdForApp(null)} targetApplicationId={targetApplicationId} clearTargetApplication={() => setTargetApplicationId(null)} initialListFilters={applicationListFilters} clearInitialListFilters={() => setApplicationListFilters(null)} onOpenStudent={openStudentDetails} currentUser={state.currentUser} />;
       case 'news':
         return (
           <Suspense fallback={<div className="p-6 text-gray-500">{state.currentUser ? t.loading : ''}</div>}>
@@ -1377,6 +1560,48 @@ export default function App() {
             onSetUserActive={setUserActive}
           />
         );
+      case 'agent-commissions': {
+        if (!isAdminRole(state.currentUser?.role)) {
+          return (
+            <Dashboard
+              students={state.students}
+              applications={state.applications}
+              programs={state.programs}
+              universities={state.universities}
+              users={state.users}
+              agencyCompanies={state.agencyCompanies}
+              currentUser={state.currentUser}
+              onDrilldownToApplications={openApplicationsWithFilters}
+            />
+          );
+        }
+        const uniById = new Map(state.universities.map(u => [u.id, u.name]));
+        const commissionRows: AgentCommissionListRow[] = state.users.flatMap(user =>
+          (user.agentCommissions || [])
+            .filter(c => c.id)
+            .map(c => ({
+              id: c.id as string,
+              userId: user.id,
+              userName: user.name,
+              universityId: c.universityId,
+              universityName: uniById.get(c.universityId) || '',
+              degree: c.degree || '',
+              commissionKind: c.commissionKind,
+              commissionValue: c.commissionValue,
+              depositSupport: c.depositSupport ?? null
+            }))
+        );
+        return (
+          <AgentCommissionsPage
+            rows={commissionRows}
+            users={state.users}
+            universities={state.universities}
+            onAdd={addAgentCommission}
+            onEdit={editAgentCommission}
+            onDelete={deleteAgentCommission}
+          />
+        );
+      }
       case 'incoming-payments':
         if (state.currentUser?.role !== UserRole.ADMIN) {
           return (
@@ -1399,6 +1624,8 @@ export default function App() {
             paymentSources={state.paymentSources}
             paymentCategories={state.paymentCategories}
             periods={state.periods}
+            initialListFilters={incomingPaymentListFilters}
+            clearInitialListFilters={() => setIncomingPaymentListFilters(null)}
           />
         );
       case 'payment-dashboard':
@@ -1427,6 +1654,7 @@ export default function App() {
             students={state.students}
             agencyCompanies={state.agencyCompanies}
             onNavigateToOutgoingPayments={openOutgoingPaymentsWithFilters}
+            onNavigateToIncomingPayments={openIncomingPaymentsWithFilters}
           />
         );
       case 'outgoing-payments':

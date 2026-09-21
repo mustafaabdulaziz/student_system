@@ -71,3 +71,18 @@ export function formatCommissionShapeDisplay(value: string | null | undefined): 
   const label = COMMISSION_SHAPE_LABELS[value as CommissionShapeCode];
   return label ?? value;
 }
+
+/** Komisyon Tipi (Nakit / Burs) — distinct from Komisyon Şekli */
+export const COMMISSION_TYPES = ['cash_commission', 'scholarship_commission'] as const;
+export type CommissionTypeCode = (typeof COMMISSION_TYPES)[number];
+
+export const COMMISSION_TYPE_LABELS: Record<CommissionTypeCode, string> = {
+  cash_commission: 'Nakit Komisyon',
+  scholarship_commission: 'Burs komisyon',
+};
+
+export function formatCommissionTypeDisplay(value: string | null | undefined): string {
+  if (!value) return '—';
+  const label = COMMISSION_TYPE_LABELS[value as CommissionTypeCode];
+  return label ?? value;
+}

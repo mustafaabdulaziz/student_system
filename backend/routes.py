@@ -27,6 +27,9 @@ NEW_COMPANY_EXPENSE_TYPES = frozenset({
 COMMISSION_SHAPES = frozenset({
     'agency_commission', 'employee_commission', 'student_referral_commission',
 })
+COMMISSION_TYPES = frozenset({
+    'cash_commission', 'scholarship_commission',
+})
 STUDENT_FILE_TYPES = frozenset({'acceptance_letter', 'offer_letter', 'receipt', 'other'})
 INCOMING_PAYMENT_TYPES = frozenset({'Cash', 'Bank', 'Scholarship'})
 
@@ -862,6 +865,7 @@ def _normalize_agent_commissions(rows):
             except (TypeError, ValueError):
                 continue
         out.append({
+            'id': (row.get('id') or '').strip() or None,
             'universityId': university_id,
             'degree': degree,
             'commissionKind': commission_kind,
@@ -891,7 +895,7 @@ def _replace_user_agent_commissions(user_id, rows):
     UserUniversityCommission.query.filter_by(user_id=user_id).delete()
     for row in rows:
         db.session.add(UserUniversityCommission(
-            id=str(uuid.uuid4()),
+            id=(row.get('id') or str(uuid.uuid4())),
             user_id=user_id,
             university_id=row['universityId'],
             degree=row.get('degree'),
@@ -933,7 +937,8 @@ def _compute_application_finance(
     prefer_user_agency_commission=False,
     prefer_user_deposit_support=False,
     preserve_gross_commission=False,
-    preserve_agency_commission=False
+    preserve_agency_commission=False,
+    force_refresh_from_sources=False
 ):
     program = Program.query.get(application.program_id) if application.program_id else None
     university = University.query.get(program.university_id) if program and program.university_id else None
@@ -945,12 +950,20 @@ def _compute_application_finance(
         application.annual_payment = getattr(program, 'fee', None)
     if (not application.currency) and program:
         application.currency = getattr(program, 'currency', None) or 'USD'
-    if application.education_vat_rate is None and university:
+    if force_refresh_from_sources and university:
         uv = getattr(university, 'education_vat_rate', None)
-        application.education_vat_rate = float(uv) if uv is not None else None
-    if application.abroad_vat_rate is None and university:
+        if uv is not None:
+            application.education_vat_rate = float(uv)
         uv = getattr(university, 'abroad_vat_rate', None)
-        application.abroad_vat_rate = float(uv) if uv is not None else None
+        if uv is not None:
+            application.abroad_vat_rate = float(uv)
+    else:
+        if application.education_vat_rate is None and university:
+            uv = getattr(university, 'education_vat_rate', None)
+            application.education_vat_rate = float(uv) if uv is not None else None
+        if application.abroad_vat_rate is None and university:
+            uv = getattr(university, 'abroad_vat_rate', None)
+            application.abroad_vat_rate = float(uv) if uv is not None else None
     if application.bonus_max is None:
         if degree_cfg and degree_cfg.get('bonusMax') is not None:
             application.bonus_max = float(degree_cfg['bonusMax'])
@@ -973,6 +986,8 @@ def _compute_application_finance(
 
     # --- Brüt komisyon ---
     # Kaynak: üniversite derece komisyonu → yoksa üniversite genel komisyonu
+    if force_refresh_from_sources:
+        preserve_gross_commission = False
     if not preserve_gross_commission:
         if degree_cfg:
             ck, cv = degree_cfg['kind'], degree_cfg['value']
@@ -1032,6 +1047,10 @@ def _compute_application_finance(
         program.university_id if program else None,
         program_degree
     )
+
+    if force_refresh_from_sources:
+        prefer_user_agency_commission = True
+        preserve_agency_commission = False
 
     should_seed_agency = (
         (not preserve_agency_commission)
@@ -1117,7 +1136,7 @@ def add_user():
         raw_commissions = data.get('agentCommissions')
         if _agent_commissions_have_duplicate(raw_commissions):
             db.session.rollback()
-            return jsonify({'message': 'Aynı üniversite ve derece için iki satır eklenemez'}), 400
+            return jsonify({'message': 'Aynı acente, üniversite ve derece için iki satır eklenemez'}), 400
         _replace_user_agent_commissions(user.id, _normalize_agent_commissions(raw_commissions))
     db.session.commit()
     return jsonify({'message': 'تمت إضافة المستخدم', 'id': user.id}), 201
@@ -1174,6 +1193,7 @@ def get_users():
     commissions_by_user = {}
     for r in UserUniversityCommission.query.all():
         commissions_by_user.setdefault(r.user_id, []).append({
+            'id': r.id,
             'universityId': r.university_id,
             'degree': getattr(r, 'degree', None),
             'commissionKind': r.commission_kind,
@@ -1191,6 +1211,136 @@ def get_users():
         'importanceLevel': getattr(u, 'importance_level', None) or 'normal',
         'agentCommissions': commissions_by_user.get(u.id, [])
     } for u in users])
+
+
+def _agent_commission_to_dict(row, user=None, university=None):
+    user = user or User.query.get(row.user_id)
+    university = university or University.query.get(row.university_id)
+    return {
+        'id': row.id,
+        'userId': row.user_id,
+        'userName': user.name if user else '',
+        'userEmail': user.email if user else None,
+        'universityId': row.university_id,
+        'universityName': university.name if university else '',
+        'degree': getattr(row, 'degree', None) or '',
+        'commissionKind': row.commission_kind,
+        'commissionValue': row.commission_value,
+        'depositSupport': row.deposit_support
+    }
+
+
+@api_bp.route('/agent-commissions', methods=['GET'])
+def get_agent_commissions():
+    admin_err = _require_admin()
+    if admin_err:
+        return admin_err
+    rows = UserUniversityCommission.query.all()
+    users = {u.id: u for u in User.query.all()}
+    universities = {u.id: u for u in University.query.all()}
+    payload = [
+        _agent_commission_to_dict(r, users.get(r.user_id), universities.get(r.university_id))
+        for r in rows
+    ]
+    payload.sort(key=lambda x: ((x.get('userName') or '').lower(), (x.get('universityName') or '').lower(), x.get('degree') or ''))
+    return jsonify(payload)
+
+
+@api_bp.route('/agent-commissions', methods=['POST'])
+def add_agent_commission():
+    admin_err = _require_admin()
+    if admin_err:
+        return admin_err
+    data = request.json or {}
+    user_id = (data.get('userId') or '').strip()
+    user = User.query.get(user_id)
+    if not user or (user.role or '').strip().lower() != 'agent':
+        return jsonify({'message': 'Geçerli bir temsilci seçin'}), 400
+    normalized = _normalize_agent_commissions([{
+        'universityId': data.get('universityId'),
+        'degree': data.get('degree'),
+        'commissionKind': data.get('commissionKind'),
+        'commissionValue': data.get('commissionValue'),
+        'depositSupport': data.get('depositSupport')
+    }])
+    if not normalized:
+        return jsonify({'message': 'Üniversite, komisyon tipi ve tutar/oran zorunludur'}), 400
+    row_data = normalized[0]
+    degree_key = row_data.get('degree') or ''
+    existing = UserUniversityCommission.query.filter_by(
+        user_id=user_id,
+        university_id=row_data['universityId']
+    ).all()
+    if any((getattr(r, 'degree', None) or '') == degree_key for r in existing):
+        return jsonify({'message': 'Aynı acente, üniversite ve derece için iki satır eklenemez'}), 400
+    row = UserUniversityCommission(
+        id=str(uuid.uuid4()),
+        user_id=user_id,
+        university_id=row_data['universityId'],
+        degree=row_data.get('degree'),
+        commission_kind=row_data['commissionKind'],
+        commission_value=row_data['commissionValue'],
+        deposit_support=row_data.get('depositSupport')
+    )
+    db.session.add(row)
+    db.session.commit()
+    return jsonify({'message': 'Komisyon eklendi', **_agent_commission_to_dict(row, user)}), 201
+
+
+@api_bp.route('/agent-commissions/<commission_id>', methods=['PUT'])
+def update_agent_commission(commission_id):
+    admin_err = _require_admin()
+    if admin_err:
+        return admin_err
+    row = UserUniversityCommission.query.get(commission_id)
+    if not row:
+        return jsonify({'message': 'Komisyon bulunamadı'}), 404
+    data = request.json or {}
+    if 'userId' in data:
+        user_id = (data.get('userId') or '').strip()
+        user = User.query.get(user_id)
+        if not user or (user.role or '').strip().lower() != 'agent':
+            return jsonify({'message': 'Geçerli bir temsilci seçin'}), 400
+        row.user_id = user_id
+    normalized = _normalize_agent_commissions([{
+        'universityId': data.get('universityId', row.university_id),
+        'degree': data.get('degree') if 'degree' in data else getattr(row, 'degree', None),
+        'commissionKind': data.get('commissionKind', row.commission_kind),
+        'commissionValue': data.get('commissionValue', row.commission_value),
+        'depositSupport': data.get('depositSupport') if 'depositSupport' in data else row.deposit_support
+    }])
+    if not normalized:
+        return jsonify({'message': 'Üniversite, komisyon tipi ve tutar/oran zorunludur'}), 400
+    row_data = normalized[0]
+    degree_key = row_data.get('degree') or ''
+    existing = UserUniversityCommission.query.filter(
+        UserUniversityCommission.user_id == row.user_id,
+        UserUniversityCommission.university_id == row_data['universityId'],
+        UserUniversityCommission.id != commission_id
+    ).all()
+    if any((getattr(r, 'degree', None) or '') == degree_key for r in existing):
+        return jsonify({'message': 'Aynı acente, üniversite ve derece için iki satır eklenemez'}), 400
+    row.university_id = row_data['universityId']
+    row.degree = row_data.get('degree')
+    row.commission_kind = row_data['commissionKind']
+    row.commission_value = row_data['commissionValue']
+    row.deposit_support = row_data.get('depositSupport')
+    db.session.commit()
+    return jsonify({'message': 'Komisyon güncellendi', **_agent_commission_to_dict(row)}), 200
+
+
+@api_bp.route('/agent-commissions/<commission_id>', methods=['DELETE'])
+def delete_agent_commission(commission_id):
+    admin_err = _require_admin()
+    if admin_err:
+        return admin_err
+    row = UserUniversityCommission.query.get(commission_id)
+    if not row:
+        return jsonify({'message': 'Komisyon bulunamadı'}), 404
+    db.session.delete(row)
+    db.session.commit()
+    return jsonify({'message': 'Komisyon silindi'}), 200
+
 
 # حذف مستخدم
 def _user_delete_blockers(user_id):
@@ -1286,7 +1436,7 @@ def update_user(user_id):
     if _can_see_finance() and 'agentCommissions' in data:
         raw_commissions = data.get('agentCommissions')
         if (user.role or '').lower() == 'agent' and _agent_commissions_have_duplicate(raw_commissions):
-            return jsonify({'message': 'Aynı üniversite ve derece için iki satır eklenemez'}), 400
+            return jsonify({'message': 'Aynı acente, üniversite ve derece için iki satır eklenemez'}), 400
         rows = _normalize_agent_commissions(raw_commissions)
         _replace_user_agent_commissions(user.id, rows if (user.role or '').lower() == 'agent' else [])
     db.session.commit()
@@ -1341,6 +1491,7 @@ def get_user_statement(user_id):
             'paymentReason': p.payment_reason,
             'expenseType': getattr(p, 'expense_type', None),
             'commissionShape': getattr(p, 'commission_shape', None),
+            'commissionType': getattr(p, 'commission_type', None),
             'description1': p.description_1
         })
 
@@ -3065,6 +3216,51 @@ def update_application(app_id):
     return jsonify(response_data), 200
 
 
+@api_bp.route('/applications/refresh-commissions', methods=['POST'])
+def refresh_application_commissions():
+    admin_err = _require_admin()
+    if admin_err:
+        return admin_err
+    data = request.json or {}
+    ids = data.get('ids') or []
+    if not isinstance(ids, list) or not ids:
+        return jsonify({'message': 'Seçili başvuru yok'}), 400
+    unique_ids = []
+    seen = set()
+    for raw in ids:
+        app_id = str(raw or '').strip()
+        if not app_id or app_id in seen:
+            continue
+        seen.add(app_id)
+        unique_ids.append(app_id)
+
+    apps = Application.query.filter(Application.id.in_(unique_ids)).all()
+    program_ids = {a.program_id for a in apps if a.program_id}
+    program_by_id = {p.id: p for p in Program.query.filter(Program.id.in_(program_ids)).all()} if program_ids else {}
+    student_ids = {a.student_id for a in apps if a.student_id}
+    student_by_id = {s.id: s for s in Student.query.filter(Student.id.in_(student_ids)).all()} if student_ids else {}
+
+    updated = []
+    for application in apps:
+        _compute_application_finance(
+            application,
+            prefer_user_agency_commission=True,
+            prefer_user_deposit_support=False,
+            preserve_gross_commission=False,
+            preserve_agency_commission=False,
+            force_refresh_from_sources=True
+        )
+        _touch_application_and_student(application)
+        updated.append(_serialize_application(application, program_by_id, student_by_id))
+
+    db.session.commit()
+    return jsonify({
+        'message': f'{len(updated)} başvurunun komisyonları güncellendi',
+        'count': len(updated),
+        'applications': updated
+    }), 200
+
+
 @api_bp.route('/applications/<app_id>', methods=['DELETE'])
 def delete_application(app_id):
     denied = _require_manager()
@@ -3430,6 +3626,7 @@ def get_outgoing_payments():
         'paymentReason': r.payment_reason,
         'expenseType': getattr(r, 'expense_type', None),
         'commissionShape': getattr(r, 'commission_shape', None),
+        'commissionType': getattr(r, 'commission_type', None),
         'description1': r.description_1,
         'receiptFiles': _files_info_list(_payment_receipt_files_raw(r)),
         'userId': getattr(r, 'user_id', None),
@@ -3461,6 +3658,7 @@ def add_outgoing_payment():
         return jsonify({'message': 'paymentReason must be commission, debt or company_expense'}), 400
     expense_value = None
     commission_shape_value = None
+    commission_type_value = None
     if payment_reason == 'company_expense':
         expense_value = (data.get('expenseType') or '').strip()
         if expense_value not in NEW_COMPANY_EXPENSE_TYPES:
@@ -3469,6 +3667,9 @@ def add_outgoing_payment():
         commission_shape_value = (data.get('commissionShape') or '').strip()
         if commission_shape_value not in COMMISSION_SHAPES:
             return jsonify({'message': 'commissionShape required for Komisyon: agency_commission, employee_commission, student_referral_commission'}), 400
+        commission_type_value = (data.get('commissionType') or '').strip()
+        if commission_type_value not in COMMISSION_TYPES:
+            return jsonify({'message': 'commissionType required for Komisyon: cash_commission, scholarship_commission'}), 400
     try:
         payment_amount = float(payment_amount)
     except (TypeError, ValueError):
@@ -3495,6 +3696,7 @@ def add_outgoing_payment():
         payment_reason=payment_reason,
         expense_type=expense_value,
         commission_shape=commission_shape_value,
+        commission_type=commission_type_value,
         description_1=(data.get('description1') or '').strip() or None,
         user_id=user_value,
         period_id=period_value,
@@ -3575,8 +3777,15 @@ def update_outgoing_payment(payment_id):
         if cs not in COMMISSION_SHAPES:
             return jsonify({'message': 'commissionShape required for Komisyon: agency_commission, employee_commission, student_referral_commission'}), 400
         record.commission_shape = cs
+        ct = (getattr(record, 'commission_type', None) or '').strip()
+        if 'commissionType' in data:
+            ct = (data.get('commissionType') or '').strip()
+        if ct not in COMMISSION_TYPES:
+            return jsonify({'message': 'commissionType required for Komisyon: cash_commission, scholarship_commission'}), 400
+        record.commission_type = ct
     else:
         record.commission_shape = None
+        record.commission_type = None
     if 'periodId' in data:
         period_value = _resolve_period_id(data.get('periodId'))
         if period_value is False:

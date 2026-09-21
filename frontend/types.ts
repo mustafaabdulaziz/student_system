@@ -27,11 +27,19 @@ export interface User {
 }
 
 export interface AgentCommission {
+  id?: string;
   universityId: string;
   degree?: 'Diploma' | 'Bachelor' | 'Master' | 'PhD' | '';
   commissionKind: 'rate' | 'amount';
   commissionValue: number;
   depositSupport?: number | null;
+}
+
+export interface AgentCommissionListRow extends AgentCommission {
+  id: string;
+  userId: string;
+  userName: string;
+  universityName?: string;
 }
 
 export type UniversityDegreeCommission = {
@@ -250,5 +258,17 @@ export interface OutgoingPaymentListFilters {
   paymentReason?: string;
   expenseType?: string;
   commissionShape?: string;
+  commissionType?: string;
   userId?: string;
+}
+
+/** Filters passed from payment dashboard drill-down to the incoming payments list. */
+export interface IncomingPaymentListFilters {
+  dateFrom?: string;
+  dateTo?: string;
+  periodId?: string;
+  currency?: string;
+  paymentType?: string;
+  paymentSource?: string;
+  paymentCategoryId?: string;
 }

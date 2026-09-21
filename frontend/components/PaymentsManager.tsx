@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Download, Pencil, Plus, Trash2, X, Paperclip, Upload } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { PaymentSource, PaymentCategory, Period, User, UserRole, OutgoingPaymentListFilters } from '../types';
 import {
   OUTGOING_PAYMENT_REASON_LABELS,
   OUTGOING_PAYMENT_REASONS,
@@ -9,15 +8,20 @@ import {
   COMPANY_EXPENSE_TYPES,
   COMMISSION_SHAPE_LABELS,
   COMMISSION_SHAPES,
+  COMMISSION_TYPE_LABELS,
+  COMMISSION_TYPES,
   formatExpenseTypeDisplay,
   formatOutgoingPaymentDisplay,
   formatCommissionShapeDisplay,
+  formatCommissionTypeDisplay,
   type OutgoingPaymentReasonCode,
   type CompanyExpenseTypeCode,
-  type CommissionShapeCode
+  type CommissionShapeCode,
+  type CommissionTypeCode
 } from '../constants/outgoingPayment';
 import {
   INCOMING_PAYMENT_TYPES,
+  INCOMING_PAYMENT_TYPE_LABELS,
   formatIncomingPaymentType,
   type IncomingPaymentTypeCode
 } from '../constants/incomingPayment';
@@ -27,6 +31,7 @@ import { SearchableMultiSelect } from './SearchableMultiSelect';
 import { useTranslation } from '../hooks/useTranslation';
 import { FILTER_DATE_PRESETS, getDatePreset } from '../utils/datePresets';
 import { matchesMultiFilter } from '../utils/multiFilter';
+import { PaymentSource, PaymentCategory, Period, User, UserRole, OutgoingPaymentListFilters, IncomingPaymentListFilters } from '../types';
 
 function asStringArray(value: unknown): string[] {
   if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string' && item !== '');
@@ -43,6 +48,7 @@ const EMPTY_PAYMENT_FILTERS = {
   paymentReasons: [] as string[],
   expenseTypes: [] as string[],
   commissionShapes: [] as string[],
+  commissionTypes: [] as string[],
   descriptionQuery: '',
   amountMin: '',
   amountMax: '',
@@ -66,7 +72,7 @@ interface PaymentsManagerProps {
   paymentSources?: PaymentSource[];
   paymentCategories?: PaymentCategory[];
   periods?: Period[];
-  initialListFilters?: OutgoingPaymentListFilters | null;
+  initialListFilters?: OutgoingPaymentListFilters | IncomingPaymentListFilters | null;
   clearInitialListFilters?: () => void;
 }
 
@@ -98,6 +104,7 @@ interface OutgoingPaymentRow {
   paymentReason: string;
   expenseType?: string | null;
   commissionShape?: string | null;
+  commissionType?: string | null;
   description1?: string;
   periodId?: string | null;
   periodName?: string | null;
@@ -161,6 +168,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
     paymentReason: '' as '' | OutgoingPaymentReasonCode,
     expenseType: '' as '' | CompanyExpenseTypeCode,
     commissionShape: '' as '' | CommissionShapeCode,
+    commissionType: '' as '' | CommissionTypeCode,
     description1: '',
     userId: '',
     periodId: ''
@@ -187,6 +195,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
       paymentReason: '',
       expenseType: '',
       commissionShape: '',
+      commissionType: '',
       description1: '',
       userId: '',
       periodId: ''
@@ -280,19 +289,35 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
   }, [isAdmin]);
 
   useEffect(() => {
-    if (!initialListFilters || mode !== 'outgoing') return;
-    setFilters((prev) => ({
-      ...prev,
-      dateFrom: initialListFilters.dateFrom ?? '',
-      dateTo: initialListFilters.dateTo ?? '',
-      currencies: asStringArray(initialListFilters.currency),
-      paymentTypes: asStringArray(initialListFilters.paymentType),
-      paymentReasons: asStringArray(initialListFilters.paymentReason),
-      expenseTypes: asStringArray(initialListFilters.expenseType),
-      commissionShapes: asStringArray(initialListFilters.commissionShape),
-      periodIds: asStringArray(initialListFilters.periodId),
-      userIds: asStringArray(initialListFilters.userId)
-    }));
+    if (!initialListFilters) return;
+    if (mode === 'outgoing') {
+      const f = initialListFilters as OutgoingPaymentListFilters;
+      setFilters((prev) => ({
+        ...prev,
+        dateFrom: f.dateFrom ?? '',
+        dateTo: f.dateTo ?? '',
+        currencies: asStringArray(f.currency),
+        paymentTypes: asStringArray(f.paymentType),
+        paymentReasons: asStringArray(f.paymentReason),
+        expenseTypes: asStringArray(f.expenseType),
+        commissionShapes: asStringArray(f.commissionShape),
+        commissionTypes: asStringArray(f.commissionType),
+        periodIds: asStringArray(f.periodId),
+        userIds: asStringArray(f.userId)
+      }));
+    } else {
+      const f = initialListFilters as IncomingPaymentListFilters;
+      setFilters((prev) => ({
+        ...prev,
+        dateFrom: f.dateFrom ?? '',
+        dateTo: f.dateTo ?? '',
+        currencies: asStringArray(f.currency),
+        paymentTypes: asStringArray(f.paymentType),
+        paymentSources: asStringArray(f.paymentSource),
+        paymentCategoryIds: asStringArray(f.paymentCategoryId),
+        periodIds: asStringArray(f.periodId)
+      }));
+    }
     if (typeof clearInitialListFilters === 'function') clearInitialListFilters();
   }, [initialListFilters, clearInitialListFilters, mode]);
 
@@ -338,6 +363,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
         if (!matchesMultiFilter(outgoing.paymentReason, filters.paymentReasons)) return false;
         if (!matchesMultiFilter(outgoing.expenseType || '', filters.expenseTypes)) return false;
         if (!matchesMultiFilter(outgoing.commissionShape || '', filters.commissionShapes)) return false;
+        if (!matchesMultiFilter(outgoing.commissionType || '', filters.commissionTypes)) return false;
         if (!matchesMultiFilter(outgoing.userId || '', filters.userIds)) return false;
         if (descriptionQuery && !(outgoing.description1 || '').toLowerCase().includes(descriptionQuery)) return false;
         if (amountMin !== null && outgoing.paymentAmount < amountMin) return false;
@@ -419,6 +445,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
         Donem: r.periodName || '',
         'Masraf Tipi': formatExpenseTypeDisplay(r.expenseType),
         'Komisyon Sekli': formatCommissionShapeDisplay(r.commissionShape),
+        'Komisyon Tipi': formatCommissionTypeDisplay(r.commissionType),
         'Aciklama 1': r.description1 || '',
         Kullanici: r.userName ? `${r.userName} (${(r.userRole || '').toLowerCase()})` : ''
       };
@@ -465,6 +492,8 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
       const expenseOk = (COMPANY_EXPENSE_TYPES as readonly string[]).includes(et);
       const cs = (outgoing.commissionShape || '').trim();
       const shapeOk = (COMMISSION_SHAPES as readonly string[]).includes(cs);
+      const ct = (outgoing.commissionType || '').trim();
+      const typeOk = (COMMISSION_TYPES as readonly string[]).includes(ct);
       setOutgoingForm({
         paymentDate: outgoing.paymentDate || '',
         paymentAmount: String(outgoing.paymentAmount ?? ''),
@@ -474,6 +503,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
         // Keep legacy expense codes visible when editing old rows; user can re-pick from the new list
         expenseType: (expenseOk || et ? et : '') as '' | CompanyExpenseTypeCode,
         commissionShape: (shapeOk ? cs : '') as '' | CommissionShapeCode,
+        commissionType: (typeOk ? ct : '') as '' | CommissionTypeCode,
         description1: outgoing.description1 || '',
         userId: outgoing.userId || '',
         periodId: outgoing.periodId || ''
@@ -506,6 +536,13 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
         setFormError('Komisyon için komisyon şekli seçiniz.');
         return;
       }
+      if (
+        outgoingForm.paymentReason === 'commission' &&
+        !outgoingForm.commissionType
+      ) {
+        setFormError('Komisyon için komisyon tipi seçiniz.');
+        return;
+      }
     }
     try {
       const payload =
@@ -528,6 +565,8 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
                 outgoingForm.paymentReason === 'company_expense' ? outgoingForm.expenseType || null : null,
               commissionShape:
                 outgoingForm.paymentReason === 'commission' ? outgoingForm.commissionShape || null : null,
+              commissionType:
+                outgoingForm.paymentReason === 'commission' ? outgoingForm.commissionType || null : null,
               description1: outgoingForm.description1,
               userId: outgoingForm.userId || null,
               periodId: outgoingForm.periodId || null,
@@ -805,7 +844,8 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
                         ...prev,
                         paymentReason: v,
                         expenseType: v === 'company_expense' ? prev.expenseType : '',
-                        commissionShape: v === 'commission' ? prev.commissionShape : ''
+                        commissionShape: v === 'commission' ? prev.commissionShape : '',
+                        commissionType: v === 'commission' ? prev.commissionType : ''
                       }));
                     }}
                     className="w-full border border-gray-200 rounded-lg px-3 py-2"
@@ -859,6 +899,26 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
                     <option value="" disabled>Seçiniz…</option>
                     {COMMISSION_SHAPES.map(code => (
                       <option key={code} value={code}>{COMMISSION_SHAPE_LABELS[code]}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm mb-1">Komisyon Tipi</label>
+                  <select
+                    required={outgoingForm.paymentReason === 'commission'}
+                    disabled={outgoingForm.paymentReason !== 'commission'}
+                    value={outgoingForm.commissionType}
+                    onChange={e =>
+                      setOutgoingForm(prev => ({
+                        ...prev,
+                        commissionType: e.target.value as CommissionTypeCode | ''
+                      }))
+                    }
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2"
+                  >
+                    <option value="" disabled>Seçiniz…</option>
+                    {COMMISSION_TYPES.map(code => (
+                      <option key={code} value={code}>{COMMISSION_TYPE_LABELS[code]}</option>
                     ))}
                   </select>
                 </div>
@@ -1011,6 +1071,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
                   paymentReasons: asStringArray(f.paymentReasons ?? f.paymentReason),
                   expenseTypes: asStringArray(f.expenseTypes ?? f.expenseType),
                   commissionShapes: asStringArray(f.commissionShapes ?? f.commissionShape),
+                  commissionTypes: asStringArray(f.commissionTypes ?? f.commissionType),
                   descriptionQuery: typeof f.descriptionQuery === 'string' ? f.descriptionQuery : '',
                   amountMin: typeof f.amountMin === 'string' ? f.amountMin : '',
                   amountMax: typeof f.amountMax === 'string' ? f.amountMax : '',
@@ -1200,6 +1261,14 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
                     noResultsText={t.searchNoResults}
                   />
                   <SearchableMultiSelect
+                    options={COMMISSION_TYPES.map((code) => ({ value: code, label: COMMISSION_TYPE_LABELS[code] }))}
+                    selected={filters.commissionTypes}
+                    onChange={(v) => setFilters((prev) => ({ ...prev, commissionTypes: v }))}
+                    placeholder={`Komisyon Tipi (${t.filterAll})`}
+                    searchPlaceholder={t.search}
+                    noResultsText={t.searchNoResults}
+                  />
+                  <SearchableMultiSelect
                     options={assignableUsers.map((user) => ({ value: user.id, label: user.name }))}
                     selected={filters.userIds}
                     onChange={(v) => setFilters((prev) => ({ ...prev, userIds: v }))}
@@ -1268,6 +1337,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
                         <th className="px-4 py-3">Ödeme Sebebi</th>
                         <th className="px-4 py-3">Masraf Tipi</th>
                         <th className="px-4 py-3">Komisyon Şekli</th>
+                        <th className="px-4 py-3">Komisyon Tipi</th>
                         <th className="px-4 py-3">Kullanıcı</th>
                         <th className="px-4 py-3">Açıklama 1</th>
                         <th className="px-4 py-3">Dekont</th>
@@ -1279,11 +1349,11 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan={14} className="px-4 py-8 text-center text-gray-500">Yükleniyor...</td>
+                      <td colSpan={15} className="px-4 py-8 text-center text-gray-500">Yükleniyor...</td>
                     </tr>
                   ) : filteredRows.length === 0 ? (
                     <tr>
-                      <td colSpan={14} className="px-4 py-8 text-center text-gray-500">Kayıt bulunamadı</td>
+                      <td colSpan={15} className="px-4 py-8 text-center text-gray-500">Kayıt bulunamadı</td>
                     </tr>
                   ) : filteredRows.map((row) => (
                     <tr
@@ -1335,6 +1405,11 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
                           <td className="px-4 py-3">
                             {(row as OutgoingPaymentRow).commissionShape
                               ? formatCommissionShapeDisplay((row as OutgoingPaymentRow).commissionShape)
+                              : '—'}
+                          </td>
+                          <td className="px-4 py-3">
+                            {(row as OutgoingPaymentRow).commissionType
+                              ? formatCommissionTypeDisplay((row as OutgoingPaymentRow).commissionType)
                               : '—'}
                           </td>
                           <td className="px-4 py-3">
