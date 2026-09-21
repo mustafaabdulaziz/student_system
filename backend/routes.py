@@ -665,6 +665,7 @@ def _serialize_application(a, program_by_id, student_by_id=None):
     if _request_staff_user():
         data['internalDescription'] = getattr(a, 'internal_description', None)
     if not _can_see_finance():
+        keep_annual = bool(_request_staff_user())
         for key in (
             'annualPayment', 'educationVatRate', 'educationVat', 'grossCommissionKind',
             'grossCommissionRate', 'grossCommission', 'abroadVatRate', 'abroadVat',
@@ -673,6 +674,8 @@ def _serialize_application(a, program_by_id, student_by_id=None):
             'agencyContractAmount', 'remainingMin', 'remainingMax', 'paymentDeserved',
             'paymentDate', 'paymentMonth'
         ):
+            if keep_annual and key == 'annualPayment':
+                continue
             data.pop(key, None)
     return data
 
@@ -3059,7 +3062,10 @@ def update_application(app_id):
         return jsonify({'message': 'Application not found'}), 404
     data = request.get_json() or {}
     if not _can_see_finance():
+        keep_annual = bool(_request_staff_user())
         for key in APPLICATION_FINANCE_KEYS:
+            if keep_annual and key == 'annualPayment':
+                continue
             data.pop(key, None)
     staff_user = _request_staff_user()
     if 'internalDescription' in data and not staff_user:

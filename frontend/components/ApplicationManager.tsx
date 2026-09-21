@@ -392,6 +392,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   const isAdminOrUser = isStaffRole(currentUser?.role);
   const canSeeAgentColumn = !!isAdminOrUser;
   const isAdmin = isAdminRole(currentUser?.role);
+  const canSeeAnnualPayment = isAdminOrUser;
   const canManageRecords = canManageCatalog(currentUser?.role);
   const isAgent = currentUser && (currentUser.role || '').toString().toLowerCase() === 'agent';
   const displayStatus = (status: string) => translateStatus(status, currentUser?.role);
@@ -1161,6 +1162,8 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
         { key: 'agencyBonus', label: fin('agencyBonus'), type: 'number', nullable: true },
         { key: 'depositSupport', label: fin('depositSupport'), type: 'number', nullable: true }
       );
+    } else if (canSeeAnnualPayment) {
+      fields.push({ key: 'annualPayment', label: fin('annualPayment'), type: 'number', nullable: true });
     }
     if (agentUsers.length > 0) {
       fields.splice(1, 0, {
@@ -1308,7 +1311,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
       }
       if (!visibleTreeColumns.includes(col.key)) return false;
       if (!canSeeAgentColumn && (col.key === 'agent' || col.key === 'responsible' || col.key === 'agencyCompany' || col.key === 'description')) return false;
-      if (!isAdmin && col.key === 'annualPayment') return false;
+      if (!canSeeAnnualPayment && col.key === 'annualPayment') return false;
       if (isAgent && col.key === 'updatedAt') return false;
       return true;
     });
@@ -1439,7 +1442,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
         }
         window.localStorage.setItem(agencyDescriptionMigrationKey, '1');
       }
-      if (isAdmin && !window.localStorage.getItem(annualPaymentMigrationKey)) {
+      if (canSeeAnnualPayment && !window.localStorage.getItem(annualPaymentMigrationKey)) {
         if (!valid.includes('annualPayment')) {
           const agencyIndex = valid.indexOf('agencyCompany');
           valid.splice(agencyIndex >= 0 ? agencyIndex + 1 : valid.length, 0, 'annualPayment');
@@ -1450,7 +1453,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     } catch {
       // ignore corrupted localStorage values
     }
-  }, [storageKey, newColumnsMigrationKey, agencyDescriptionMigrationKey, annualPaymentMigrationKey, applicationColumnKeys, isAdmin]);
+  }, [storageKey, newColumnsMigrationKey, agencyDescriptionMigrationKey, annualPaymentMigrationKey, applicationColumnKeys, canSeeAnnualPayment]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1548,11 +1551,11 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     return base.filter(col => {
       if (!visibleActiveColumns.includes(col.key)) return false;
       if (!canSeeAgentColumn && (col.key === 'agent' || col.key === 'responsible' || col.key === 'agencyCompany' || col.key === 'description')) return false;
-      if (!isAdmin && col.key === 'annualPayment') return false;
+      if (!canSeeAnnualPayment && col.key === 'annualPayment') return false;
       if (isAgent && col.key === 'updatedAt') return false;
       return true;
     });
-  }, [showFinancialTree, financialColumnOptions, applicationColumnOptions, visibleActiveColumns, canSeeAgentColumn, isAgent, isAdmin]);
+  }, [showFinancialTree, financialColumnOptions, applicationColumnOptions, visibleActiveColumns, canSeeAgentColumn, isAgent, canSeeAnnualPayment]);
 
   const togglePinnedColumn = (key: string) => {
     const setter = showFinancialTree ? setPinnedFinancialColumns : setPinnedTreeColumns;
@@ -1667,12 +1670,12 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
 
   useEffect(() => {
     const hiddenByConfig = sortBy && applicationColumnKeys.includes(sortBy) && !visibleTreeColumns.includes(sortBy);
-    const hiddenByRole = ((sortBy === 'responsible' || sortBy === 'agent' || sortBy === 'agencyCompany' || sortBy === 'description') && !canSeeAgentColumn) || (sortBy === 'annualPayment' && !isAdmin) || (sortBy === 'updatedAt' && isAgent);
+    const hiddenByRole = ((sortBy === 'responsible' || sortBy === 'agent' || sortBy === 'agencyCompany' || sortBy === 'description') && !canSeeAgentColumn) || (sortBy === 'annualPayment' && !canSeeAnnualPayment) || (sortBy === 'updatedAt' && isAgent);
     if (hiddenByConfig || hiddenByRole) {
       setSortBy(null);
       setSortDir('asc');
     }
-  }, [sortBy, visibleTreeColumns, canSeeAgentColumn, isAgent, isAdmin, applicationColumnKeys]);
+  }, [sortBy, visibleTreeColumns, canSeeAgentColumn, isAgent, canSeeAnnualPayment, applicationColumnKeys]);
 
   const toggleTreeColumn = (key: string) => {
     setVisibleTreeColumns(prev => {
@@ -1698,7 +1701,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
     let allowed = canSeeAgentColumn
       ? applicationColumnKeys
       : applicationColumnKeys.filter(k => k !== 'agent' && k !== 'responsible' && k !== 'agencyCompany' && k !== 'description');
-    if (!isAdmin) allowed = allowed.filter(k => k !== 'annualPayment');
+    if (!canSeeAnnualPayment) allowed = allowed.filter(k => k !== 'annualPayment');
     if (isAgent) allowed = allowed.filter(k => k !== 'updatedAt');
     const normalized = visibleTreeColumns.filter(k => allowed.includes(k));
     if (normalized.length !== visibleTreeColumns.length) {
@@ -1706,7 +1709,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
       return;
     }
     if (normalized.length === 0) setVisibleTreeColumns(allowed);
-  }, [canSeeAgentColumn, isAgent, isAdmin, applicationColumnKeys, visibleTreeColumns]);
+  }, [canSeeAgentColumn, isAgent, canSeeAnnualPayment, applicationColumnKeys, visibleTreeColumns]);
   const SortTh = ({ colKey, label, className = '' }: { colKey: string; label: string; className?: string }) => (
     <th
       data-pin-key={colKey}
@@ -3164,6 +3167,31 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
             </div>
           </div>
         )}
+
+        {!isAdmin && canSeeAnnualPayment && (
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
+            <h3 className="text-gray-500 text-xs font-bold uppercase tracking-wider mb-3">Yıllık Ödeme</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm w-full">
+              {detailEditMode ? (
+                <div className="min-w-0 flex flex-col gap-1">
+                  <label className="text-gray-500 text-xs font-medium">Yıllık Ödeme</label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={detailFinance.annualPayment}
+                    onChange={(e) => setDetailFinance(prev => ({ ...prev, annualPayment: e.target.value }))}
+                    className="w-full min-w-0 p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  />
+                </div>
+              ) : (
+                <div className="min-w-0 py-1">
+                  <p className="text-gray-500 text-xs font-medium">Yıllık Ödeme</p>
+                  <p className="font-medium text-gray-900 mt-0.5">{app.annualPayment != null ? Number(app.annualPayment) : '—'}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     );
   };
@@ -3333,7 +3361,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                         ? financialColumnOptions
                         : applicationColumnOptions.filter(col => {
                             if (!canSeeAgentColumn && (col.key === 'agent' || col.key === 'responsible' || col.key === 'agencyCompany' || col.key === 'description')) return false;
-                            if (!isAdmin && col.key === 'annualPayment') return false;
+                            if (!canSeeAnnualPayment && col.key === 'annualPayment') return false;
                             if (isAgent && col.key === 'updatedAt') return false;
                             return true;
                           })
@@ -3866,7 +3894,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                     {visibleTreeColumns.includes('university') && <SortTh colKey="university" label={t.universityName} />}
                     {visibleTreeColumns.includes('degree') && <SortTh colKey="degree" label={t.programDegree} />}
                     {isAdminOrUser && visibleTreeColumns.includes('agencyCompany') && <SortTh colKey="agencyCompany" label={t.agencyCompany} />}
-                    {isAdmin && visibleTreeColumns.includes('annualPayment') && <SortTh colKey="annualPayment" label="Yıllık ödeme" />}
+                    {canSeeAnnualPayment && visibleTreeColumns.includes('annualPayment') && <SortTh colKey="annualPayment" label="Yıllık ödeme" />}
                     {isAdminOrUser && visibleTreeColumns.includes('description') && <SortTh colKey="description" label={t.internalDescription} />}
                     {visibleTreeColumns.includes('createdBy') && <SortTh colKey="createdBy" label={t.createdByUser} />}
                     {visibleTreeColumns.includes('createdAt') && <SortTh colKey="createdAt" label={t.createdAt} />}
@@ -3943,7 +3971,7 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
                           {isAdminOrUser && visibleTreeColumns.includes('agencyCompany') && (
                             <td style={pinCellStyle('agencyCompany')} className={`px-6 py-4 text-gray-900 ${pinCellClass('agencyCompany')}`}>{app.agencyCompanyName || '—'}</td>
                           )}
-                          {isAdmin && visibleTreeColumns.includes('annualPayment') && (
+                          {canSeeAnnualPayment && visibleTreeColumns.includes('annualPayment') && (
                             <td style={pinCellStyle('annualPayment')} className={`px-6 py-4 text-gray-900 whitespace-nowrap ${pinCellClass('annualPayment')}`}>
                               {app.annualPayment != null ? Number(app.annualPayment).toLocaleString() : '—'}
                             </td>
