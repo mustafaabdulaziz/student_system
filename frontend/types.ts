@@ -50,6 +50,13 @@ export type UniversityDegreeCommission = {
   bonusMax?: number | null;
 };
 
+export type UniversityDefaultAgencyCommission = {
+  degree: '' | 'Diploma' | 'Bachelor' | 'Master' | 'PhD';
+  commissionKind: 'rate' | 'amount';
+  commissionValue: number;
+  depositSupport?: number | null;
+};
+
 export interface University {
   id: string;
   name: string;
@@ -69,6 +76,8 @@ export interface University {
   bonusMin?: number | null;
   /** Admin-only: per-degree commission rows */
   degreeCommissions?: UniversityDegreeCommission[];
+  /** Admin-only: default agency commissions, one row per degree, copied to agents */
+  defaultAgencyCommissions?: UniversityDefaultAgencyCommission[];
 }
 
 export interface Program {

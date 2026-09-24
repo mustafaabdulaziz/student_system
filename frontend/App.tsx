@@ -255,6 +255,25 @@ export default function App() {
   };
 
   // State Updates
+  const refreshUsers = async () => {
+    if (!isStaffRole(state.currentUser?.role)) return;
+    try {
+      const res = await fetch('/api/users');
+      const data = await res.json();
+      if (!res.ok || !Array.isArray(data)) return;
+      setState(prev => ({
+        ...prev,
+        users: data.map((u: User) => ({
+          ...u,
+          active: u.active !== false,
+          importanceLevel: u.importanceLevel || 'normal'
+        }))
+      }));
+    } catch {
+      /* agent commission list stays until the next full reload */
+    }
+  };
+
   const addUniversity = async (uni: University) => {
     try {
       const res = await fetch('/api/universities', {
@@ -265,6 +284,9 @@ export default function App() {
       const data = await res.json();
       if (res.ok) {
         setState(prev => ({ ...prev, universities: [...prev.universities, { ...uni, id: data.id }] }));
+        if (uni.defaultAgencyCommissions && uni.defaultAgencyCommissions.length > 0) {
+          await refreshUsers();
+        }
       } else {
         alert(data.message || t.errorAdd);
       }
@@ -286,6 +308,9 @@ export default function App() {
           ...prev,
           universities: prev.universities.map(u => u.id === uni.id ? uni : u)
         }));
+        if (uni.defaultAgencyCommissions) {
+          await refreshUsers();
+        }
         return true;
       } else {
         alert(data.message || t.errorUpdate);
@@ -295,6 +320,38 @@ export default function App() {
       alert(t.errorConnection);
       return false;
     }
+  };
+
+  const addDefaultAgencyCommission = async (payload: {
+    universityId: string;
+    degree: '' | 'Diploma' | 'Bachelor' | 'Master' | 'PhD';
+    commissionKind: 'rate' | 'amount';
+    commissionValue: number;
+    depositSupport?: number | null;
+  }) => {
+    const uni = state.universities.find(u => u.id === payload.universityId);
+    if (!uni) {
+      alert('Üniversite bulunamadı');
+      return false;
+    }
+    const existing = uni.defaultAgencyCommissions || [];
+    const degreeKey = payload.degree || '';
+    if (existing.some(row => (row.degree || '') === degreeKey)) {
+      alert('Bu üniversite için aynı derece varsayılan acente komisyonlarında zaten var.');
+      return false;
+    }
+    return editUniversity({
+      ...uni,
+      defaultAgencyCommissions: [
+        ...existing,
+        {
+          degree: degreeKey,
+          commissionKind: payload.commissionKind,
+          commissionValue: payload.commissionValue,
+          depositSupport: payload.depositSupport ?? null
+        }
+      ]
+    });
   };
 
   const deleteUniversity = async (id: string) => {
@@ -1115,14 +1172,23 @@ export default function App() {
 
   const addUser = async (user: User & { password?: string }) => {
     try {
-      const res = await fetch('/api/users', {
+      const role = state.currentUser?.role || 'ADMIN';
+      const res = await fetch(`/api/users?role=${encodeURIComponent(role)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(user)
       });
       const data = await res.json();
       if (res.ok) {
-        setState(prev => ({ ...prev, users: [...prev.users, { ...user, id: data.id, active: true }] }));
+        setState(prev => ({
+          ...prev,
+          users: [...prev.users, {
+            ...user,
+            id: data.id,
+            active: true,
+            agentCommissions: Array.isArray(data.agentCommissions) ? data.agentCommissions : (user.agentCommissions || [])
+          }]
+        }));
       } else {
         alert(data.message || t.errorAddUser);
       }
@@ -1173,7 +1239,11 @@ export default function App() {
       });
       const data = await res.json();
       if (res.ok) {
-        const updated = { ...user, password: undefined };
+        const updated = {
+          ...user,
+          password: undefined,
+          ...(Array.isArray(data.agentCommissions) ? { agentCommissions: data.agentCommissions } : {})
+        };
         setState(prev => {
           const nextUsers = prev.users.map(u => u.id === user.id ? { ...u, ...updated } : u);
           const isCurrentUser = prev.currentUser?.id === user.id;
@@ -1599,6 +1669,7 @@ export default function App() {
             onAdd={addAgentCommission}
             onEdit={editAgentCommission}
             onDelete={deleteAgentCommission}
+            onAddDefault={addDefaultAgencyCommission}
           />
         );
       }

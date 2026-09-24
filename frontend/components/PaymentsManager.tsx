@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Download, Pencil, Plus, Trash2, X, Paperclip, Upload } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ChevronUp, Download, Pencil, Plus, Trash2, X, Paperclip, Upload } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import {
   OUTGOING_PAYMENT_REASON_LABELS,
@@ -116,6 +116,24 @@ interface OutgoingPaymentRow {
 
 type Row = IncomingPaymentRow | OutgoingPaymentRow;
 
+type PaymentSortKey =
+  | 'sequenceNumber'
+  | 'paymentDate'
+  | 'periodName'
+  | 'paymentAmount'
+  | 'currency'
+  | 'paymentType'
+  | 'paymentSource'
+  | 'paymentCategory'
+  | 'description1'
+  | 'description2'
+  | 'paymentReason'
+  | 'expenseType'
+  | 'commissionShape'
+  | 'commissionType'
+  | 'userName'
+  | 'receiptCount';
+
 const endpointByMode: Record<PaymentsMode, string> = {
   incoming: '/api/incoming-payments',
   outgoing: '/api/outgoing-payments'
@@ -143,6 +161,8 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
   const [receiptUploading, setReceiptUploading] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [filters, setFilters] = useState({ ...EMPTY_PAYMENT_FILTERS });
+  const [sortBy, setSortBy] = useState<PaymentSortKey>('sequenceNumber');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
   const title = mode === 'incoming' ? 'Gelen Ödemeler' : 'Giden Ödemeler';
   const endpoint = endpointByMode[mode];
@@ -274,6 +294,11 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
   }, [mode, currentUser.id, currentUser.role]);
 
   useEffect(() => {
+    setSortBy('sequenceNumber');
+    setSortDir('desc');
+  }, [mode]);
+
+  useEffect(() => {
     if (!isAdmin) return;
     const loadUsers = async () => {
       try {
@@ -321,11 +346,6 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
     if (typeof clearInitialListFilters === 'function') clearInitialListFilters();
   }, [initialListFilters, clearInitialListFilters, mode]);
 
-  const sortedRows = useMemo(
-    () => [...rows].sort((a, b) => (b.sequenceNumber || 0) - (a.sequenceNumber || 0)),
-    [rows]
-  );
-
   const filteredRows = useMemo(() => {
     const dateFrom = filters.dateFrom;
     const dateTo = filters.dateTo;
@@ -333,7 +353,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
     const amountMin = filters.amountMin !== '' ? Number(filters.amountMin) : null;
     const amountMax = filters.amountMax !== '' ? Number(filters.amountMax) : null;
 
-    return sortedRows.filter((row) => {
+    return rows.filter((row) => {
       if (dateFrom && row.paymentDate < dateFrom) return false;
       if (dateTo && row.paymentDate > dateTo) return false;
       if (!matchesMultiFilter(row.currency, filters.currencies)) return false;
@@ -372,9 +392,58 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
 
       return true;
     });
-  }, [sortedRows, filters, mode, paymentSources]);
+  }, [rows, filters, mode, paymentSources]);
 
-  const selectedRows = useMemo(() => filteredRows.filter(r => selectedIds.has(r.id)), [filteredRows, selectedIds]);
+  const paymentSortValue = (row: Row, key: PaymentSortKey): string | number => {
+    if (key === 'sequenceNumber') return Number(row.sequenceNumber) || 0;
+    if (key === 'paymentDate') return row.paymentDate || '';
+    if (key === 'periodName') return row.periodName || '';
+    if (key === 'paymentAmount') return Number(row.paymentAmount) || 0;
+    if (key === 'currency') return row.currency || '';
+    if (key === 'receiptCount') return row.receiptFiles?.length || 0;
+    if (mode === 'incoming') {
+      const incoming = row as IncomingPaymentRow;
+      if (key === 'paymentType') return formatIncomingPaymentType(incoming.paymentType);
+      if (key === 'paymentSource') return incoming.paymentSource || '';
+      if (key === 'paymentCategory') return incoming.paymentCategory || '';
+      if (key === 'description1') return incoming.description1 || '';
+      if (key === 'description2') return incoming.description2 || '';
+      return '';
+    }
+    const outgoing = row as OutgoingPaymentRow;
+    if (key === 'paymentType') return outgoing.paymentType === 'Cash' ? 'Nakit' : 'Banka';
+    if (key === 'paymentReason') return formatOutgoingPaymentDisplay(outgoing.paymentReason);
+    if (key === 'expenseType') return outgoing.expenseType ? formatExpenseTypeDisplay(outgoing.expenseType) : '';
+    if (key === 'commissionShape') return outgoing.commissionShape ? formatCommissionShapeDisplay(outgoing.commissionShape) : '';
+    if (key === 'commissionType') return outgoing.commissionType ? formatCommissionTypeDisplay(outgoing.commissionType) : '';
+    if (key === 'userName') return outgoing.userName || '';
+    if (key === 'description1') return outgoing.description1 || '';
+    return '';
+  };
+
+  const displayRows = useMemo(() => {
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return [...filteredRows].sort((a, b) => {
+      const va = paymentSortValue(a, sortBy);
+      const vb = paymentSortValue(b, sortBy);
+      let cmp = 0;
+      if (typeof va === 'number' && typeof vb === 'number') cmp = va - vb;
+      else cmp = String(va).localeCompare(String(vb), 'tr', { numeric: true, sensitivity: 'base' });
+      if (cmp === 0) return (Number(b.sequenceNumber) || 0) - (Number(a.sequenceNumber) || 0);
+      return cmp * dir;
+    });
+  }, [filteredRows, sortBy, sortDir, mode]);
+
+  const toggleSort = (key: PaymentSortKey) => {
+    if (sortBy === key) {
+      setSortDir((current) => (current === 'asc' ? 'desc' : 'asc'));
+      return;
+    }
+    setSortBy(key);
+    setSortDir(key === 'sequenceNumber' || key === 'paymentDate' || key === 'paymentAmount' || key === 'receiptCount' ? 'desc' : 'asc');
+  };
+
+  const selectedRows = useMemo(() => displayRows.filter(r => selectedIds.has(r.id)), [displayRows, selectedIds]);
   const allFilteredSelected = filteredRows.length > 0 && filteredRows.every(r => selectedIds.has(r.id));
 
   const filteredTotalsByCurrency = useMemo(() => {
@@ -621,6 +690,20 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
     setShowForm(false);
     resetForm();
   };
+
+  const SortTh = ({ colKey, label, className = '' }: { colKey: PaymentSortKey; label: string; className?: string }) => (
+    <th
+      className={`px-4 py-3 cursor-pointer select-none hover:bg-gray-100 ${className}`}
+      onClick={() => toggleSort(colKey)}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {sortBy === colKey
+          ? (sortDir === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />)
+          : <ChevronDown size={14} className="opacity-30" />}
+      </span>
+    </th>
+  );
 
   if (!isAdmin) {
     return (
@@ -1315,32 +1398,32 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
                     <th className="px-4 py-3">
                       <input type="checkbox" checked={allFilteredSelected} onChange={toggleAllFiltered} />
                     </th>
-                    <th className="px-4 py-3">Sequence No</th>
-                    <th className="px-4 py-3">Ödeme Tarihi</th>
-                    <th className="px-4 py-3">{t.period}</th>
+                    <SortTh colKey="sequenceNumber" label="Sequence No" />
+                    <SortTh colKey="paymentDate" label="Ödeme Tarihi" />
+                    <SortTh colKey="periodName" label={t.period} />
                     {mode === 'incoming' ? (
                       <>
-                        <th className="px-4 py-3">Ödeme Miktarı</th>
-                        <th className="px-4 py-3">Currency</th>
-                        <th className="px-4 py-3">Ödeme Türü</th>
-                        <th className="px-4 py-3">Ödeme Kaynağı</th>
-                        <th className="px-4 py-3">Ödeme Kategorisi</th>
-                        <th className="px-4 py-3">Açıklama 1</th>
-                        <th className="px-4 py-3">Açıklama 2</th>
-                        <th className="px-4 py-3">Dekont</th>
+                        <SortTh colKey="paymentAmount" label="Ödeme Miktarı" />
+                        <SortTh colKey="currency" label="Currency" />
+                        <SortTh colKey="paymentType" label="Ödeme Türü" />
+                        <SortTh colKey="paymentSource" label="Ödeme Kaynağı" />
+                        <SortTh colKey="paymentCategory" label="Ödeme Kategorisi" />
+                        <SortTh colKey="description1" label="Açıklama 1" />
+                        <SortTh colKey="description2" label="Açıklama 2" />
+                        <SortTh colKey="receiptCount" label="Dekont" />
                       </>
                     ) : (
                       <>
-                        <th className="px-4 py-3">Ödeme Miktarı</th>
-                        <th className="px-4 py-3">Currency</th>
-                        <th className="px-4 py-3">Ödeme Türü</th>
-                        <th className="px-4 py-3">Ödeme Sebebi</th>
-                        <th className="px-4 py-3">Masraf Tipi</th>
-                        <th className="px-4 py-3">Komisyon Şekli</th>
-                        <th className="px-4 py-3">Komisyon Tipi</th>
-                        <th className="px-4 py-3">Kullanıcı</th>
-                        <th className="px-4 py-3">Açıklama 1</th>
-                        <th className="px-4 py-3">Dekont</th>
+                        <SortTh colKey="paymentAmount" label="Ödeme Miktarı" />
+                        <SortTh colKey="currency" label="Currency" />
+                        <SortTh colKey="paymentType" label="Ödeme Türü" />
+                        <SortTh colKey="paymentReason" label="Ödeme Sebebi" />
+                        <SortTh colKey="expenseType" label="Masraf Tipi" />
+                        <SortTh colKey="commissionShape" label="Komisyon Şekli" />
+                        <SortTh colKey="commissionType" label="Komisyon Tipi" />
+                        <SortTh colKey="userName" label="Kullanıcı" />
+                        <SortTh colKey="description1" label="Açıklama 1" />
+                        <SortTh colKey="receiptCount" label="Dekont" />
                       </>
                     )}
                     <th className="px-4 py-3 text-right">İşlem</th>
@@ -1355,7 +1438,7 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
                     <tr>
                       <td colSpan={15} className="px-4 py-8 text-center text-gray-500">Kayıt bulunamadı</td>
                     </tr>
-                  ) : filteredRows.map((row) => (
+                  ) : displayRows.map((row) => (
                     <tr
                       key={row.id}
                       className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer"

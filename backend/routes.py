@@ -763,6 +763,15 @@ def _require_manager():
     return None
 
 
+def _caller_role():
+    """Caller role from the query string or session. Ignores JSON body role, which is often the record being saved."""
+    q_role = (request.args.get('role') or '').strip().upper()
+    if q_role:
+        return q_role
+    user = _session_user()
+    return (user.role or '').upper() if user else ''
+
+
 def _can_see_finance():
     return _effective_role() in FINANCE_ROLES
 
@@ -809,6 +818,124 @@ def _normalize_degree_commissions(rows):
         seen.add(degree)
         out.append(item)
     return out
+
+
+def _normalize_default_agency_commissions(rows):
+    out = []
+    seen = set()
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        degree = (row.get('degree') or '').strip()
+        commission_kind = (row.get('commissionKind') or '').strip()
+        if (degree and degree not in DEGREE_COMMISSION_DEGREES) or commission_kind not in ('rate', 'amount'):
+            continue
+        if degree in seen:
+            continue
+        try:
+            commission_value = float(row.get('commissionValue'))
+        except (TypeError, ValueError):
+            continue
+        deposit_support = None
+        if row.get('depositSupport') not in (None, ''):
+            try:
+                deposit_support = float(row.get('depositSupport'))
+            except (TypeError, ValueError):
+                continue
+        seen.add(degree)
+        out.append({
+            'degree': degree,
+            'commissionKind': commission_kind,
+            'commissionValue': commission_value,
+            'depositSupport': deposit_support
+        })
+    return out
+
+
+def _default_agency_commissions_have_duplicate(rows):
+    seen = set()
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        degree = (row.get('degree') or '').strip()
+        commission_kind = (row.get('commissionKind') or '').strip()
+        if (degree and degree not in DEGREE_COMMISSION_DEGREES) or commission_kind not in ('rate', 'amount'):
+            continue
+        if degree in seen:
+            return True
+        seen.add(degree)
+    return False
+
+
+def _propagate_new_default_agency_commissions(university_id, previous_rows, new_rows):
+    """Add newly introduced university default rows onto every agent who lacks that degree."""
+    previous_degrees = set()
+    for row in previous_rows or []:
+        if isinstance(row, dict):
+            previous_degrees.add((row.get('degree') or '').strip())
+    added = [row for row in (new_rows or []) if (row.get('degree') or '') not in previous_degrees]
+    if not added or not university_id:
+        return
+    agents = [u for u in User.query.all() if (u.role or '').strip().lower() == 'agent']
+    if not agents:
+        return
+    agent_ids = [u.id for u in agents]
+    existing = UserUniversityCommission.query.filter(
+        UserUniversityCommission.university_id == university_id,
+        UserUniversityCommission.user_id.in_(agent_ids)
+    ).all()
+    have = {(row.user_id, (getattr(row, 'degree', None) or '')) for row in existing}
+    for agent in agents:
+        for row in added:
+            degree_key = (row.get('degree') or '').strip()
+            key = (agent.id, degree_key)
+            if key in have:
+                continue
+            db.session.add(UserUniversityCommission(
+                id=str(uuid.uuid4()),
+                user_id=agent.id,
+                university_id=university_id,
+                degree=degree_key or None,
+                commission_kind=row['commissionKind'],
+                commission_value=row['commissionValue'],
+                deposit_support=row.get('depositSupport')
+            ))
+            have.add(key)
+
+
+def _apply_university_default_commissions_to_agent(user_id):
+    """Copy every university default agency commission onto an agent if that degree is missing."""
+    if not user_id:
+        return
+    existing = UserUniversityCommission.query.filter_by(user_id=user_id).all()
+    have = {(row.university_id, (getattr(row, 'degree', None) or '')) for row in existing}
+    for university in University.query.all():
+        for row in _normalize_default_agency_commissions(getattr(university, 'default_agency_commissions', None) or []):
+            degree_key = (row.get('degree') or '').strip()
+            key = (university.id, degree_key)
+            if key in have:
+                continue
+            db.session.add(UserUniversityCommission(
+                id=str(uuid.uuid4()),
+                user_id=user_id,
+                university_id=university.id,
+                degree=degree_key or None,
+                commission_kind=row['commissionKind'],
+                commission_value=row['commissionValue'],
+                deposit_support=row.get('depositSupport')
+            ))
+            have.add(key)
+
+
+def _serialize_user_commissions(user_id):
+    return [{
+        'id': row.id,
+        'universityId': row.university_id,
+        'degree': getattr(row, 'degree', None) or '',
+        'commissionKind': row.commission_kind,
+        'commissionValue': row.commission_value,
+        'depositSupport': row.deposit_support
+    } for row in UserUniversityCommission.query.filter_by(user_id=user_id).all()]
 
 
 def _university_degree_commission(university, degree):
@@ -1111,10 +1238,10 @@ def _compute_application_finance(
 # إضافة مستخدم جديد (خاص بالمسؤول)
 @api_bp.route('/users', methods=['POST'])
 def add_user():
-    manager_err = _require_manager()
-    if manager_err:
-        return manager_err
-    data = request.json
+    caller_role = _caller_role()
+    if caller_role not in MANAGER_ROLES:
+        return jsonify({'message': 'Only admin or operator can access this endpoint'}), 403
+    data = request.json or {}
     if not data.get('name') or not data.get('email') or not data.get('password'):
         return jsonify({'message': 'يجب تعبئة جميع الحقول'}), 400
     if User.query.filter_by(email=data['email']).first():
@@ -1135,14 +1262,19 @@ def add_user():
     )
     db.session.add(user)
     db.session.flush()
-    if _can_see_finance() and (user.role or '').lower() == 'agent':
-        raw_commissions = data.get('agentCommissions')
-        if _agent_commissions_have_duplicate(raw_commissions):
-            db.session.rollback()
-            return jsonify({'message': 'Aynı acente, üniversite ve derece için iki satır eklenemez'}), 400
-        _replace_user_agent_commissions(user.id, _normalize_agent_commissions(raw_commissions))
+    if (user.role or '').strip().lower() == 'agent':
+        if caller_role in FINANCE_ROLES and 'agentCommissions' in data:
+            raw_commissions = data.get('agentCommissions')
+            if _agent_commissions_have_duplicate(raw_commissions):
+                db.session.rollback()
+                return jsonify({'message': 'Aynı acente, üniversite ve derece için iki satır eklenemez'}), 400
+            _replace_user_agent_commissions(user.id, _normalize_agent_commissions(raw_commissions))
+        _apply_university_default_commissions_to_agent(user.id)
     db.session.commit()
-    return jsonify({'message': 'تمت إضافة المستخدم', 'id': user.id}), 201
+    payload = {'message': 'تمت إضافة المستخدم', 'id': user.id}
+    if (user.role or '').strip().lower() == 'agent':
+        payload['agentCommissions'] = _serialize_user_commissions(user.id)
+    return jsonify(payload), 201
 
 # تحديث الملف الشخصي (كلمة السر والهاتف)
 @api_bp.route('/users/update-profile', methods=['PUT'])
@@ -1412,6 +1544,7 @@ def update_user(user_id):
     if not user:
         return jsonify({'message': 'Kullanıcı bulunamadı'}), 404
     data = request.json or {}
+    previous_role = (user.role or '').strip().lower()
     if 'name' in data:
         user.name = data['name']
     if 'email' in data:
@@ -1442,8 +1575,14 @@ def update_user(user_id):
             return jsonify({'message': 'Aynı acente, üniversite ve derece için iki satır eklenemez'}), 400
         rows = _normalize_agent_commissions(raw_commissions)
         _replace_user_agent_commissions(user.id, rows if (user.role or '').lower() == 'agent' else [])
+    became_agent = previous_role != 'agent' and (user.role or '').strip().lower() == 'agent'
+    if became_agent:
+        _apply_university_default_commissions_to_agent(user.id)
     db.session.commit()
-    return jsonify({'message': 'تم تحديث المستخدم', 'id': user.id}), 200
+    payload = {'message': 'تم تحديث المستخدم', 'id': user.id}
+    if (user.role or '').strip().lower() == 'agent':
+        payload['agentCommissions'] = _serialize_user_commissions(user.id)
+    return jsonify(payload), 200
 
 
 @api_bp.route('/users/<user_id>/statement', methods=['GET'])
@@ -1767,7 +1906,8 @@ def get_universities():
                 'commissionValue': getattr(u, 'commission_value', None),
                 'bonusMax': getattr(u, 'bonus_max', None),
                 'bonusMin': getattr(u, 'bonus_min', None),
-                'degreeCommissions': getattr(u, 'degree_commissions', None) or []
+                'degreeCommissions': getattr(u, 'degree_commissions', None) or [],
+                'defaultAgencyCommissions': getattr(u, 'default_agency_commissions', None) or []
             })
         rows.append(item)
     return jsonify(rows)
@@ -1779,7 +1919,7 @@ def add_university():
     if user_role == 'agent':
         return jsonify({'message': 'Agents are not allowed to add universities'}), 403
     if not _can_see_finance():
-        for key in ('educationVatRate', 'abroadVatRate', 'commissionKind', 'commissionValue', 'bonusMax', 'bonusMin', 'degreeCommissions'):
+        for key in ('educationVatRate', 'abroadVatRate', 'commissionKind', 'commissionValue', 'bonusMax', 'bonusMin', 'degreeCommissions', 'defaultAgencyCommissions'):
             data.pop(key, None)
     evr = data.get('educationVatRate')
     if evr is not None and evr != '':
@@ -1832,6 +1972,11 @@ def add_university():
     degree_commissions = None
     if 'degreeCommissions' in data:
         degree_commissions = _normalize_degree_commissions(data.get('degreeCommissions'))
+    default_agency_commissions = None
+    if 'defaultAgencyCommissions' in data:
+        if _default_agency_commissions_have_duplicate(data.get('defaultAgencyCommissions')):
+            return jsonify({'message': 'Aynı üniversite için varsayılan acente komisyonlarında aynı derece iki kez eklenemez'}), 400
+        default_agency_commissions = _normalize_default_agency_commissions(data.get('defaultAgencyCommissions'))
 
     university = University(
         id=str(uuid.uuid4()),
@@ -1847,9 +1992,13 @@ def add_university():
         commission_value=cv,
         bonus_max=bmax,
         bonus_min=bmin,
-        degree_commissions=degree_commissions
+        degree_commissions=degree_commissions,
+        default_agency_commissions=default_agency_commissions
     )
     db.session.add(university)
+    db.session.flush()
+    if default_agency_commissions:
+        _propagate_new_default_agency_commissions(university.id, [], default_agency_commissions)
     db.session.commit()
     return jsonify({'message': 'University added', 'id': university.id, 'logo': university.logo}), 201
 
@@ -1994,7 +2143,7 @@ def update_university(uni_id):
         return jsonify({'message': 'الجامعة غير موجودة'}), 404
     data = request.json
     if not _can_see_finance():
-        for key in ('educationVatRate', 'abroadVatRate', 'commissionKind', 'commissionValue', 'bonusMax', 'bonusMin', 'degreeCommissions'):
+        for key in ('educationVatRate', 'abroadVatRate', 'commissionKind', 'commissionValue', 'bonusMax', 'bonusMin', 'degreeCommissions', 'defaultAgencyCommissions'):
             data.pop(key, None)
     university.name = data.get('name', university.name)
     university.website = data.get('website', university.website)
@@ -2062,6 +2211,14 @@ def update_university(uni_id):
                 return jsonify({'message': 'bonusMin must be a number'}), 400
     if 'degreeCommissions' in data:
         university.degree_commissions = _normalize_degree_commissions(data.get('degreeCommissions'))
+    if 'defaultAgencyCommissions' in data:
+        if _default_agency_commissions_have_duplicate(data.get('defaultAgencyCommissions')):
+            db.session.rollback()
+            return jsonify({'message': 'Aynı üniversite için varsayılan acente komisyonlarında aynı derece iki kez eklenemez'}), 400
+        previous_defaults = list(getattr(university, 'default_agency_commissions', None) or [])
+        normalized_defaults = _normalize_default_agency_commissions(data.get('defaultAgencyCommissions'))
+        university.default_agency_commissions = normalized_defaults
+        _propagate_new_default_agency_commissions(university.id, previous_defaults, normalized_defaults)
     db.session.commit()
     return jsonify({'message': 'تم تحديث الجامعة', 'id': university.id}), 200
 

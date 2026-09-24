@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { University, Program, User, UserRole, UniversityDegreeCommission } from '../types';
+import { University, Program, User, UserRole, UniversityDegreeCommission, UniversityDefaultAgencyCommission } from '../types';
 import { canManageCatalog, canSeeFinance } from '../utils/roles';
 import {
   Plus, Globe, Sparkles, X, Image, Pencil, Trash2,
@@ -27,6 +27,20 @@ const EMPTY_DEGREE_COMMISSION_ROW: DegreeCommissionFormRow = {
   commissionValue: '',
   bonusMin: '',
   bonusMax: ''
+};
+
+type DefaultAgencyCommissionFormRow = {
+  degree: '' | typeof DEGREE_COMMISSION_OPTIONS[number];
+  commissionKind: '' | 'rate' | 'amount';
+  commissionValue: string;
+  depositSupport: string;
+};
+
+const EMPTY_DEFAULT_AGENCY_ROW: DefaultAgencyCommissionFormRow = {
+  degree: '',
+  commissionKind: '',
+  commissionValue: '',
+  depositSupport: ''
 };
 
 interface UniversityManagerProps {
@@ -143,6 +157,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
         bonusMax: fresh.bonusMax ?? prev.bonusMax,
         bonusMin: fresh.bonusMin ?? prev.bonusMin,
         degreeCommissions: fresh.degreeCommissions ?? prev.degreeCommissions,
+        defaultAgencyCommissions: fresh.defaultAgencyCommissions ?? prev.defaultAgencyCommissions,
       };
     });
   }, [universities, detailUni?.id]);
@@ -155,6 +170,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
   /* -------- Form State -------- */
   const [formData, setFormData] = useState<Partial<University>>(EMPTY_FORM);
   const [degreeCommissionRows, setDegreeCommissionRows] = useState<DegreeCommissionFormRow[]>([]);
+  const [defaultAgencyRows, setDefaultAgencyRows] = useState<DefaultAgencyCommissionFormRow[]>([]);
   const [loadingAi, setLoadingAi] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
@@ -184,6 +200,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
     setDetailUni(null);
     setFormData(EMPTY_FORM); setLogoPreview(null); setLogoBase64(null);
     setDegreeCommissionRows([]);
+    setDefaultAgencyRows([]);
     setEditingId(null); setModalMode('add');
   };
   const openEdit = (uni: University, e: React.MouseEvent) => {
@@ -212,12 +229,21 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
         bonusMax: row.bonusMax != null && !Number.isNaN(Number(row.bonusMax)) ? String(row.bonusMax) : ''
       }))
     );
+    setDefaultAgencyRows(
+      (uni.defaultAgencyCommissions || []).map((row) => ({
+        degree: (row.degree || '') as DefaultAgencyCommissionFormRow['degree'],
+        commissionKind: row.commissionKind,
+        commissionValue: String(row.commissionValue),
+        depositSupport: row.depositSupport != null && !Number.isNaN(Number(row.depositSupport)) ? String(row.depositSupport) : ''
+      }))
+    );
     setLogoPreview(uni.logo || null); setLogoBase64(uni.logo || null);
     setEditingId(uni.id); setModalMode('edit');
   };
   const closeModal = () => {
     setModalMode(null); setEditingId(null); setFormData(EMPTY_FORM);
     setDegreeCommissionRows([]);
+    setDefaultAgencyRows([]);
     setLogoPreview(null); setLogoBase64(null);
     if (logoInputRef.current) logoInputRef.current.value = '';
   };
@@ -264,6 +290,46 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
       }
       seen.add(degree);
       out.push({ degree, commissionKind: kind, commissionValue: value, bonusMin, bonusMax });
+    }
+    return out;
+  };
+
+  const parseDefaultAgencyCommissions = (): UniversityDefaultAgencyCommission[] | null => {
+    const out: UniversityDefaultAgencyCommission[] = [];
+    const seen = new Set<string>();
+    for (const row of defaultAgencyRows) {
+      const degree = row.degree;
+      const kind = row.commissionKind;
+      const raw = row.commissionValue.trim();
+      const depositRaw = row.depositSupport.trim();
+      const blank = !kind && raw === '' && depositRaw === '';
+      if (blank && !degree) continue;
+      if (!kind || raw === '') {
+        alert('Varsayılan acente komisyon satırlarında komisyon tipi ve tutar/oran zorunludur.');
+        return null;
+      }
+      const value = Number(raw);
+      if (!Number.isFinite(value)) {
+        alert('Varsayılan acente komisyon tutar/oran değeri geçerli bir sayı olmalıdır.');
+        return null;
+      }
+      let depositSupport: number | null = null;
+      if (depositRaw !== '') {
+        depositSupport = Number(depositRaw);
+        if (!Number.isFinite(depositSupport)) {
+          alert('Depozito desteği geçerli bir sayı olmalıdır.');
+          return null;
+        }
+      }
+      const degreeKey = degree || '';
+      if (seen.has(degreeKey)) {
+        alert(degreeKey
+          ? 'Aynı derece için birden fazla varsayılan acente komisyon satırı eklenemez.'
+          : 'Tümü / Seçilmedi için yalnızca bir satır eklenebilir.');
+        return null;
+      }
+      seen.add(degreeKey);
+      out.push({ degree: degreeKey, commissionKind: kind, commissionValue: value, depositSupport });
     }
     return out;
   };
@@ -358,6 +424,8 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
     }
     const degreeCommissions = canEditFinance ? parseDegreeCommissions() : [];
     if (canEditFinance && degreeCommissions === null) return;
+    const defaultAgencyCommissions = canEditFinance ? parseDefaultAgencyCommissions() : [];
+    if (canEditFinance && defaultAgencyCommissions === null) return;
     const uniData: University = {
       id: editingId || Date.now().toString(),
       name: formData.name, website: formData.website,
@@ -366,7 +434,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
       description: formData.description,
       logo: logoBase64 || undefined,
       ...(canEditFinance ? adminFin : {}),
-      ...(canEditFinance ? { degreeCommissions: degreeCommissions || [] } : {})
+      ...(canEditFinance ? { degreeCommissions: degreeCommissions || [], defaultAgencyCommissions: defaultAgencyCommissions || [] } : {})
     };
     if (modalMode === 'edit') {
       const saved = await Promise.resolve(onEditUniversity(uniData));
@@ -752,6 +820,35 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                       </div>
                     </div>
                   )}
+                  {(detailUni.defaultAgencyCommissions || []).length > 0 && (
+                    <div className="mt-4">
+                      <h4 className="text-xs font-semibold text-amber-900/80 uppercase tracking-wide mb-2">Varsayılan acente komisyonları</h4>
+                      <div className="overflow-x-auto rounded-xl border border-amber-100 bg-white">
+                        <table className="w-full text-sm">
+                          <thead className="bg-amber-50/80">
+                            <tr>
+                              <th className="px-3 py-2 text-left font-semibold text-gray-700">Derece</th>
+                              <th className="px-3 py-2 text-left font-semibold text-gray-700">Komisyon tipi</th>
+                              <th className="px-3 py-2 text-left font-semibold text-gray-700">Tutar / Oran</th>
+                              <th className="px-3 py-2 text-left font-semibold text-gray-700">Depozito desteği</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100">
+                            {(detailUni.defaultAgencyCommissions || []).map((row) => (
+                              <tr key={`default-agency-${row.degree || 'all'}`}>
+                                <td className="px-3 py-2">{row.degree ? translateDegree(row.degree) : 'Tümü / Seçilmedi'}</td>
+                                <td className="px-3 py-2">{row.commissionKind === 'rate' ? 'Oran' : 'Sabit tutar'}</td>
+                                <td className="px-3 py-2">
+                                  {row.commissionKind === 'rate' ? `${row.commissionValue}%` : row.commissionValue}
+                                </td>
+                                <td className="px-3 py-2">{row.depositSupport != null ? row.depositSupport : '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
                 </section>
               )}
             </div>
@@ -1016,6 +1113,93 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                             </button>
                           </div>
                         ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="border-t border-amber-200 pt-4 space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <h4 className="text-sm font-bold text-amber-900">Varsayılan acente komisyonları</h4>
+                        <p className="text-xs text-amber-800/80">Tümü / Seçilmedi dahil her seçenek için en fazla bir satır. Yeni satır kaydedilince bu üniversite için tüm temsilcilere eklenir; temsilcide aynı derece varsa tekrar yazılmaz.</p>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={defaultAgencyRows.length >= DEGREE_COMMISSION_OPTIONS.length + 1}
+                        onClick={() => setDefaultAgencyRows(prev => [...prev, { ...EMPTY_DEFAULT_AGENCY_ROW }])}
+                        className="inline-flex items-center gap-1 text-sm px-3 py-1.5 rounded-lg bg-amber-100 text-amber-900 hover:bg-amber-200 disabled:opacity-40"
+                      >
+                        <Plus size={14} />
+                        Satır Ekle
+                      </button>
+                    </div>
+                    {defaultAgencyRows.length === 0 ? (
+                      <p className="text-xs text-gray-500">Henüz varsayılan acente komisyon satırı yok.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {defaultAgencyRows.map((row, idx) => {
+                          const usedDegrees = new Set(defaultAgencyRows.filter((_, i) => i !== idx).map((r) => r.degree || ''));
+                          return (
+                            <div key={idx} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1.1fr_1.1fr_0.9fr_0.9fr_auto] gap-2 items-end bg-white/80 rounded-xl p-2 border border-amber-100">
+                              <div>
+                                <label className="block text-xs font-medium text-gray-600 mb-1">Derece *</label>
+                                <select
+                                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+                                  value={row.degree}
+                                  onChange={(e) => setDefaultAgencyRows(prev => prev.map((r, i) => i === idx ? { ...r, degree: e.target.value as DefaultAgencyCommissionFormRow['degree'] } : r))}
+                                >
+                                  <option value="" disabled={usedDegrees.has('') && row.degree !== ''}>Tümü / Seçilmedi</option>
+                                  {DEGREE_COMMISSION_OPTIONS.filter((degree) => degree === row.degree || !usedDegrees.has(degree)).map((degree) => (
+                                    <option key={degree} value={degree}>{translateDegree(degree)}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-gray-600 mb-1">Komisyon tipi *</label>
+                                <select
+                                  required
+                                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+                                  value={row.commissionKind}
+                                  onChange={(e) => setDefaultAgencyRows(prev => prev.map((r, i) => i === idx ? { ...r, commissionKind: e.target.value as DefaultAgencyCommissionFormRow['commissionKind'] } : r))}
+                                >
+                                  <option value="">Seçiniz</option>
+                                  <option value="rate">Oran</option>
+                                  <option value="amount">Sabit tutar</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-gray-600 mb-1">
+                                  {row.commissionKind === 'rate' ? 'Oran (%) *' : row.commissionKind === 'amount' ? 'Tutar *' : 'Tutar / oran *'}
+                                </label>
+                                <input
+                                  required
+                                  type="number"
+                                  step="any"
+                                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+                                  value={row.commissionValue}
+                                  onChange={(e) => setDefaultAgencyRows(prev => prev.map((r, i) => i === idx ? { ...r, commissionValue: e.target.value } : r))}
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-gray-600 mb-1">Depozito desteği</label>
+                                <input
+                                  type="number"
+                                  step="any"
+                                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+                                  value={row.depositSupport}
+                                  onChange={(e) => setDefaultAgencyRows(prev => prev.map((r, i) => i === idx ? { ...r, depositSupport: e.target.value } : r))}
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setDefaultAgencyRows(prev => prev.filter((_, i) => i !== idx))}
+                                className="p-2 rounded-lg bg-red-50 text-red-600 hover:bg-red-100"
+                                title={t.delete}
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>

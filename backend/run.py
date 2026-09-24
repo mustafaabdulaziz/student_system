@@ -73,7 +73,8 @@ if __name__ == '__main__':
                 ('commission_value', 'FLOAT'),
                 ('bonus_max', 'FLOAT'),
                 ('bonus_min', 'FLOAT'),
-                ('degree_commissions', 'JSON')
+                ('degree_commissions', 'JSON'),
+                ('default_agency_commissions', 'JSON')
             ]:
                 if col not in uni_cols2:
                     try:

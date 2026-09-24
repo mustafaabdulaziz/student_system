@@ -44,6 +44,13 @@ interface AgentCommissionsPageProps {
     depositSupport?: number | null;
   }) => Promise<boolean>;
   onDelete: (id: string) => Promise<boolean>;
+  onAddDefault: (payload: {
+    universityId: string;
+    degree: '' | 'Diploma' | 'Bachelor' | 'Master' | 'PhD';
+    commissionKind: 'rate' | 'amount';
+    commissionValue: number;
+    depositSupport?: number | null;
+  }) => Promise<boolean>;
 }
 
 export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
@@ -52,7 +59,8 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
   universities,
   onAdd,
   onEdit,
-  onDelete
+  onDelete,
+  onAddDefault
 }) => {
   const { t, translateDegree } = useTranslation();
   const [filterAgents, setFilterAgents] = useState<string[]>([]);
@@ -64,6 +72,23 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkSaving, setBulkSaving] = useState(false);
+  const [bulkForm, setBulkForm] = useState({
+    commissionKind: '' as '' | 'rate' | 'amount',
+    commissionValue: '',
+    depositSupport: ''
+  });
+  const [defaultOpen, setDefaultOpen] = useState(false);
+  const [defaultSaving, setDefaultSaving] = useState(false);
+  const [defaultForm, setDefaultForm] = useState({
+    universityId: '',
+    degree: '' as '' | 'Diploma' | 'Bachelor' | 'Master' | 'PhD',
+    commissionKind: '' as '' | 'rate' | 'amount',
+    commissionValue: '',
+    depositSupport: ''
+  });
 
   const agentUsers = useMemo(
     () => users.filter(u => (u.role || '').toString().toLowerCase() === 'agent' && u.active !== false)
@@ -178,6 +203,144 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
 
   const kindLabel = (kind: string) => (kind === 'rate' ? 'Oran (%)' : 'Sabit Tutar');
 
+  const selectedRows = useMemo(
+    () => rows.filter(row => selectedIds.includes(row.id)),
+    [rows, selectedIds]
+  );
+  const allFilteredSelected = filteredRows.length > 0 && filteredRows.every(row => selectedIds.includes(row.id));
+
+  const toggleRow = (id: string) => {
+    setSelectedIds(prev => (prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]));
+  };
+
+  const toggleAllFiltered = () => {
+    setSelectedIds(prev => {
+      if (filteredRows.every(row => prev.includes(row.id))) {
+        const visible = new Set(filteredRows.map(row => row.id));
+        return prev.filter(id => !visible.has(id));
+      }
+      const next = new Set(prev);
+      filteredRows.forEach(row => next.add(row.id));
+      return [...next];
+    });
+  };
+
+  const defaultDegreeOptions = useMemo(() => {
+    const taken = new Set(
+      (universities.find(u => u.id === defaultForm.universityId)?.defaultAgencyCommissions || [])
+        .map(row => row.degree || '')
+    );
+    return ([
+      { value: '' as const, label: 'Tümü / Seçilmedi' },
+      { value: 'Diploma' as const, label: translateDegree('Diploma') },
+      { value: 'Bachelor' as const, label: translateDegree('Bachelor') },
+      { value: 'Master' as const, label: translateDegree('Master') },
+      { value: 'PhD' as const, label: translateDegree('PhD') }
+    ]).filter(option => !taken.has(option.value));
+  }, [universities, defaultForm.universityId, translateDegree]);
+
+  const openDefault = () => {
+    setDefaultForm({
+      universityId: '',
+      degree: '',
+      commissionKind: '',
+      commissionValue: '',
+      depositSupport: ''
+    });
+    setDefaultOpen(true);
+  };
+
+  const handleDefaultSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!defaultForm.universityId || !defaultForm.commissionKind || defaultForm.commissionValue.trim() === '') {
+      alert('Üniversite, komisyon tipi ve tutar/oran zorunludur.');
+      return;
+    }
+    if (!defaultDegreeOptions.some(option => option.value === defaultForm.degree)) {
+      alert('Bu üniversite için aynı derece varsayılan acente komisyonlarında zaten var.');
+      return;
+    }
+    const commissionValue = Number(defaultForm.commissionValue);
+    if (!Number.isFinite(commissionValue)) {
+      alert('Tutar/oran geçerli bir sayı olmalıdır.');
+      return;
+    }
+    let depositSupport: number | null = null;
+    if (defaultForm.depositSupport.trim() !== '') {
+      depositSupport = Number(defaultForm.depositSupport);
+      if (!Number.isFinite(depositSupport)) {
+        alert('Depozito desteği geçerli bir sayı olmalıdır.');
+        return;
+      }
+    }
+    setDefaultSaving(true);
+    try {
+      const ok = await onAddDefault({
+        universityId: defaultForm.universityId,
+        degree: defaultForm.degree,
+        commissionKind: defaultForm.commissionKind,
+        commissionValue,
+        depositSupport
+      });
+      if (ok) setDefaultOpen(false);
+    } finally {
+      setDefaultSaving(false);
+    }
+  };
+
+  const openBulk = () => {
+    if (selectedRows.length === 0) {
+      alert('Toplu düzenlemek için listeden satır seçin.');
+      return;
+    }
+    setBulkForm({ commissionKind: '', commissionValue: '', depositSupport: '' });
+    setBulkOpen(true);
+  };
+
+  const handleBulkSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const kindFilled = bulkForm.commissionKind !== '';
+    const valueFilled = bulkForm.commissionValue.trim() !== '';
+    const depositFilled = bulkForm.depositSupport.trim() !== '';
+    if (!kindFilled && !valueFilled && !depositFilled) {
+      alert('Komisyon tipi, tutar/oran veya depozito desteğinden en az birini doldurun.');
+      return;
+    }
+    let commissionValue: number | null = null;
+    if (valueFilled) {
+      commissionValue = Number(bulkForm.commissionValue);
+      if (!Number.isFinite(commissionValue)) {
+        alert('Tutar/oran geçerli bir sayı olmalıdır.');
+        return;
+      }
+    }
+    let depositSupport: number | null = null;
+    if (depositFilled) {
+      depositSupport = Number(bulkForm.depositSupport);
+      if (!Number.isFinite(depositSupport)) {
+        alert('Depozito desteği geçerli bir sayı olmalıdır.');
+        return;
+      }
+    }
+    setBulkSaving(true);
+    try {
+      for (const row of selectedRows) {
+        const ok = await onEdit(row.id, {
+          userId: row.userId,
+          universityId: row.universityId,
+          degree: row.degree || undefined,
+          commissionKind: kindFilled ? bulkForm.commissionKind as 'rate' | 'amount' : row.commissionKind,
+          commissionValue: valueFilled ? commissionValue as number : row.commissionValue,
+          depositSupport: depositFilled ? depositSupport : (row.depositSupport ?? null)
+        });
+        if (!ok) return;
+      }
+      setBulkOpen(false);
+    } finally {
+      setBulkSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -185,14 +348,33 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
           <h2 className="text-2xl font-bold text-gray-800">Acente Üniversite Komisyonları</h2>
           <p className="text-gray-500">Tüm temsilci komisyonlarını tek listede görüntüle ve düzenle</p>
         </div>
-        <button
-          type="button"
-          onClick={openAdd}
-          className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
-        >
-          <Plus size={18} />
-          Satır Ekle
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={openBulk}
+            disabled={selectedRows.length === 0}
+            className="inline-flex items-center gap-2 bg-white text-gray-800 border border-gray-300 px-4 py-2 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Pencil size={18} />
+            Toplu düzenle{selectedRows.length > 0 ? ` (${selectedRows.length})` : ''}
+          </button>
+          <button
+            type="button"
+            onClick={openDefault}
+            className="inline-flex items-center gap-2 bg-white text-gray-800 border border-gray-300 px-4 py-2 rounded-lg hover:bg-gray-50"
+          >
+            <Plus size={18} />
+            Varsayılan ekle
+          </button>
+          <button
+            type="button"
+            onClick={openAdd}
+            className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+          >
+            <Plus size={18} />
+            Satır Ekle
+          </button>
+        </div>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -344,6 +526,15 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
           <table className="w-full text-sm">
             <thead className="bg-gray-50 text-gray-900 font-bold border-b border-gray-200">
               <tr>
+                <th className="px-4 py-3 text-left w-10">
+                  <input
+                    type="checkbox"
+                    checked={allFilteredSelected}
+                    onChange={toggleAllFiltered}
+                    aria-label="Görünen satırların tümünü seç"
+                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                </th>
                 <th className="px-4 py-3 text-left">Acente</th>
                 <th className="px-4 py-3 text-left">Üniversite</th>
                 <th className="px-4 py-3 text-left">Derece</th>
@@ -355,7 +546,16 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filteredRows.map(row => (
-                <tr key={row.id} className="hover:bg-gray-50">
+                <tr key={row.id} className={`hover:bg-gray-50 ${selectedIds.includes(row.id) ? 'bg-blue-50/60' : ''}`}>
+                  <td className="px-4 py-3">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.includes(row.id)}
+                      onChange={() => toggleRow(row.id)}
+                      aria-label={`${row.userName || 'Satır'} seç`}
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                  </td>
                   <td className="px-4 py-3 font-medium text-gray-900">{row.userName || '—'}</td>
                   <td className="px-4 py-3 text-gray-900">{row.universityName || '—'}</td>
                   <td className="px-4 py-3 text-gray-900">
@@ -392,7 +592,7 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
               ))}
               {filteredRows.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-gray-400">
+                  <td colSpan={8} className="px-4 py-8 text-center text-gray-400">
                     Kayıt bulunamadı
                   </td>
                 </tr>
@@ -401,6 +601,169 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
           </table>
         </div>
       </div>
+
+      {defaultOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-lg font-bold text-gray-800">Varsayılan komisyon ekle</h3>
+              <button type="button" onClick={() => setDefaultOpen(false)} className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg">
+                <X size={18} />
+              </button>
+            </div>
+            <p className="text-sm text-gray-500 mb-4">
+              Satır seçilen üniversitenin varsayılan acente komisyonlarına eklenir ve o dereceyi henüz olmayan temsilcilere yazılır.
+            </p>
+            <form onSubmit={handleDefaultSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Üniversite *</label>
+                <SearchableSelect
+                  value={defaultForm.universityId}
+                  onChange={(value) => {
+                    const taken = new Set(
+                      (universities.find(u => u.id === value)?.defaultAgencyCommissions || []).map(row => row.degree || '')
+                    );
+                    const nextDegree = (['', 'Diploma', 'Bachelor', 'Master', 'PhD'] as const).find(degree => !taken.has(degree)) || '';
+                    setDefaultForm(prev => ({ ...prev, universityId: value, degree: nextDegree }));
+                  }}
+                  options={universityOptions}
+                  placeholder="Üniversite seçin"
+                  searchPlaceholder={t.search}
+                  noResultsText={t.searchNoResults}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Derece *</label>
+                <select
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5"
+                  value={defaultForm.degree}
+                  onChange={(e) => setDefaultForm(prev => ({ ...prev, degree: e.target.value as typeof prev.degree }))}
+                  disabled={!defaultForm.universityId || defaultDegreeOptions.length === 0}
+                >
+                  {defaultDegreeOptions.length === 0 ? (
+                    <option value="">Bu üniversitede eklenecek derece kalmadı</option>
+                  ) : defaultDegreeOptions.map(option => (
+                    <option key={option.value || 'all'} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Komisyon Tipi *</label>
+                <select
+                  required
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5"
+                  value={defaultForm.commissionKind}
+                  onChange={(e) => setDefaultForm(prev => ({ ...prev, commissionKind: e.target.value as '' | 'rate' | 'amount' }))}
+                >
+                  <option value="">Seçiniz</option>
+                  <option value="rate">Oran (%)</option>
+                  <option value="amount">Sabit Tutar</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {defaultForm.commissionKind === 'rate' ? 'Oran (%) *' : 'Tutar / Oran *'}
+                </label>
+                <input
+                  required
+                  type="number"
+                  step="any"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5"
+                  value={defaultForm.commissionValue}
+                  onChange={(e) => setDefaultForm(prev => ({ ...prev, commissionValue: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Depozito Desteği</label>
+                <input
+                  type="number"
+                  step="any"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5"
+                  value={defaultForm.depositSupport}
+                  onChange={(e) => setDefaultForm(prev => ({ ...prev, depositSupport: e.target.value }))}
+                  placeholder="İsteğe bağlı"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-1">
+                <button type="button" onClick={() => setDefaultOpen(false)} className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg">
+                  {t.cancel}
+                </button>
+                <button
+                  type="submit"
+                  disabled={defaultSaving || !defaultForm.universityId || defaultDegreeOptions.length === 0}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {defaultSaving ? t.loading : t.save}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {bulkOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl max-w-lg w-full p-6 shadow-2xl">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-lg font-bold text-gray-800">Toplu düzenle</h3>
+              <button type="button" onClick={() => setBulkOpen(false)} className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg">
+                <X size={18} />
+              </button>
+            </div>
+            <p className="text-sm text-gray-500 mb-4">
+              {selectedRows.length} seçili satır güncellenir. Boş bırakılan alan değişmez; bir, iki veya üç alanı birlikte doldurabilirsiniz.
+            </p>
+            <form onSubmit={handleBulkSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Komisyon Tipi</label>
+                <select
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5"
+                  value={bulkForm.commissionKind}
+                  onChange={(e) => setBulkForm(prev => ({ ...prev, commissionKind: e.target.value as '' | 'rate' | 'amount' }))}
+                >
+                  <option value="">Değiştirme</option>
+                  <option value="rate">Oran (%)</option>
+                  <option value="amount">Sabit Tutar</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Tutar / Oran</label>
+                <input
+                  type="number"
+                  step="any"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5"
+                  value={bulkForm.commissionValue}
+                  onChange={(e) => setBulkForm(prev => ({ ...prev, commissionValue: e.target.value }))}
+                  placeholder="Boş bırakılırsa değişmez"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Depozito Desteği</label>
+                <input
+                  type="number"
+                  step="any"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5"
+                  value={bulkForm.depositSupport}
+                  onChange={(e) => setBulkForm(prev => ({ ...prev, depositSupport: e.target.value }))}
+                  placeholder="Boş bırakılırsa değişmez"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-1">
+                <button type="button" onClick={() => setBulkOpen(false)} className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg">
+                  {t.cancel}
+                </button>
+                <button
+                  type="submit"
+                  disabled={bulkSaving}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {bulkSaving ? t.loading : t.save}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {confirmDeleteId && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
