@@ -28,6 +28,7 @@ import {
 import { CreatedAtRangeFilter } from './CreatedAtRangeFilter';
 import { SavedQuickFilters } from './SavedQuickFilters';
 import { SearchableMultiSelect } from './SearchableMultiSelect';
+import { SearchableSelect } from './SearchableSelect';
 import { useTranslation } from '../hooks/useTranslation';
 import { FILTER_DATE_PRESETS, getDatePreset } from '../utils/datePresets';
 import { matchesMultiFilter } from '../utils/multiFilter';
@@ -1007,18 +1008,20 @@ export const PaymentsManager: React.FC<PaymentsManagerProps> = ({
                 </div>
                 <div>
                   <label className="block text-sm mb-1">Kullanıcı (opsiyonel)</label>
-                  <select
+                  <SearchableSelect
                     value={outgoingForm.userId}
-                    onChange={e => setOutgoingForm(prev => ({ ...prev, userId: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2"
-                  >
-                    <option value="">Seçimsiz</option>
-                    {assignableUsers.map((user) => (
-                      <option key={user.id} value={user.id}>
-                        {user.name} ({String(user.role || '').toLowerCase()})
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(userId) => setOutgoingForm(prev => ({ ...prev, userId }))}
+                    options={[
+                      { value: '', label: 'Seçimsiz' },
+                      ...assignableUsers.map((user) => ({
+                        value: user.id,
+                        label: `${user.name} (${String(user.role || '').toLowerCase()})`
+                      }))
+                    ]}
+                    placeholder="Seçimsiz"
+                    searchPlaceholder={t.search}
+                    noResultsText={t.searchNoResults}
+                  />
                 </div>
                 <div>
                   <label className="block text-sm mb-1">{t.period}</label>
