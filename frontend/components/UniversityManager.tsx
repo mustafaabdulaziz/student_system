@@ -33,6 +33,7 @@ type DefaultAgencyCommissionFormRow = {
   degree: '' | typeof DEGREE_COMMISSION_OPTIONS[number];
   commissionKind: '' | 'rate' | 'amount';
   commissionValue: string;
+  agencyBonus: string;
   depositSupport: string;
 };
 
@@ -40,6 +41,7 @@ const EMPTY_DEFAULT_AGENCY_ROW: DefaultAgencyCommissionFormRow = {
   degree: '',
   commissionKind: '',
   commissionValue: '',
+  agencyBonus: '',
   depositSupport: ''
 };
 
@@ -234,6 +236,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
         degree: (row.degree || '') as DefaultAgencyCommissionFormRow['degree'],
         commissionKind: row.commissionKind,
         commissionValue: String(row.commissionValue),
+        agencyBonus: row.agencyBonus != null && !Number.isNaN(Number(row.agencyBonus)) ? String(row.agencyBonus) : '',
         depositSupport: row.depositSupport != null && !Number.isNaN(Number(row.depositSupport)) ? String(row.depositSupport) : ''
       }))
     );
@@ -301,8 +304,9 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
       const degree = row.degree;
       const kind = row.commissionKind;
       const raw = row.commissionValue.trim();
+      const bonusRaw = row.agencyBonus.trim();
       const depositRaw = row.depositSupport.trim();
-      const blank = !kind && raw === '' && depositRaw === '';
+      const blank = !kind && raw === '' && bonusRaw === '' && depositRaw === '';
       if (blank && !degree) continue;
       if (!kind || raw === '') {
         alert('Varsayılan acente komisyon satırlarında komisyon tipi ve tutar/oran zorunludur.');
@@ -312,6 +316,14 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
       if (!Number.isFinite(value)) {
         alert('Varsayılan acente komisyon tutar/oran değeri geçerli bir sayı olmalıdır.');
         return null;
+      }
+      let agencyBonus: number | null = null;
+      if (bonusRaw !== '') {
+        agencyBonus = Number(bonusRaw);
+        if (!Number.isFinite(agencyBonus)) {
+          alert('Acente bonus geçerli bir sayı olmalıdır.');
+          return null;
+        }
       }
       let depositSupport: number | null = null;
       if (depositRaw !== '') {
@@ -329,7 +341,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
         return null;
       }
       seen.add(degreeKey);
-      out.push({ degree: degreeKey, commissionKind: kind, commissionValue: value, depositSupport });
+      out.push({ degree: degreeKey, commissionKind: kind, commissionValue: value, agencyBonus, depositSupport });
     }
     return out;
   };
@@ -830,6 +842,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                               <th className="px-3 py-2 text-left font-semibold text-gray-700">Derece</th>
                               <th className="px-3 py-2 text-left font-semibold text-gray-700">Komisyon tipi</th>
                               <th className="px-3 py-2 text-left font-semibold text-gray-700">Tutar / Oran</th>
+                              <th className="px-3 py-2 text-left font-semibold text-gray-700">Acente Bonus</th>
                               <th className="px-3 py-2 text-left font-semibold text-gray-700">Depozito desteği</th>
                             </tr>
                           </thead>
@@ -841,6 +854,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                                 <td className="px-3 py-2">
                                   {row.commissionKind === 'rate' ? `${row.commissionValue}%` : row.commissionValue}
                                 </td>
+                                <td className="px-3 py-2">{row.agencyBonus != null ? row.agencyBonus : '—'}</td>
                                 <td className="px-3 py-2">{row.depositSupport != null ? row.depositSupport : '—'}</td>
                               </tr>
                             ))}
@@ -1139,7 +1153,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                         {defaultAgencyRows.map((row, idx) => {
                           const usedDegrees = new Set(defaultAgencyRows.filter((_, i) => i !== idx).map((r) => r.degree || ''));
                           return (
-                            <div key={idx} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1.1fr_1.1fr_0.9fr_0.9fr_auto] gap-2 items-end bg-white/80 rounded-xl p-2 border border-amber-100">
+                            <div key={idx} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1.1fr_1.1fr_0.9fr_0.9fr_0.9fr_auto] gap-2 items-end bg-white/80 rounded-xl p-2 border border-amber-100">
                               <div>
                                 <label className="block text-xs font-medium text-gray-600 mb-1">Derece *</label>
                                 <select
@@ -1177,6 +1191,16 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
                                   value={row.commissionValue}
                                   onChange={(e) => setDefaultAgencyRows(prev => prev.map((r, i) => i === idx ? { ...r, commissionValue: e.target.value } : r))}
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-gray-600 mb-1">Acente Bonus</label>
+                                <input
+                                  type="number"
+                                  step="any"
+                                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+                                  value={row.agencyBonus}
+                                  onChange={(e) => setDefaultAgencyRows(prev => prev.map((r, i) => i === idx ? { ...r, agencyBonus: e.target.value } : r))}
                                 />
                               </div>
                               <div>

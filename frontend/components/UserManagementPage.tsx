@@ -34,6 +34,7 @@ const EMPTY_COMMISSION_ROW: AgentCommission = {
   degree: '',
   commissionKind: 'rate',
   commissionValue: 0,
+  agencyBonus: null,
   depositSupport: null
 };
 
@@ -182,6 +183,7 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
         degree: r.degree || '',
         commissionKind: r.commissionKind,
         commissionValue: r.commissionValue,
+        agencyBonus: r.agencyBonus ?? null,
         depositSupport: r.depositSupport ?? null
       }))
     );
@@ -480,6 +482,7 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
                         <th className="px-3 py-2 text-left font-semibold text-gray-700">Derece</th>
                         <th className="px-3 py-2 text-left font-semibold text-gray-700">Komisyon Tipi</th>
                         <th className="px-3 py-2 text-left font-semibold text-gray-700">Tutar / Oran</th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-700">Acente Bonus</th>
                         <th className="px-3 py-2 text-left font-semibold text-gray-700">Depozito Desteği</th>
                         <th className="px-3 py-2 w-12"></th>
                       </tr>
@@ -540,6 +543,18 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
                           <td className="px-3 py-2">
                             <input
                               type="number"
+                              step="any"
+                              value={row.agencyBonus ?? ''}
+                              onChange={(e) => updateCommissionRow(idx, {
+                                agencyBonus: e.target.value === '' ? null : Number(e.target.value)
+                              })}
+                              disabled={!formEditable}
+                              className="w-full border border-gray-300 rounded-lg p-2 disabled:bg-gray-50 disabled:text-gray-600"
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <input
+                              type="number"
                               min="0"
                               step="any"
                               value={row.depositSupport ?? ''}
@@ -566,7 +581,7 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
                       ))}
                       {agentCommissions.length === 0 && (
                         <tr>
-                          <td colSpan={5} className="px-3 py-4 text-center text-gray-500">Komisyon satırı ekleyin.</td>
+                          <td colSpan={7} className="px-3 py-4 text-center text-gray-500">Komisyon satırı ekleyin.</td>
                         </tr>
                       )}
                     </tbody>

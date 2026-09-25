@@ -1,9 +1,18 @@
 import React, { useMemo, useState } from 'react';
 import { AgentCommissionListRow, University, User } from '../types';
-import { Pencil, Plus, Trash2, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { useTranslation } from '../hooks/useTranslation';
 import { SearchableSelect } from './SearchableSelect';
 import { SearchableMultiSelect } from './SearchableMultiSelect';
+
+type CommissionSortKey =
+  | 'userName'
+  | 'universityName'
+  | 'degree'
+  | 'commissionKind'
+  | 'commissionValue'
+  | 'agencyBonus'
+  | 'depositSupport';
 
 type FormState = {
   userId: string;
@@ -11,6 +20,7 @@ type FormState = {
   degree: '' | 'Diploma' | 'Bachelor' | 'Master' | 'PhD';
   commissionKind: 'rate' | 'amount' | '';
   commissionValue: string;
+  agencyBonus: string;
   depositSupport: string;
 };
 
@@ -20,6 +30,7 @@ const EMPTY_FORM: FormState = {
   degree: '',
   commissionKind: '',
   commissionValue: '',
+  agencyBonus: '',
   depositSupport: ''
 };
 
@@ -33,6 +44,7 @@ interface AgentCommissionsPageProps {
     degree?: string;
     commissionKind: 'rate' | 'amount';
     commissionValue: number;
+    agencyBonus?: number | null;
     depositSupport?: number | null;
   }) => Promise<boolean>;
   onEdit: (id: string, payload: {
@@ -41,6 +53,7 @@ interface AgentCommissionsPageProps {
     degree?: string;
     commissionKind: 'rate' | 'amount';
     commissionValue: number;
+    agencyBonus?: number | null;
     depositSupport?: number | null;
   }) => Promise<boolean>;
   onDelete: (id: string) => Promise<boolean>;
@@ -49,6 +62,7 @@ interface AgentCommissionsPageProps {
     degree: '' | 'Diploma' | 'Bachelor' | 'Master' | 'PhD';
     commissionKind: 'rate' | 'amount';
     commissionValue: number;
+    agencyBonus?: number | null;
     depositSupport?: number | null;
   }) => Promise<boolean>;
 }
@@ -78,15 +92,19 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
   const [bulkForm, setBulkForm] = useState({
     commissionKind: '' as '' | 'rate' | 'amount',
     commissionValue: '',
+    agencyBonus: '',
     depositSupport: ''
   });
   const [defaultOpen, setDefaultOpen] = useState(false);
   const [defaultSaving, setDefaultSaving] = useState(false);
+  const [sortBy, setSortBy] = useState<CommissionSortKey | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [defaultForm, setDefaultForm] = useState({
     universityId: '',
     degree: '' as '' | 'Diploma' | 'Bachelor' | 'Master' | 'PhD',
     commissionKind: '' as '' | 'rate' | 'amount',
     commissionValue: '',
+    agencyBonus: '',
     depositSupport: ''
   });
 
@@ -135,6 +153,7 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
       degree: (row.degree || '') as FormState['degree'],
       commissionKind: row.commissionKind,
       commissionValue: String(row.commissionValue ?? ''),
+      agencyBonus: row.agencyBonus != null ? String(row.agencyBonus) : '',
       depositSupport: row.depositSupport != null ? String(row.depositSupport) : ''
     });
     setFormMode('edit');
@@ -155,6 +174,14 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
     if (!Number.isFinite(commissionValue)) {
       alert('Tutar/oran geçerli bir sayı olmalıdır.');
       return null;
+    }
+    let agencyBonus: number | null = null;
+    if (form.agencyBonus.trim() !== '') {
+      agencyBonus = Number(form.agencyBonus);
+      if (!Number.isFinite(agencyBonus)) {
+        alert('Acente bonus geçerli bir sayı olmalıdır.');
+        return null;
+      }
     }
     let depositSupport: number | null = null;
     if (form.depositSupport.trim() !== '') {
@@ -182,6 +209,7 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
       degree: form.degree || undefined,
       commissionKind: form.commissionKind as 'rate' | 'amount',
       commissionValue,
+      agencyBonus,
       depositSupport
     };
   };
@@ -202,6 +230,61 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
   };
 
   const kindLabel = (kind: string) => (kind === 'rate' ? 'Oran (%)' : 'Sabit Tutar');
+
+  const degreeLabel = (degree?: string) => (degree ? translateDegree(degree) : 'Tümü / Seçilmedi');
+
+  const displayRows = useMemo(() => {
+    if (!sortBy) return filteredRows;
+    const dir = sortDir === 'asc' ? 1 : -1;
+    const textValue = (row: AgentCommissionListRow) => {
+      if (sortBy === 'userName') return row.userName || '';
+      if (sortBy === 'universityName') return row.universityName || '';
+      if (sortBy === 'degree') return degreeLabel(row.degree);
+      if (sortBy === 'commissionKind') return kindLabel(row.commissionKind);
+      return '';
+    };
+    const numberValue = (row: AgentCommissionListRow) => {
+      if (sortBy === 'commissionValue') return Number(row.commissionValue);
+      if (sortBy === 'agencyBonus') return row.agencyBonus == null ? null : Number(row.agencyBonus);
+      if (sortBy === 'depositSupport') return row.depositSupport == null ? null : Number(row.depositSupport);
+      return null;
+    };
+    const numeric = sortBy === 'commissionValue' || sortBy === 'agencyBonus' || sortBy === 'depositSupport';
+    return [...filteredRows].sort((a, b) => {
+      if (numeric) {
+        const va = numberValue(a);
+        const vb = numberValue(b);
+        if (va == null && vb == null) return 0;
+        if (va == null) return 1;
+        if (vb == null) return -1;
+        return (va - vb) * dir;
+      }
+      return textValue(a).localeCompare(textValue(b), 'tr', { numeric: true, sensitivity: 'base' }) * dir;
+    });
+  }, [filteredRows, sortBy, sortDir, translateDegree]);
+
+  const toggleSort = (key: CommissionSortKey) => {
+    if (sortBy === key) {
+      setSortDir(current => (current === 'asc' ? 'desc' : 'asc'));
+      return;
+    }
+    setSortBy(key);
+    setSortDir(key === 'commissionValue' || key === 'agencyBonus' || key === 'depositSupport' ? 'desc' : 'asc');
+  };
+
+  const SortTh = ({ colKey, label }: { colKey: CommissionSortKey; label: string }) => (
+    <th
+      className="px-4 py-3 text-left cursor-pointer select-none hover:bg-gray-100"
+      onClick={() => toggleSort(colKey)}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {sortBy === colKey
+          ? (sortDir === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />)
+          : <ChevronDown size={14} className="opacity-30" />}
+      </span>
+    </th>
+  );
 
   const selectedRows = useMemo(
     () => rows.filter(row => selectedIds.includes(row.id)),
@@ -245,6 +328,7 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
       degree: '',
       commissionKind: '',
       commissionValue: '',
+      agencyBonus: '',
       depositSupport: ''
     });
     setDefaultOpen(true);
@@ -265,6 +349,14 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
       alert('Tutar/oran geçerli bir sayı olmalıdır.');
       return;
     }
+    let agencyBonus: number | null = null;
+    if (defaultForm.agencyBonus.trim() !== '') {
+      agencyBonus = Number(defaultForm.agencyBonus);
+      if (!Number.isFinite(agencyBonus)) {
+        alert('Acente bonus geçerli bir sayı olmalıdır.');
+        return;
+      }
+    }
     let depositSupport: number | null = null;
     if (defaultForm.depositSupport.trim() !== '') {
       depositSupport = Number(defaultForm.depositSupport);
@@ -280,6 +372,7 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
         degree: defaultForm.degree,
         commissionKind: defaultForm.commissionKind,
         commissionValue,
+        agencyBonus,
         depositSupport
       });
       if (ok) setDefaultOpen(false);
@@ -293,7 +386,7 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
       alert('Toplu düzenlemek için listeden satır seçin.');
       return;
     }
-    setBulkForm({ commissionKind: '', commissionValue: '', depositSupport: '' });
+    setBulkForm({ commissionKind: '', commissionValue: '', agencyBonus: '', depositSupport: '' });
     setBulkOpen(true);
   };
 
@@ -301,9 +394,10 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
     e.preventDefault();
     const kindFilled = bulkForm.commissionKind !== '';
     const valueFilled = bulkForm.commissionValue.trim() !== '';
+    const bonusFilled = bulkForm.agencyBonus.trim() !== '';
     const depositFilled = bulkForm.depositSupport.trim() !== '';
-    if (!kindFilled && !valueFilled && !depositFilled) {
-      alert('Komisyon tipi, tutar/oran veya depozito desteğinden en az birini doldurun.');
+    if (!kindFilled && !valueFilled && !bonusFilled && !depositFilled) {
+      alert('Komisyon tipi, tutar/oran, acente bonus veya depozito desteğinden en az birini doldurun.');
       return;
     }
     let commissionValue: number | null = null;
@@ -311,6 +405,14 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
       commissionValue = Number(bulkForm.commissionValue);
       if (!Number.isFinite(commissionValue)) {
         alert('Tutar/oran geçerli bir sayı olmalıdır.');
+        return;
+      }
+    }
+    let agencyBonus: number | null = null;
+    if (bonusFilled) {
+      agencyBonus = Number(bulkForm.agencyBonus);
+      if (!Number.isFinite(agencyBonus)) {
+        alert('Acente bonus geçerli bir sayı olmalıdır.');
         return;
       }
     }
@@ -331,6 +433,7 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
           degree: row.degree || undefined,
           commissionKind: kindFilled ? bulkForm.commissionKind as 'rate' | 'amount' : row.commissionKind,
           commissionValue: valueFilled ? commissionValue as number : row.commissionValue,
+          agencyBonus: bonusFilled ? agencyBonus : (row.agencyBonus ?? null),
           depositSupport: depositFilled ? depositSupport : (row.depositSupport ?? null)
         });
         if (!ok) return;
@@ -495,6 +598,16 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
               />
             </div>
             <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Acente Bonus</label>
+              <input
+                type="number"
+                step="any"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5"
+                value={form.agencyBonus}
+                onChange={(e) => setForm(prev => ({ ...prev, agencyBonus: e.target.value }))}
+              />
+            </div>
+            <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Depozito Desteği</label>
               <input
                 type="number"
@@ -535,17 +648,18 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
                     className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                   />
                 </th>
-                <th className="px-4 py-3 text-left">Acente</th>
-                <th className="px-4 py-3 text-left">Üniversite</th>
-                <th className="px-4 py-3 text-left">Derece</th>
-                <th className="px-4 py-3 text-left">Komisyon Tipi</th>
-                <th className="px-4 py-3 text-left">Tutar / Oran</th>
-                <th className="px-4 py-3 text-left">Depozito Desteği</th>
+                <SortTh colKey="userName" label="Acente" />
+                <SortTh colKey="universityName" label="Üniversite" />
+                <SortTh colKey="degree" label="Derece" />
+                <SortTh colKey="commissionKind" label="Komisyon Tipi" />
+                <SortTh colKey="commissionValue" label="Tutar / Oran" />
+                <SortTh colKey="agencyBonus" label="Acente Bonus" />
+                <SortTh colKey="depositSupport" label="Depozito Desteği" />
                 <th className="px-4 py-3 text-center w-28">İşlem</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filteredRows.map(row => (
+              {displayRows.map(row => (
                 <tr key={row.id} className={`hover:bg-gray-50 ${selectedIds.includes(row.id) ? 'bg-blue-50/60' : ''}`}>
                   <td className="px-4 py-3">
                     <input
@@ -559,11 +673,14 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
                   <td className="px-4 py-3 font-medium text-gray-900">{row.userName || '—'}</td>
                   <td className="px-4 py-3 text-gray-900">{row.universityName || '—'}</td>
                   <td className="px-4 py-3 text-gray-900">
-                    {row.degree ? translateDegree(row.degree) : 'Tümü / Seçilmedi'}
+                    {degreeLabel(row.degree)}
                   </td>
                   <td className="px-4 py-3 text-gray-900">{kindLabel(row.commissionKind)}</td>
                   <td className="px-4 py-3 text-gray-900">
                     {row.commissionKind === 'rate' ? `${row.commissionValue}%` : row.commissionValue}
+                  </td>
+                  <td className="px-4 py-3 text-gray-900">
+                    {row.agencyBonus != null ? row.agencyBonus : '—'}
                   </td>
                   <td className="px-4 py-3 text-gray-900">
                     {row.depositSupport != null ? row.depositSupport : '—'}
@@ -592,7 +709,7 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
               ))}
               {filteredRows.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-gray-400">
+                  <td colSpan={9} className="px-4 py-8 text-center text-gray-400">
                     Kayıt bulunamadı
                   </td>
                 </tr>
@@ -674,6 +791,17 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
                 />
               </div>
               <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Acente Bonus</label>
+                <input
+                  type="number"
+                  step="any"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5"
+                  value={defaultForm.agencyBonus}
+                  onChange={(e) => setDefaultForm(prev => ({ ...prev, agencyBonus: e.target.value }))}
+                  placeholder="İsteğe bağlı"
+                />
+              </div>
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Depozito Desteği</label>
                 <input
                   type="number"
@@ -711,7 +839,7 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
               </button>
             </div>
             <p className="text-sm text-gray-500 mb-4">
-              {selectedRows.length} seçili satır güncellenir. Boş bırakılan alan değişmez; bir, iki veya üç alanı birlikte doldurabilirsiniz.
+              {selectedRows.length} seçili satır güncellenir. Boş bırakılan alan değişmez.
             </p>
             <form onSubmit={handleBulkSubmit} className="space-y-4">
               <div>
@@ -734,6 +862,17 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
                   className="w-full border border-gray-300 rounded-lg px-3 py-2.5"
                   value={bulkForm.commissionValue}
                   onChange={(e) => setBulkForm(prev => ({ ...prev, commissionValue: e.target.value }))}
+                  placeholder="Boş bırakılırsa değişmez"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Acente Bonus</label>
+                <input
+                  type="number"
+                  step="any"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5"
+                  value={bulkForm.agencyBonus}
+                  onChange={(e) => setBulkForm(prev => ({ ...prev, agencyBonus: e.target.value }))}
                   placeholder="Boş bırakılırsa değişmez"
                 />
               </div>

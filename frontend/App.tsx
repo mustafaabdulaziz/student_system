@@ -327,6 +327,7 @@ export default function App() {
     degree: '' | 'Diploma' | 'Bachelor' | 'Master' | 'PhD';
     commissionKind: 'rate' | 'amount';
     commissionValue: number;
+    agencyBonus?: number | null;
     depositSupport?: number | null;
   }) => {
     const uni = state.universities.find(u => u.id === payload.universityId);
@@ -348,6 +349,7 @@ export default function App() {
           degree: degreeKey,
           commissionKind: payload.commissionKind,
           commissionValue: payload.commissionValue,
+          agencyBonus: payload.agencyBonus ?? null,
           depositSupport: payload.depositSupport ?? null
         }
       ]
@@ -1304,6 +1306,7 @@ export default function App() {
     degree?: string;
     commissionKind: 'rate' | 'amount';
     commissionValue: number;
+    agencyBonus?: number | null;
     depositSupport?: number | null;
   }) => {
     try {
@@ -1324,6 +1327,7 @@ export default function App() {
         degree: data.degree || '',
         commissionKind: data.commissionKind,
         commissionValue: data.commissionValue,
+        agencyBonus: data.agencyBonus ?? null,
         depositSupport: data.depositSupport ?? null
       };
       syncUserCommissionState(payload.userId, prev => [...prev, next]);
@@ -1342,6 +1346,7 @@ export default function App() {
       degree?: string;
       commissionKind: 'rate' | 'amount';
       commissionValue: number;
+      agencyBonus?: number | null;
       depositSupport?: number | null;
     }
   ) => {
@@ -1367,6 +1372,7 @@ export default function App() {
         degree: data.degree || '',
         commissionKind: data.commissionKind,
         commissionValue: data.commissionValue,
+        agencyBonus: data.agencyBonus ?? null,
         depositSupport: data.depositSupport ?? null
       };
       if (previousUserId && previousUserId !== payload.userId) {
@@ -1658,6 +1664,7 @@ export default function App() {
               degree: c.degree || '',
               commissionKind: c.commissionKind,
               commissionValue: c.commissionValue,
+              agencyBonus: c.agencyBonus ?? null,
               depositSupport: c.depositSupport ?? null
             }))
         );

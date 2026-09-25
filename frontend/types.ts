@@ -32,6 +32,7 @@ export interface AgentCommission {
   degree?: 'Diploma' | 'Bachelor' | 'Master' | 'PhD' | '';
   commissionKind: 'rate' | 'amount';
   commissionValue: number;
+  agencyBonus?: number | null;
   depositSupport?: number | null;
 }
 
@@ -54,6 +55,7 @@ export type UniversityDefaultAgencyCommission = {
   degree: '' | 'Diploma' | 'Bachelor' | 'Master' | 'PhD';
   commissionKind: 'rate' | 'amount';
   commissionValue: number;
+  agencyBonus?: number | null;
   depositSupport?: number | null;
 };
 

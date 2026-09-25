@@ -842,11 +842,18 @@ def _normalize_default_agency_commissions(rows):
                 deposit_support = float(row.get('depositSupport'))
             except (TypeError, ValueError):
                 continue
+        agency_bonus = None
+        if row.get('agencyBonus') not in (None, ''):
+            try:
+                agency_bonus = float(row.get('agencyBonus'))
+            except (TypeError, ValueError):
+                continue
         seen.add(degree)
         out.append({
             'degree': degree,
             'commissionKind': commission_kind,
             'commissionValue': commission_value,
+            'agencyBonus': agency_bonus,
             'depositSupport': deposit_support
         })
     return out
@@ -898,6 +905,7 @@ def _propagate_new_default_agency_commissions(university_id, previous_rows, new_
                 degree=degree_key or None,
                 commission_kind=row['commissionKind'],
                 commission_value=row['commissionValue'],
+                agency_bonus=row.get('agencyBonus'),
                 deposit_support=row.get('depositSupport')
             ))
             have.add(key)
@@ -922,6 +930,7 @@ def _apply_university_default_commissions_to_agent(user_id):
                 degree=degree_key or None,
                 commission_kind=row['commissionKind'],
                 commission_value=row['commissionValue'],
+                agency_bonus=row.get('agencyBonus'),
                 deposit_support=row.get('depositSupport')
             ))
             have.add(key)
@@ -934,6 +943,7 @@ def _serialize_user_commissions(user_id):
         'degree': getattr(row, 'degree', None) or '',
         'commissionKind': row.commission_kind,
         'commissionValue': row.commission_value,
+        'agencyBonus': row.agency_bonus,
         'depositSupport': row.deposit_support
     } for row in UserUniversityCommission.query.filter_by(user_id=user_id).all()]
 
@@ -994,12 +1004,19 @@ def _normalize_agent_commissions(rows):
                 deposit_support = float(row.get('depositSupport'))
             except (TypeError, ValueError):
                 continue
+        agency_bonus = None
+        if row.get('agencyBonus') not in (None, ''):
+            try:
+                agency_bonus = float(row.get('agencyBonus'))
+            except (TypeError, ValueError):
+                continue
         out.append({
             'id': (row.get('id') or '').strip() or None,
             'universityId': university_id,
             'degree': degree,
             'commissionKind': commission_kind,
             'commissionValue': commission_value,
+            'agencyBonus': agency_bonus,
             'depositSupport': deposit_support
         })
     return out
@@ -1031,6 +1048,7 @@ def _replace_user_agent_commissions(user_id, rows):
             degree=row.get('degree'),
             commission_kind=row['commissionKind'],
             commission_value=row['commissionValue'],
+            agency_bonus=row.get('agencyBonus'),
             deposit_support=row.get('depositSupport')
         ))
 
@@ -1058,6 +1076,7 @@ def _agent_commission_for_user_university(user_id, university_id, degree=None):
     return {
         'kind': matched.commission_kind,
         'value': float(matched.commission_value),
+        'agencyBonus': float(matched.agency_bonus) if matched.agency_bonus is not None else None,
         'depositSupport': float(matched.deposit_support) if matched.deposit_support is not None else None
     }
 
@@ -1213,7 +1232,13 @@ def _compute_application_finance(
             else None
         )
 
-    # depozito desteği: kullanıcı/universite eşleşmesindeki sabit tutar
+    # acente bonus: kullanıcı/üniversite/derece satırı, yoksa Tümü / Seçilmedi
+    if force_refresh_from_sources:
+        application.agency_bonus = agent_cfg.get('agencyBonus') if agent_cfg else None
+    elif prefer_user_deposit_support and agent_cfg and agent_cfg.get('agencyBonus') is not None:
+        application.agency_bonus = agent_cfg['agencyBonus']
+
+    # depozito desteği: yalnızca yeni başvuruda, eşleşen satırdaki tutar
     if prefer_user_deposit_support and agent_cfg and agent_cfg.get('depositSupport') is not None:
         application.deposit_support = agent_cfg['depositSupport']
 
@@ -1333,6 +1358,7 @@ def get_users():
             'degree': getattr(r, 'degree', None),
             'commissionKind': r.commission_kind,
             'commissionValue': r.commission_value,
+            'agencyBonus': r.agency_bonus,
             'depositSupport': r.deposit_support
         })
     return jsonify([{
@@ -1361,6 +1387,7 @@ def _agent_commission_to_dict(row, user=None, university=None):
         'degree': getattr(row, 'degree', None) or '',
         'commissionKind': row.commission_kind,
         'commissionValue': row.commission_value,
+        'agencyBonus': row.agency_bonus,
         'depositSupport': row.deposit_support
     }
 
@@ -1396,6 +1423,7 @@ def add_agent_commission():
         'degree': data.get('degree'),
         'commissionKind': data.get('commissionKind'),
         'commissionValue': data.get('commissionValue'),
+        'agencyBonus': data.get('agencyBonus'),
         'depositSupport': data.get('depositSupport')
     }])
     if not normalized:
@@ -1415,6 +1443,7 @@ def add_agent_commission():
         degree=row_data.get('degree'),
         commission_kind=row_data['commissionKind'],
         commission_value=row_data['commissionValue'],
+        agency_bonus=row_data.get('agencyBonus'),
         deposit_support=row_data.get('depositSupport')
     )
     db.session.add(row)
@@ -1442,6 +1471,7 @@ def update_agent_commission(commission_id):
         'degree': data.get('degree') if 'degree' in data else getattr(row, 'degree', None),
         'commissionKind': data.get('commissionKind', row.commission_kind),
         'commissionValue': data.get('commissionValue', row.commission_value),
+        'agencyBonus': data.get('agencyBonus') if 'agencyBonus' in data else row.agency_bonus,
         'depositSupport': data.get('depositSupport') if 'depositSupport' in data else row.deposit_support
     }])
     if not normalized:
@@ -1459,6 +1489,7 @@ def update_agent_commission(commission_id):
     row.degree = row_data.get('degree')
     row.commission_kind = row_data['commissionKind']
     row.commission_value = row_data['commissionValue']
+    row.agency_bonus = row_data.get('agencyBonus')
     row.deposit_support = row_data.get('depositSupport')
     db.session.commit()
     return jsonify({'message': 'Komisyon güncellendi', **_agent_commission_to_dict(row)}), 200

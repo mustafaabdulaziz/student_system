@@ -166,6 +166,7 @@ if __name__ == '__main__':
                         'degree VARCHAR, '
                         'commission_kind VARCHAR NOT NULL, '
                         'commission_value FLOAT NOT NULL, '
+                        'agency_bonus FLOAT, '
                         'deposit_support FLOAT)'
                     ))
                     conn.commit()
@@ -173,6 +174,9 @@ if __name__ == '__main__':
                     commission_cols = [c['name'] for c in inspector.get_columns('user_university_commissions')]
                     if 'deposit_support' not in commission_cols:
                         conn.execute(text('ALTER TABLE user_university_commissions ADD COLUMN deposit_support FLOAT'))
+                        conn.commit()
+                    if 'agency_bonus' not in commission_cols:
+                        conn.execute(text('ALTER TABLE user_university_commissions ADD COLUMN agency_bonus FLOAT'))
                         conn.commit()
                     if 'degree' not in commission_cols:
                         conn.execute(text('ALTER TABLE user_university_commissions ADD COLUMN degree VARCHAR'))

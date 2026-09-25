@@ -54,7 +54,7 @@ class University(db.Model):
     bonus_min = db.Column(db.Float, nullable=True)
     # Per-degree commission rows: [{degree, commissionKind, commissionValue}]
     degree_commissions = db.Column(db.JSON, nullable=True)
-    # Default agency commissions copied onto agent users: [{degree, commissionKind, commissionValue, depositSupport}]
+    # Default agency commissions copied onto agent users: [{degree, commissionKind, commissionValue, agencyBonus, depositSupport}]
     default_agency_commissions = db.Column(db.JSON, nullable=True)
 
 class Program(db.Model):
@@ -105,6 +105,7 @@ class UserUniversityCommission(db.Model):
     degree = db.Column(db.String, nullable=True)  # Diploma | Bachelor | Master | PhD
     commission_kind = db.Column(db.String, nullable=False)  # 'rate' | 'amount'
     commission_value = db.Column(db.Float, nullable=False)
+    agency_bonus = db.Column(db.Float, nullable=True)
     deposit_support = db.Column(db.Float, nullable=True)
 
 
