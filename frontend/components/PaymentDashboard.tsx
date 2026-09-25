@@ -32,6 +32,7 @@ import { SearchableMultiSelect } from './SearchableMultiSelect';
 import { useTranslation } from '../hooks/useTranslation';
 import { matchesCreatedAtRange } from '../utils/createdAtRangeFilter';
 import { getDefaultPeriodIds } from '../utils/defaultPeriods';
+import type { MultiFilterMode } from '../utils/multiFilter';
 import { ApplicationFinancialPanel } from './ApplicationFinancialPanel';
 
 type CurrencyCode = 'USD' | 'TRY' | 'EUR';
@@ -325,6 +326,7 @@ export const PaymentDashboard: React.FC<PaymentDashboardProps> = ({
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [periodFilter, setPeriodFilter] = useState<string[]>([]);
+  const [periodFilterMode, setPeriodFilterMode] = useState<MultiFilterMode>('include');
 
   useEffect(() => {
     if (periodDefaultsApplied.current) return;
@@ -648,25 +650,19 @@ export const PaymentDashboard: React.FC<PaymentDashboardProps> = ({
           fromLabel={t.filterPaymentDateFrom}
           toLabel={t.filterPaymentDateTo}
         />
+        <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <SearchableMultiSelect
+            options={periods.map((p) => ({ value: p.id, label: p.name }))}
+            selected={periodFilter}
+            onChange={setPeriodFilter}
+            mode={periodFilterMode}
+            onModeChange={setPeriodFilterMode}
+            placeholder={`${t.period} (${t.filterAll})`}
+            searchPlaceholder={t.search}
+            noResultsText={t.searchNoResults}
+          />
+        </div>
       </div>
-
-      <ApplicationFinancialPanel
-        applications={applications}
-        programs={programs}
-        universities={universities}
-        periods={periods}
-        users={users}
-        students={students}
-        agencyCompanies={agencyCompanies}
-        currentUser={currentUser}
-        outgoingPayments={outgoingRows}
-        incomingPayments={incomingRows}
-        paymentDateFrom={dateFrom}
-        paymentDateTo={dateTo}
-        periodFilter={periodFilter}
-        onPeriodFilterChange={setPeriodFilter}
-        columnsStorageKey="paymentDashboard.financialTable.visibleColumns"
-      />
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 space-y-4">
         <h3 className="text-lg font-semibold text-gray-900">Gelen Ödeme Özeti</h3>
@@ -830,6 +826,27 @@ export const PaymentDashboard: React.FC<PaymentDashboardProps> = ({
           />
         </div>
       </div>
+
+      <ApplicationFinancialPanel
+        applications={applications}
+        programs={programs}
+        universities={universities}
+        periods={periods}
+        users={users}
+        students={students}
+        agencyCompanies={agencyCompanies}
+        currentUser={currentUser}
+        outgoingPayments={outgoingRows}
+        incomingPayments={incomingRows}
+        paymentDateFrom={dateFrom}
+        paymentDateTo={dateTo}
+        periodFilter={periodFilter}
+        onPeriodFilterChange={setPeriodFilter}
+        periodFilterMode={periodFilterMode}
+        onPeriodFilterModeChange={setPeriodFilterMode}
+        showPeriodFilter={false}
+        columnsStorageKey="paymentDashboard.financialTable.visibleColumns"
+      />
 
       {loading && <p className="text-sm text-gray-500">Yükleniyor...</p>}
     </div>

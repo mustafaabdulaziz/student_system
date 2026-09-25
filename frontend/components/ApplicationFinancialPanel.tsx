@@ -91,6 +91,9 @@ interface ApplicationFinancialPanelProps {
   columnsStorageKey?: string;
   periodFilter?: string[];
   onPeriodFilterChange?: (ids: string[]) => void;
+  periodFilterMode?: MultiFilterMode;
+  onPeriodFilterModeChange?: (mode: MultiFilterMode) => void;
+  showPeriodFilter?: boolean;
 }
 
 export const ApplicationFinancialPanel: React.FC<ApplicationFinancialPanelProps> = ({
@@ -108,7 +111,10 @@ export const ApplicationFinancialPanel: React.FC<ApplicationFinancialPanelProps>
   paymentDateTo = '',
   columnsStorageKey = 'applicationFinancialPanel.visibleColumns',
   periodFilter: periodFilterProp,
-  onPeriodFilterChange
+  onPeriodFilterChange,
+  periodFilterMode: periodFilterModeProp,
+  onPeriodFilterModeChange,
+  showPeriodFilter = true
 }) => {
   const { t, translateStatus, translateDegree } = useTranslation();
   const displayStatus = (status: string) => translateStatus(status, currentUser?.role);
@@ -127,7 +133,9 @@ export const ApplicationFinancialPanel: React.FC<ApplicationFinancialPanelProps>
   const [degreeFilterMode, setDegreeFilterMode] = useState<MultiFilterMode>('include');
   const [agentFilterMode, setAgentFilterMode] = useState<MultiFilterMode>('include');
   const [agencyCompanyFilterMode, setAgencyCompanyFilterMode] = useState<MultiFilterMode>('include');
-  const [periodFilterMode, setPeriodFilterMode] = useState<MultiFilterMode>('include');
+  const [internalPeriodFilterMode, setInternalPeriodFilterMode] = useState<MultiFilterMode>('include');
+  const periodFilterMode = periodFilterModeProp ?? internalPeriodFilterMode;
+  const setPeriodFilterMode = onPeriodFilterModeChange ?? setInternalPeriodFilterMode;
 
   useEffect(() => {
     if (periodFilterProp !== undefined || periodDefaultsApplied.current) return;
@@ -637,16 +645,18 @@ export const ApplicationFinancialPanel: React.FC<ApplicationFinancialPanelProps>
             searchPlaceholder={t.search}
             noResultsText={t.searchNoResults}
           />
-          <SearchableMultiSelect
-            options={periods.map((p) => ({ value: p.id, label: p.name }))}
-            selected={periodFilter}
-            onChange={setPeriodFilter}
-            mode={periodFilterMode}
-            onModeChange={setPeriodFilterMode}
-            placeholder={`${t.period} (${t.filterAll})`}
-            searchPlaceholder={t.search}
-            noResultsText={t.searchNoResults}
-          />
+          {showPeriodFilter && (
+            <SearchableMultiSelect
+              options={periods.map((p) => ({ value: p.id, label: p.name }))}
+              selected={periodFilter}
+              onChange={setPeriodFilter}
+              mode={periodFilterMode}
+              onModeChange={setPeriodFilterMode}
+              placeholder={`${t.period} (${t.filterAll})`}
+              searchPlaceholder={t.search}
+              noResultsText={t.searchNoResults}
+            />
+          )}
         </div>
       </div>
 
