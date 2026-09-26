@@ -10,6 +10,7 @@ import { generateUniversityDescription } from '../services/geminiService';
 import { useTranslation } from '../hooks/useTranslation';
 import * as XLSX from 'xlsx';
 import { SavedQuickFilters } from './SavedQuickFilters';
+import { amountRangeConflictMessage, formatAmountBound, parseAmountBounds } from '../utils/amountRange';
 
 const DEGREE_COMMISSION_OPTIONS = ['Diploma', 'Bachelor', 'Master', 'PhD'] as const;
 
@@ -19,6 +20,8 @@ type DegreeCommissionFormRow = {
   commissionValue: string;
   bonusMin: string;
   bonusMax: string;
+  amountFrom: string;
+  amountTo: string;
 };
 
 const EMPTY_DEGREE_COMMISSION_ROW: DegreeCommissionFormRow = {
@@ -26,7 +29,9 @@ const EMPTY_DEGREE_COMMISSION_ROW: DegreeCommissionFormRow = {
   commissionKind: '',
   commissionValue: '',
   bonusMin: '',
-  bonusMax: ''
+  bonusMax: '',
+  amountFrom: '',
+  amountTo: ''
 };
 
 type DefaultAgencyCommissionFormRow = {
@@ -35,6 +40,8 @@ type DefaultAgencyCommissionFormRow = {
   commissionValue: string;
   agencyBonus: string;
   depositSupport: string;
+  amountFrom: string;
+  amountTo: string;
 };
 
 const EMPTY_DEFAULT_AGENCY_ROW: DefaultAgencyCommissionFormRow = {
@@ -42,7 +49,9 @@ const EMPTY_DEFAULT_AGENCY_ROW: DefaultAgencyCommissionFormRow = {
   commissionKind: '',
   commissionValue: '',
   agencyBonus: '',
-  depositSupport: ''
+  depositSupport: '',
+  amountFrom: '',
+  amountTo: ''
 };
 
 interface UniversityManagerProps {
@@ -228,7 +237,9 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
         commissionKind: row.commissionKind,
         commissionValue: String(row.commissionValue),
         bonusMin: row.bonusMin != null && !Number.isNaN(Number(row.bonusMin)) ? String(row.bonusMin) : '',
-        bonusMax: row.bonusMax != null && !Number.isNaN(Number(row.bonusMax)) ? String(row.bonusMax) : ''
+        bonusMax: row.bonusMax != null && !Number.isNaN(Number(row.bonusMax)) ? String(row.bonusMax) : '',
+        amountFrom: row.amountFrom != null && !Number.isNaN(Number(row.amountFrom)) ? String(row.amountFrom) : '',
+        amountTo: row.amountTo != null && !Number.isNaN(Number(row.amountTo)) ? String(row.amountTo) : ''
       }))
     );
     setDefaultAgencyRows(
@@ -237,7 +248,9 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
         commissionKind: row.commissionKind,
         commissionValue: String(row.commissionValue),
         agencyBonus: row.agencyBonus != null && !Number.isNaN(Number(row.agencyBonus)) ? String(row.agencyBonus) : '',
-        depositSupport: row.depositSupport != null && !Number.isNaN(Number(row.depositSupport)) ? String(row.depositSupport) : ''
+        depositSupport: row.depositSupport != null && !Number.isNaN(Number(row.depositSupport)) ? String(row.depositSupport) : '',
+        amountFrom: row.amountFrom != null && !Number.isNaN(Number(row.amountFrom)) ? String(row.amountFrom) : '',
+        amountTo: row.amountTo != null && !Number.isNaN(Number(row.amountTo)) ? String(row.amountTo) : ''
       }))
     );
     setLogoPreview(uni.logo || null); setLogoBase64(uni.logo || null);
@@ -253,17 +266,18 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
 
   const parseDegreeCommissions = (): UniversityDegreeCommission[] | null => {
     const out: UniversityDegreeCommission[] = [];
-    const seen = new Set<string>();
     for (const row of degreeCommissionRows) {
       const degree = row.degree;
       const kind = row.commissionKind;
       const raw = row.commissionValue.trim();
       const bonusMinRaw = (row.bonusMin || '').trim();
       const bonusMaxRaw = (row.bonusMax || '').trim();
-      const empty = !degree && !kind && raw === '' && bonusMinRaw === '' && bonusMaxRaw === '';
+      const amountFromRaw = (row.amountFrom || '').trim();
+      const amountToRaw = (row.amountTo || '').trim();
+      const empty = !degree && !kind && raw === '' && bonusMinRaw === '' && bonusMaxRaw === '' && amountFromRaw === '' && amountToRaw === '';
       if (empty) continue;
-      if (!degree || !kind || raw === '') {
-        alert('Derece komisyon satırlarında derece, komisyon türü ve tutar/oran zorunludur.');
+      if (!kind || raw === '') {
+        alert('Derece komisyon satırlarında komisyon türü ve tutar/oran zorunludur.');
         return null;
       }
       const value = Number(raw);
@@ -287,26 +301,43 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
           return null;
         }
       }
-      if (seen.has(degree)) {
-        alert('Aynı derece için birden fazla komisyon satırı eklenemez.');
+      const bounds = parseAmountBounds(amountFromRaw, amountToRaw);
+      if (bounds.error) {
+        alert(bounds.error);
         return null;
       }
-      seen.add(degree);
-      out.push({ degree, commissionKind: kind, commissionValue: value, bonusMin, bonusMax });
+      out.push({
+        degree,
+        commissionKind: kind,
+        commissionValue: value,
+        bonusMin,
+        bonusMax,
+        amountFrom: bounds.from,
+        amountTo: bounds.to
+      });
+    }
+    const overlap = amountRangeConflictMessage(
+      out.map((row) => ({ key: row.degree, from: row.amountFrom, to: row.amountTo })),
+      'Aynı derece için tutar aralıkları çakışamaz.'
+    );
+    if (overlap) {
+      alert(overlap);
+      return null;
     }
     return out;
   };
 
   const parseDefaultAgencyCommissions = (): UniversityDefaultAgencyCommission[] | null => {
     const out: UniversityDefaultAgencyCommission[] = [];
-    const seen = new Set<string>();
     for (const row of defaultAgencyRows) {
       const degree = row.degree;
       const kind = row.commissionKind;
       const raw = row.commissionValue.trim();
       const bonusRaw = row.agencyBonus.trim();
       const depositRaw = row.depositSupport.trim();
-      const blank = !kind && raw === '' && bonusRaw === '' && depositRaw === '';
+      const amountFromRaw = row.amountFrom.trim();
+      const amountToRaw = row.amountTo.trim();
+      const blank = !kind && raw === '' && bonusRaw === '' && depositRaw === '' && amountFromRaw === '' && amountToRaw === '';
       if (blank && !degree) continue;
       if (!kind || raw === '') {
         alert('Varsayılan acente komisyon satırlarında komisyon tipi ve tutar/oran zorunludur.');
@@ -333,15 +364,29 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
           return null;
         }
       }
-      const degreeKey = degree || '';
-      if (seen.has(degreeKey)) {
-        alert(degreeKey
-          ? 'Aynı derece için birden fazla varsayılan acente komisyon satırı eklenemez.'
-          : 'Tümü / Seçilmedi için yalnızca bir satır eklenebilir.');
+      const bounds = parseAmountBounds(amountFromRaw, amountToRaw);
+      if (bounds.error) {
+        alert(bounds.error);
         return null;
       }
-      seen.add(degreeKey);
-      out.push({ degree: degreeKey, commissionKind: kind, commissionValue: value, agencyBonus, depositSupport });
+      const degreeKey = degree || '';
+      out.push({
+        degree: degreeKey,
+        commissionKind: kind,
+        commissionValue: value,
+        agencyBonus,
+        depositSupport,
+        amountFrom: bounds.from,
+        amountTo: bounds.to
+      });
+    }
+    const overlap = amountRangeConflictMessage(
+      out.map((row) => ({ key: row.degree || '', from: row.amountFrom, to: row.amountTo })),
+      'Aynı derece için varsayılan acente komisyon tutar aralıkları çakışamaz.'
+    );
+    if (overlap) {
+      alert(overlap);
+      return null;
     }
     return out;
   };
@@ -356,33 +401,18 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
   };
 
   /* -------- Submit -------- */
-  const parseAdminFinance = (): Pick<University, 'educationVatRate' | 'abroadVatRate' | 'commissionKind' | 'commissionValue' | 'bonusMax' | 'bonusMin'> => {
+  const parseAdminFinance = (): Pick<University, 'educationVatRate' | 'abroadVatRate'> => {
     const ext = formData as Partial<University> & {
       educationVatRateInput?: string;
       abroadVatRateInput?: string;
-      commissionValueInput?: string;
-      bonusMaxInput?: string;
-      bonusMinInput?: string;
     };
     const vatRaw = (ext.educationVatRateInput ?? '').toString().trim();
     const educationVatRate = vatRaw === '' ? null : parseInt(vatRaw, 10);
     const abroadVatRaw = (ext.abroadVatRateInput ?? '').toString().trim();
     const abroadVatRate = abroadVatRaw === '' ? null : parseFloat(abroadVatRaw);
-    const kind = (formData.commissionKind || '').toString().trim() as '' | 'amount' | 'rate';
-    const commRaw = (ext.commissionValueInput ?? '').toString().trim();
-    const commissionValue = commRaw === '' ? null : parseFloat(commRaw);
-    const commissionKind = kind === 'amount' || kind === 'rate' ? kind : null;
-    const bonusMaxRaw = (ext.bonusMaxInput ?? '').toString().trim();
-    const bonusMinRaw = (ext.bonusMinInput ?? '').toString().trim();
-    const bonusMax = bonusMaxRaw === '' ? null : parseFloat(bonusMaxRaw);
-    const bonusMin = bonusMinRaw === '' ? null : parseFloat(bonusMinRaw);
     return {
       educationVatRate: vatRaw === '' || Number.isNaN(educationVatRate as number) ? null : educationVatRate,
-      abroadVatRate: abroadVatRaw === '' || Number.isNaN(abroadVatRate as number) ? null : abroadVatRate,
-      commissionKind,
-      commissionValue: commRaw === '' || Number.isNaN(commissionValue as number) ? null : commissionValue,
-      bonusMax: bonusMaxRaw === '' || Number.isNaN(bonusMax as number) ? null : bonusMax,
-      bonusMin: bonusMinRaw === '' || Number.isNaN(bonusMin as number) ? null : bonusMin
+      abroadVatRate: abroadVatRaw === '' || Number.isNaN(abroadVatRate as number) ? null : abroadVatRate
     };
   };
 
@@ -391,19 +421,12 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
     if (!formData.name || !formData.website || !formData.country || !formData.description) return;
     const adminFin = canEditFinance ? parseAdminFinance() : {
       educationVatRate: null,
-      abroadVatRate: null,
-      commissionKind: null,
-      commissionValue: null,
-      bonusMax: null,
-      bonusMin: null
+      abroadVatRate: null
     };
     if (canEditFinance) {
       const ext = formData as Partial<University> & {
         educationVatRateInput?: string;
         abroadVatRateInput?: string;
-        commissionValueInput?: string;
-        bonusMaxInput?: string;
-        bonusMinInput?: string;
       };
       const vatRaw = (ext.educationVatRateInput ?? '').toString().trim();
       if (vatRaw !== '' && adminFin.educationVatRate === null) {
@@ -413,24 +436,6 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
       const abroadVatRaw = (ext.abroadVatRateInput ?? '').toString().trim();
       if (abroadVatRaw !== '' && adminFin.abroadVatRate === null) {
         alert('Yurtdışı KDV oranı geçerli bir sayı olmalıdır.');
-        return;
-      }
-      if (adminFin.commissionKind && adminFin.commissionValue === null) {
-        alert('Komisyon türü seçildiğinde tutar veya oran değeri girilmelidir.');
-        return;
-      }
-      if (adminFin.commissionValue !== null && !adminFin.commissionKind) {
-        alert('Komisyon değeri için önce tür seçin (tutar veya oran).');
-        return;
-      }
-      const bonusMaxRaw = (ext.bonusMaxInput ?? '').toString().trim();
-      const bonusMinRaw = (ext.bonusMinInput ?? '').toString().trim();
-      if (bonusMaxRaw !== '' && adminFin.bonusMax === null) {
-        alert('Bonus Max geçerli bir sayı olmalıdır.');
-        return;
-      }
-      if (bonusMinRaw !== '' && adminFin.bonusMin === null) {
-        alert('Bonus Min geçerli bir sayı olmalıdır.');
         return;
       }
     }
@@ -782,24 +787,6 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                       <dt className="text-xs font-semibold text-amber-900/80 uppercase tracking-wide mb-1">Yurtdışı KDV oranı</dt>
                       <dd className="text-gray-900 font-medium">{detailUni.abroadVatRate != null ? String(detailUni.abroadVatRate) : '—'}</dd>
                     </div>
-                    <div>
-                      <dt className="text-xs font-semibold text-amber-900/80 uppercase tracking-wide mb-1">Komisyon</dt>
-                      <dd className="text-gray-900 font-medium">
-                        {detailUni.commissionKind === 'amount' && detailUni.commissionValue != null
-                          ? `Sabit tutar: ${detailUni.commissionValue}`
-                          : detailUni.commissionKind === 'rate' && detailUni.commissionValue != null
-                            ? `Oran: ${detailUni.commissionValue}%`
-                            : '—'}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs font-semibold text-amber-900/80 uppercase tracking-wide mb-1">Bonus Max</dt>
-                      <dd className="text-gray-900 font-medium">{detailUni.bonusMax != null ? String(detailUni.bonusMax) : '—'}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs font-semibold text-amber-900/80 uppercase tracking-wide mb-1">Bonus Min</dt>
-                      <dd className="text-gray-900 font-medium">{detailUni.bonusMin != null ? String(detailUni.bonusMin) : '—'}</dd>
-                    </div>
                   </dl>
                   {(detailUni.degreeCommissions || []).length > 0 && (
                     <div className="mt-4">
@@ -811,18 +798,22 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                               <th className="px-3 py-2 text-left font-semibold text-gray-700">Derece</th>
                               <th className="px-3 py-2 text-left font-semibold text-gray-700">Komisyon türü</th>
                               <th className="px-3 py-2 text-left font-semibold text-gray-700">Tutar / Oran</th>
+                              <th className="px-3 py-2 text-left font-semibold text-gray-700">Başlangıç tutarı</th>
+                              <th className="px-3 py-2 text-left font-semibold text-gray-700">Bitiş tutarı</th>
                               <th className="px-3 py-2 text-left font-semibold text-gray-700">Bonus Min</th>
                               <th className="px-3 py-2 text-left font-semibold text-gray-700">Bonus Max</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-gray-100">
-                            {(detailUni.degreeCommissions || []).map((row) => (
-                              <tr key={`${row.degree}-${row.commissionKind}`}>
-                                <td className="px-3 py-2">{translateDegree(row.degree)}</td>
+                            {(detailUni.degreeCommissions || []).map((row, idx) => (
+                              <tr key={`${row.degree}-${row.amountFrom ?? 'all'}-${row.amountTo ?? 'all'}-${idx}`}>
+                                <td className="px-3 py-2">{row.degree ? translateDegree(row.degree) : 'Tümü / Seçilmedi'}</td>
                                 <td className="px-3 py-2">{row.commissionKind === 'rate' ? 'Oran' : 'Sabit tutar'}</td>
                                 <td className="px-3 py-2">
                                   {row.commissionKind === 'rate' ? `${row.commissionValue}%` : row.commissionValue}
                                 </td>
+                                <td className="px-3 py-2">{formatAmountBound(row.amountFrom)}</td>
+                                <td className="px-3 py-2">{formatAmountBound(row.amountTo)}</td>
                                 <td className="px-3 py-2">{row.bonusMin != null ? row.bonusMin : '—'}</td>
                                 <td className="px-3 py-2">{row.bonusMax != null ? row.bonusMax : '—'}</td>
                               </tr>
@@ -842,18 +833,22 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                               <th className="px-3 py-2 text-left font-semibold text-gray-700">Derece</th>
                               <th className="px-3 py-2 text-left font-semibold text-gray-700">Komisyon tipi</th>
                               <th className="px-3 py-2 text-left font-semibold text-gray-700">Tutar / Oran</th>
+                              <th className="px-3 py-2 text-left font-semibold text-gray-700">Başlangıç tutarı</th>
+                              <th className="px-3 py-2 text-left font-semibold text-gray-700">Bitiş tutarı</th>
                               <th className="px-3 py-2 text-left font-semibold text-gray-700">Acente Bonus</th>
                               <th className="px-3 py-2 text-left font-semibold text-gray-700">Depozito desteği</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-gray-100">
-                            {(detailUni.defaultAgencyCommissions || []).map((row) => (
-                              <tr key={`default-agency-${row.degree || 'all'}`}>
+                            {(detailUni.defaultAgencyCommissions || []).map((row, idx) => (
+                              <tr key={`default-agency-${row.degree || 'all'}-${row.amountFrom ?? 'all'}-${idx}`}>
                                 <td className="px-3 py-2">{row.degree ? translateDegree(row.degree) : 'Tümü / Seçilmedi'}</td>
                                 <td className="px-3 py-2">{row.commissionKind === 'rate' ? 'Oran' : 'Sabit tutar'}</td>
                                 <td className="px-3 py-2">
                                   {row.commissionKind === 'rate' ? `${row.commissionValue}%` : row.commissionValue}
                                 </td>
+                                <td className="px-3 py-2">{formatAmountBound(row.amountFrom)}</td>
+                                <td className="px-3 py-2">{formatAmountBound(row.amountTo)}</td>
                                 <td className="px-3 py-2">{row.agencyBonus != null ? row.agencyBonus : '—'}</td>
                                 <td className="px-3 py-2">{row.depositSupport != null ? row.depositSupport : '—'}</td>
                               </tr>
@@ -897,7 +892,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
             </div>
           </div>
           <form id="university-form" onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 md:p-8">
-            <div className="max-w-2xl mx-auto space-y-6">
+            <div className="space-y-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">{t.universityName}</label>
                 <input type="text" required className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-blue-500 outline-none"
@@ -982,65 +977,11 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                       onChange={e => setFormData({ ...formData, abroadVatRateInput: e.target.value } as Partial<University> & { abroadVatRateInput?: string })}
                     />
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-800 mb-1">Komisyon türü</label>
-                      <select
-                        className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-amber-500 outline-none bg-white"
-                        value={(formData.commissionKind || '') as string}
-                        onChange={e => {
-                          const v = e.target.value;
-                          setFormData({ ...formData, commissionKind: (v === '' ? null : v) as 'amount' | 'rate' | null });
-                        }}
-                      >
-                        <option value="">Seçiniz</option>
-                        <option value="amount">Sabit tutar</option>
-                        <option value="rate">Oran</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-800 mb-1">
-                        {(formData.commissionKind === 'rate' ? 'Oran (%)' : formData.commissionKind === 'amount' ? 'Tutar' : 'Tutar / oran değeri')}
-                      </label>
-                      <input
-                        type="number"
-                        step="any"
-                        className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-amber-500 outline-none bg-white"
-                        placeholder={formData.commissionKind === 'rate' ? 'Örn. 12.5' : 'Örn. 5000'}
-                        value={(formData as Partial<University> & { commissionValueInput?: string }).commissionValueInput ?? ''}
-                        onChange={e => setFormData({ ...formData, commissionValueInput: e.target.value } as Partial<University> & { commissionValueInput?: string })}
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-800 mb-1">Bonus Max</label>
-                      <input
-                        type="number"
-                        step="any"
-                        className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-amber-500 outline-none bg-white"
-                        placeholder="Örn. 500"
-                        value={(formData as Partial<University> & { bonusMaxInput?: string }).bonusMaxInput ?? ''}
-                        onChange={e => setFormData({ ...formData, bonusMaxInput: e.target.value } as Partial<University> & { bonusMaxInput?: string })}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-800 mb-1">Bonus Min</label>
-                      <input
-                        type="number"
-                        step="any"
-                        className="w-full border border-gray-300 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-amber-500 outline-none bg-white"
-                        placeholder="Örn. 200"
-                        value={(formData as Partial<University> & { bonusMinInput?: string }).bonusMinInput ?? ''}
-                        onChange={e => setFormData({ ...formData, bonusMinInput: e.target.value } as Partial<University> & { bonusMinInput?: string })}
-                      />
-                    </div>
-                  </div>
                   <div className="border-t border-amber-200 pt-4 space-y-3">
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <h4 className="text-sm font-bold text-amber-900">Derece komisyon oranları</h4>
-                        <p className="text-xs text-amber-800/80">Her satırda derece, komisyon türü ve tutar/oran zorunludur.</p>
+                        <p className="text-xs text-amber-800/80">Başlangıç ve bitiş boşsa veya ikisi de 0 ise bu satır, yıllık ödeme tutarı hiçbir aralığa girmiyorsa kullanılır. Aynı derecede birden fazla aralıksız satır olamaz. Aralıklar uç uca gelebilir; 0–3000 ile 3000–10000 birlikte kullanılabilir.</p>
                       </div>
                       <button
                         type="button"
@@ -1056,16 +997,15 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                     ) : (
                       <div className="space-y-2">
                         {degreeCommissionRows.map((row, idx) => (
-                          <div key={idx} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1.1fr_1.1fr_0.9fr_0.9fr_0.9fr_auto] gap-2 items-end bg-white/80 rounded-xl p-2 border border-amber-100">
+                          <div key={idx} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_0.8fr_0.8fr_0.8fr_0.7fr_0.7fr_auto] gap-2 items-end bg-white/80 rounded-xl p-2 border border-amber-100">
                             <div>
-                              <label className="block text-xs font-medium text-gray-600 mb-1">Derece *</label>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">Derece</label>
                               <select
-                                required
                                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
                                 value={row.degree}
                                 onChange={(e) => setDegreeCommissionRows(prev => prev.map((r, i) => i === idx ? { ...r, degree: e.target.value as DegreeCommissionFormRow['degree'] } : r))}
                               >
-                                <option value="">Seçiniz</option>
+                                <option value="">Tümü / Seçilmedi</option>
                                 {DEGREE_COMMISSION_OPTIONS.map((degree) => (
                                   <option key={degree} value={degree}>{translateDegree(degree)}</option>
                                 ))}
@@ -1095,6 +1035,26 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
                                 value={row.commissionValue}
                                 onChange={(e) => setDegreeCommissionRows(prev => prev.map((r, i) => i === idx ? { ...r, commissionValue: e.target.value } : r))}
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">Başlangıç tutarı</label>
+                              <input
+                                type="number"
+                                step="any"
+                                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+                                value={row.amountFrom}
+                                onChange={(e) => setDegreeCommissionRows(prev => prev.map((r, i) => i === idx ? { ...r, amountFrom: e.target.value } : r))}
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">Bitiş tutarı</label>
+                              <input
+                                type="number"
+                                step="any"
+                                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+                                value={row.amountTo}
+                                onChange={(e) => setDegreeCommissionRows(prev => prev.map((r, i) => i === idx ? { ...r, amountTo: e.target.value } : r))}
                               />
                             </div>
                             <div>
@@ -1134,13 +1094,12 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <h4 className="text-sm font-bold text-amber-900">Varsayılan acente komisyonları</h4>
-                        <p className="text-xs text-amber-800/80">Tümü / Seçilmedi dahil her seçenek için en fazla bir satır. Yeni satır kaydedilince bu üniversite için tüm temsilcilere eklenir; temsilcide aynı derece varsa tekrar yazılmaz.</p>
+                        <p className="text-xs text-amber-800/80">Başlangıç ve bitiş boşsa veya ikisi de 0 ise bu satır, yıllık ödeme tutarı hiçbir aralığa girmiyorsa kullanılır. Aynı derecede birden fazla aralıksız satır olamaz. Yeni satır, çakışmayan temsilcilere eklenir.</p>
                       </div>
                       <button
                         type="button"
-                        disabled={defaultAgencyRows.length >= DEGREE_COMMISSION_OPTIONS.length + 1}
                         onClick={() => setDefaultAgencyRows(prev => [...prev, { ...EMPTY_DEFAULT_AGENCY_ROW }])}
-                        className="inline-flex items-center gap-1 text-sm px-3 py-1.5 rounded-lg bg-amber-100 text-amber-900 hover:bg-amber-200 disabled:opacity-40"
+                        className="inline-flex items-center gap-1 text-sm px-3 py-1.5 rounded-lg bg-amber-100 text-amber-900 hover:bg-amber-200"
                       >
                         <Plus size={14} />
                         Satır Ekle
@@ -1150,10 +1109,8 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                       <p className="text-xs text-gray-500">Henüz varsayılan acente komisyon satırı yok.</p>
                     ) : (
                       <div className="space-y-2">
-                        {defaultAgencyRows.map((row, idx) => {
-                          const usedDegrees = new Set(defaultAgencyRows.filter((_, i) => i !== idx).map((r) => r.degree || ''));
-                          return (
-                            <div key={idx} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1.1fr_1.1fr_0.9fr_0.9fr_0.9fr_auto] gap-2 items-end bg-white/80 rounded-xl p-2 border border-amber-100">
+                        {defaultAgencyRows.map((row, idx) => (
+                            <div key={idx} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_0.8fr_0.8fr_0.8fr_0.8fr_0.8fr_auto] gap-2 items-end bg-white/80 rounded-xl p-2 border border-amber-100">
                               <div>
                                 <label className="block text-xs font-medium text-gray-600 mb-1">Derece *</label>
                                 <select
@@ -1161,8 +1118,8 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                                   value={row.degree}
                                   onChange={(e) => setDefaultAgencyRows(prev => prev.map((r, i) => i === idx ? { ...r, degree: e.target.value as DefaultAgencyCommissionFormRow['degree'] } : r))}
                                 >
-                                  <option value="" disabled={usedDegrees.has('') && row.degree !== ''}>Tümü / Seçilmedi</option>
-                                  {DEGREE_COMMISSION_OPTIONS.filter((degree) => degree === row.degree || !usedDegrees.has(degree)).map((degree) => (
+                                  <option value="">Tümü / Seçilmedi</option>
+                                  {DEGREE_COMMISSION_OPTIONS.map((degree) => (
                                     <option key={degree} value={degree}>{translateDegree(degree)}</option>
                                   ))}
                                 </select>
@@ -1194,6 +1151,26 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                                 />
                               </div>
                               <div>
+                                <label className="block text-xs font-medium text-gray-600 mb-1">Başlangıç tutarı</label>
+                                <input
+                                  type="number"
+                                  step="any"
+                                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+                                  value={row.amountFrom}
+                                  onChange={(e) => setDefaultAgencyRows(prev => prev.map((r, i) => i === idx ? { ...r, amountFrom: e.target.value } : r))}
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-gray-600 mb-1">Bitiş tutarı</label>
+                                <input
+                                  type="number"
+                                  step="any"
+                                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+                                  value={row.amountTo}
+                                  onChange={(e) => setDefaultAgencyRows(prev => prev.map((r, i) => i === idx ? { ...r, amountTo: e.target.value } : r))}
+                                />
+                              </div>
+                              <div>
                                 <label className="block text-xs font-medium text-gray-600 mb-1">Acente Bonus</label>
                                 <input
                                   type="number"
@@ -1222,8 +1199,7 @@ export const UniversityManager: React.FC<UniversityManagerProps> = ({
                                 <Trash2 size={14} />
                               </button>
                             </div>
-                          );
-                        })}
+                        ))}
                       </div>
                     )}
                   </div>

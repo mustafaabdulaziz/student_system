@@ -784,28 +784,165 @@ def _next_sequence(model_cls):
 DEGREE_COMMISSION_DEGREES = frozenset({'Diploma', 'Bachelor', 'Master', 'PhD'})
 
 
+def _parse_amount_bounds(raw_from, raw_to):
+    """Return ((amount_from, amount_to) or None, error). None bounds are the fallback when no range matches."""
+    blank_from = raw_from in (None, '')
+    blank_to = raw_to in (None, '')
+    if blank_from and blank_to:
+        return None, None
+    if blank_from or blank_to:
+        return None, 'Başlangıç ve bitiş tutarı birlikte girilmelidir.'
+    try:
+        amount_from = float(raw_from)
+        amount_to = float(raw_to)
+    except (TypeError, ValueError):
+        return None, 'Başlangıç ve bitiş tutarı sayı olmalıdır.'
+    if amount_from == 0 and amount_to == 0:
+        return None, None
+    if amount_from < 0 or amount_to < 0:
+        return None, 'Başlangıç ve bitiş tutarı negatif olamaz.'
+    if amount_from >= amount_to:
+        return None, 'Başlangıç tutarı bitiş tutarından küçük olmalıdır.'
+    return (amount_from, amount_to), None
+
+
+def _bounds_overlap(left, right):
+    if left is None and right is None:
+        return True
+    if left is None or right is None:
+        return False
+    return max(left[0], right[0]) < min(left[1], right[1])
+
+
+def _amount_in_bounds(bounds, amount):
+    if bounds is None:
+        return True
+    if amount is None:
+        return False
+    value = float(amount)
+    return bounds[0] <= value <= bounds[1]
+
+
+def _pick_amount_row(rows, amount, bounds_of):
+    bounded = []
+    open_rows = []
+    for row in rows:
+        bounds = bounds_of(row)
+        if bounds is None:
+            open_rows.append(row)
+        elif _amount_in_bounds(bounds, amount):
+            bounded.append((bounds[0], row))
+    if bounded:
+        bounded.sort(key=lambda item: item[0], reverse=True)
+        return bounded[0][1]
+    if open_rows:
+        return open_rows[0]
+    return None
+
+
+def _json_amount_bounds(row):
+    bounds, _err = _parse_amount_bounds(row.get('amountFrom'), row.get('amountTo'))
+    return bounds
+
+
+def _orm_amount_bounds(row):
+    return _json_amount_bounds({
+        'amountFrom': getattr(row, 'amount_from', None),
+        'amountTo': getattr(row, 'amount_to', None)
+    })
+
+
+def _amount_range_conflict(rows, accept, key_of, overlap_message):
+    grouped = {}
+    for row in rows or []:
+        if not isinstance(row, dict) or not accept(row):
+            continue
+        bounds, err = _parse_amount_bounds(row.get('amountFrom'), row.get('amountTo'))
+        if err:
+            return err
+        grouped.setdefault(key_of(row), []).append(bounds)
+    for bounds_list in grouped.values():
+        for index, left in enumerate(bounds_list):
+            for right in bounds_list[index + 1:]:
+                if _bounds_overlap(left, right):
+                    return overlap_message
+    return None
+
+
+def _degree_commission_range_error(rows):
+    def accept(row):
+        degree = (row.get('degree') or '').strip()
+        kind = (row.get('commissionKind') or '').strip()
+        return (not degree or degree in DEGREE_COMMISSION_DEGREES) and kind in ('rate', 'amount')
+
+    return _amount_range_conflict(
+        rows,
+        accept,
+        lambda row: (row.get('degree') or '').strip(),
+        'Aynı derece için tutar aralıkları çakışamaz.'
+    )
+
+
+def _default_agency_range_error(rows):
+    def accept(row):
+        degree = (row.get('degree') or '').strip()
+        kind = (row.get('commissionKind') or '').strip()
+        return (not degree or degree in DEGREE_COMMISSION_DEGREES) and kind in ('rate', 'amount')
+
+    return _amount_range_conflict(
+        rows,
+        accept,
+        lambda row: (row.get('degree') or '').strip(),
+        'Aynı derece için varsayılan acente komisyon tutar aralıkları çakışamaz.'
+    )
+
+
+def _agent_commission_range_error(rows):
+    def accept(row):
+        university_id = (row.get('universityId') or '').strip()
+        kind = (row.get('commissionKind') or '').strip()
+        degree = (row.get('degree') or '').strip()
+        if degree and degree not in DEGREE_COMMISSION_DEGREES:
+            return False
+        return bool(university_id) and kind in ('rate', 'amount')
+
+    return _amount_range_conflict(
+        rows,
+        accept,
+        lambda row: ((row.get('universityId') or '').strip(), (row.get('degree') or '').strip()),
+        'Aynı acente, üniversite ve derece için tutar aralıkları çakışamaz.'
+    )
+
+
+def _stored_amount_fields(row):
+    bounds, _err = _parse_amount_bounds(row.get('amountFrom'), row.get('amountTo'))
+    if bounds is None:
+        return None, None
+    return bounds[0], bounds[1]
+
+
 def _normalize_degree_commissions(rows):
     out = []
-    seen = set()
     for row in rows or []:
         if not isinstance(row, dict):
             continue
         degree = (row.get('degree') or '').strip()
         commission_kind = (row.get('commissionKind') or '').strip()
-        if degree not in DEGREE_COMMISSION_DEGREES or commission_kind not in ('rate', 'amount'):
-            continue
-        if degree in seen:
+        if (degree and degree not in DEGREE_COMMISSION_DEGREES) or commission_kind not in ('rate', 'amount'):
             continue
         try:
             commission_value = float(row.get('commissionValue'))
         except (TypeError, ValueError):
             continue
+        amount_from, amount_to = _stored_amount_fields(row)
         item = {
             'degree': degree,
             'commissionKind': commission_kind,
             'commissionValue': commission_value,
             'bonusMin': None,
-            'bonusMax': None
+            'bonusMax': None,
+            'amountFrom': amount_from,
+            'amountTo': amount_to
         }
         for key in ('bonusMin', 'bonusMax'):
             raw = row.get(key)
@@ -815,22 +952,18 @@ def _normalize_degree_commissions(rows):
                 item[key] = float(raw)
             except (TypeError, ValueError):
                 continue
-        seen.add(degree)
         out.append(item)
     return out
 
 
 def _normalize_default_agency_commissions(rows):
     out = []
-    seen = set()
     for row in rows or []:
         if not isinstance(row, dict):
             continue
         degree = (row.get('degree') or '').strip()
         commission_kind = (row.get('commissionKind') or '').strip()
         if (degree and degree not in DEGREE_COMMISSION_DEGREES) or commission_kind not in ('rate', 'amount'):
-            continue
-        if degree in seen:
             continue
         try:
             commission_value = float(row.get('commissionValue'))
@@ -848,39 +981,34 @@ def _normalize_default_agency_commissions(rows):
                 agency_bonus = float(row.get('agencyBonus'))
             except (TypeError, ValueError):
                 continue
-        seen.add(degree)
+        amount_from, amount_to = _stored_amount_fields(row)
         out.append({
             'degree': degree,
             'commissionKind': commission_kind,
             'commissionValue': commission_value,
             'agencyBonus': agency_bonus,
-            'depositSupport': deposit_support
+            'depositSupport': deposit_support,
+            'amountFrom': amount_from,
+            'amountTo': amount_to
         })
     return out
 
 
-def _default_agency_commissions_have_duplicate(rows):
-    seen = set()
-    for row in rows or []:
-        if not isinstance(row, dict):
-            continue
-        degree = (row.get('degree') or '').strip()
-        commission_kind = (row.get('commissionKind') or '').strip()
-        if (degree and degree not in DEGREE_COMMISSION_DEGREES) or commission_kind not in ('rate', 'amount'):
-            continue
-        if degree in seen:
-            return True
-        seen.add(degree)
-    return False
+def _default_row_identity(row):
+    degree = (row.get('degree') or '').strip()
+    bounds = _json_amount_bounds(row)
+    if bounds is None:
+        return (degree, None, None)
+    return (degree, bounds[0], bounds[1])
 
 
 def _propagate_new_default_agency_commissions(university_id, previous_rows, new_rows):
-    """Add newly introduced university default rows onto every agent who lacks that degree."""
-    previous_degrees = set()
+    """Add newly introduced default ranges onto agents who have no overlapping row."""
+    previous_keys = set()
     for row in previous_rows or []:
         if isinstance(row, dict):
-            previous_degrees.add((row.get('degree') or '').strip())
-    added = [row for row in (new_rows or []) if (row.get('degree') or '') not in previous_degrees]
+            previous_keys.add(_default_row_identity(row))
+    added = [row for row in (new_rows or []) if _default_row_identity(row) not in previous_keys]
     if not added or not university_id:
         return
     agents = [u for u in User.query.all() if (u.role or '').strip().lower() == 'agent']
@@ -891,12 +1019,16 @@ def _propagate_new_default_agency_commissions(university_id, previous_rows, new_
         UserUniversityCommission.university_id == university_id,
         UserUniversityCommission.user_id.in_(agent_ids)
     ).all()
-    have = {(row.user_id, (getattr(row, 'degree', None) or '')) for row in existing}
+    have = {}
+    for row in existing:
+        key = (row.user_id, (getattr(row, 'degree', None) or ''))
+        have.setdefault(key, []).append(_orm_amount_bounds(row))
     for agent in agents:
         for row in added:
             degree_key = (row.get('degree') or '').strip()
             key = (agent.id, degree_key)
-            if key in have:
+            new_bounds = _json_amount_bounds(row)
+            if any(_bounds_overlap(existing_bounds, new_bounds) for existing_bounds in have.get(key, [])):
                 continue
             db.session.add(UserUniversityCommission(
                 id=str(uuid.uuid4()),
@@ -906,9 +1038,11 @@ def _propagate_new_default_agency_commissions(university_id, previous_rows, new_
                 commission_kind=row['commissionKind'],
                 commission_value=row['commissionValue'],
                 agency_bonus=row.get('agencyBonus'),
-                deposit_support=row.get('depositSupport')
+                deposit_support=row.get('depositSupport'),
+                amount_from=row.get('amountFrom'),
+                amount_to=row.get('amountTo')
             ))
-            have.add(key)
+            have.setdefault(key, []).append(new_bounds)
 
 
 def _apply_university_default_commissions_to_agent(user_id):
@@ -916,12 +1050,16 @@ def _apply_university_default_commissions_to_agent(user_id):
     if not user_id:
         return
     existing = UserUniversityCommission.query.filter_by(user_id=user_id).all()
-    have = {(row.university_id, (getattr(row, 'degree', None) or '')) for row in existing}
+    have = {}
+    for row in existing:
+        key = (row.university_id, (getattr(row, 'degree', None) or ''))
+        have.setdefault(key, []).append(_orm_amount_bounds(row))
     for university in University.query.all():
         for row in _normalize_default_agency_commissions(getattr(university, 'default_agency_commissions', None) or []):
             degree_key = (row.get('degree') or '').strip()
             key = (university.id, degree_key)
-            if key in have:
+            new_bounds = _json_amount_bounds(row)
+            if any(_bounds_overlap(existing_bounds, new_bounds) for existing_bounds in have.get(key, [])):
                 continue
             db.session.add(UserUniversityCommission(
                 id=str(uuid.uuid4()),
@@ -931,9 +1069,11 @@ def _apply_university_default_commissions_to_agent(user_id):
                 commission_kind=row['commissionKind'],
                 commission_value=row['commissionValue'],
                 agency_bonus=row.get('agencyBonus'),
-                deposit_support=row.get('depositSupport')
+                deposit_support=row.get('depositSupport'),
+                amount_from=row.get('amountFrom'),
+                amount_to=row.get('amountTo')
             ))
-            have.add(key)
+            have.setdefault(key, []).append(new_bounds)
 
 
 def _serialize_user_commissions(user_id):
@@ -944,18 +1084,18 @@ def _serialize_user_commissions(user_id):
         'commissionKind': row.commission_kind,
         'commissionValue': row.commission_value,
         'agencyBonus': row.agency_bonus,
-        'depositSupport': row.deposit_support
+        'depositSupport': row.deposit_support,
+        'amountFrom': row.amount_from,
+        'amountTo': row.amount_to
     } for row in UserUniversityCommission.query.filter_by(user_id=user_id).all()]
 
 
-def _university_degree_commission(university, degree):
-    if not university or not degree:
-        return None
-    rows = getattr(university, 'degree_commissions', None) or []
-    for row in rows:
+def _degree_commission_candidates(university, target_degree):
+    rows = []
+    for row in getattr(university, 'degree_commissions', None) or []:
         if not isinstance(row, dict):
             continue
-        if (row.get('degree') or '').strip() != degree:
+        if (row.get('degree') or '').strip() != (target_degree or ''):
             continue
         kind = (row.get('commissionKind') or '').strip()
         if kind not in ('rate', 'amount'):
@@ -964,7 +1104,7 @@ def _university_degree_commission(university, degree):
             value = float(row.get('commissionValue'))
         except (TypeError, ValueError):
             continue
-        result = {'kind': kind, 'value': value, 'bonusMin': None, 'bonusMax': None}
+        result = {'kind': kind, 'value': value, 'bonusMin': None, 'bonusMax': None, 'row': row}
         for key in ('bonusMin', 'bonusMax'):
             raw = row.get(key)
             if raw is None or raw == '':
@@ -973,8 +1113,35 @@ def _university_degree_commission(university, degree):
                 result[key] = float(raw)
             except (TypeError, ValueError):
                 continue
-        return result
-    return None
+        rows.append(result)
+    return rows
+
+
+def _finish_degree_commission(picked):
+    if picked is None:
+        return None
+    picked.pop('row', None)
+    return picked
+
+
+def _university_degree_commission(university, degree, annual_payment=None):
+    """Exact program degree first, then the Tümü / Seçilmedi row. Amount range still applies."""
+    if not university:
+        return None
+    picked = None
+    if degree:
+        picked = _pick_amount_row(
+            _degree_commission_candidates(university, degree),
+            annual_payment,
+            lambda item: _json_amount_bounds(item['row'])
+        )
+    if picked is None:
+        picked = _pick_amount_row(
+            _degree_commission_candidates(university, ''),
+            annual_payment,
+            lambda item: _json_amount_bounds(item['row'])
+        )
+    return _finish_degree_commission(picked)
 
 
 def _normalize_agent_commissions(rows):
@@ -990,7 +1157,7 @@ def _normalize_agent_commissions(rows):
             continue
         if commission_kind not in ('rate', 'amount') or not university_id:
             continue
-        key = (university_id, degree or '')
+        key = (university_id, degree or '', row.get('amountFrom'), row.get('amountTo'))
         if key in seen:
             continue
         seen.add(key)
@@ -1010,6 +1177,7 @@ def _normalize_agent_commissions(rows):
                 agency_bonus = float(row.get('agencyBonus'))
             except (TypeError, ValueError):
                 continue
+        amount_from, amount_to = _stored_amount_fields(row)
         out.append({
             'id': (row.get('id') or '').strip() or None,
             'universityId': university_id,
@@ -1017,25 +1185,15 @@ def _normalize_agent_commissions(rows):
             'commissionKind': commission_kind,
             'commissionValue': commission_value,
             'agencyBonus': agency_bonus,
-            'depositSupport': deposit_support
+            'depositSupport': deposit_support,
+            'amountFrom': amount_from,
+            'amountTo': amount_to
         })
     return out
 
 
 def _agent_commissions_have_duplicate(rows):
-    seen = set()
-    for row in rows or []:
-        if not isinstance(row, dict):
-            continue
-        university_id = (row.get('universityId') or '').strip()
-        if not university_id:
-            continue
-        degree = (row.get('degree') or '').strip()
-        key = (university_id, degree)
-        if key in seen:
-            return True
-        seen.add(key)
-    return False
+    return _agent_commission_range_error(rows) is not None
 
 
 def _replace_user_agent_commissions(user_id, rows):
@@ -1049,12 +1207,14 @@ def _replace_user_agent_commissions(user_id, rows):
             commission_kind=row['commissionKind'],
             commission_value=row['commissionValue'],
             agency_bonus=row.get('agencyBonus'),
-            deposit_support=row.get('depositSupport')
+            deposit_support=row.get('depositSupport'),
+            amount_from=row.get('amountFrom'),
+            amount_to=row.get('amountTo')
         ))
 
 
-def _agent_commission_for_user_university(user_id, university_id, degree=None):
-    """Match agent commission: exact degree first, then empty/all-degree row. No other fallback."""
+def _agent_commission_for_user_university(user_id, university_id, degree=None, annual_payment=None):
+    """Match agent commission by degree, then by annual-payment range. Exact degree before all-degree."""
     if not user_id or not university_id:
         return None
     rows = UserUniversityCommission.query.filter_by(user_id=user_id, university_id=university_id).all()
@@ -1062,15 +1222,11 @@ def _agent_commission_for_user_university(user_id, university_id, degree=None):
         return None
     matched = None
     if degree:
-        for row in rows:
-            if (getattr(row, 'degree', None) or '') == degree:
-                matched = row
-                break
+        exact = [row for row in rows if (getattr(row, 'degree', None) or '') == degree]
+        matched = _pick_amount_row(exact, annual_payment, _orm_amount_bounds)
     if matched is None:
-        for row in rows:
-            if not getattr(row, 'degree', None):
-                matched = row
-                break
+        fallback = [row for row in rows if not getattr(row, 'degree', None)]
+        matched = _pick_amount_row(fallback, annual_payment, _orm_amount_bounds)
     if matched is None:
         return None
     return {
@@ -1092,13 +1248,14 @@ def _compute_application_finance(
     program = Program.query.get(application.program_id) if application.program_id else None
     university = University.query.get(program.university_id) if program and program.university_id else None
     program_degree = getattr(program, 'degree', None) if program else None
-    degree_cfg = _university_degree_commission(university, program_degree) if university else None
 
     # Defaults from program/university
     if application.annual_payment is None and program:
         application.annual_payment = getattr(program, 'fee', None)
     if (not application.currency) and program:
         application.currency = getattr(program, 'currency', None) or 'USD'
+    annual_for_range = float(application.annual_payment) if application.annual_payment is not None else None
+    degree_cfg = _university_degree_commission(university, program_degree, annual_for_range) if university else None
     if force_refresh_from_sources and university:
         uv = getattr(university, 'education_vat_rate', None)
         if uv is not None:
@@ -1113,18 +1270,14 @@ def _compute_application_finance(
         if application.abroad_vat_rate is None and university:
             uv = getattr(university, 'abroad_vat_rate', None)
             application.abroad_vat_rate = float(uv) if uv is not None else None
-    if application.bonus_max is None:
-        if degree_cfg and degree_cfg.get('bonusMax') is not None:
+    if force_refresh_from_sources:
+        application.bonus_max = float(degree_cfg['bonusMax']) if degree_cfg and degree_cfg.get('bonusMax') is not None else None
+        application.bonus_min = float(degree_cfg['bonusMin']) if degree_cfg and degree_cfg.get('bonusMin') is not None else None
+    else:
+        if application.bonus_max is None and degree_cfg and degree_cfg.get('bonusMax') is not None:
             application.bonus_max = float(degree_cfg['bonusMax'])
-        elif university:
-            uv = getattr(university, 'bonus_max', None)
-            application.bonus_max = float(uv) if uv is not None else None
-    if application.bonus_min is None:
-        if degree_cfg and degree_cfg.get('bonusMin') is not None:
+        if application.bonus_min is None and degree_cfg and degree_cfg.get('bonusMin') is not None:
             application.bonus_min = float(degree_cfg['bonusMin'])
-        elif university:
-            uv = getattr(university, 'bonus_min', None)
-            application.bonus_min = float(uv) if uv is not None else None
 
     annual = float(application.annual_payment) if application.annual_payment is not None else None
     edu_rate = float(application.education_vat_rate) if application.education_vat_rate is not None else None
@@ -1134,15 +1287,12 @@ def _compute_application_finance(
     edu_amount = float(application.education_vat) if application.education_vat is not None else 0.0
 
     # --- Brüt komisyon ---
-    # Kaynak: üniversite derece komisyonu → yoksa üniversite genel komisyonu
+    # Kaynak: program derecesi, yoksa Tümü / Seçilmedi satırı
     if force_refresh_from_sources:
         preserve_gross_commission = False
     if not preserve_gross_commission:
         if degree_cfg:
             ck, cv = degree_cfg['kind'], degree_cfg['value']
-        elif university:
-            ck = getattr(university, 'commission_kind', None)
-            cv = getattr(university, 'commission_value', None)
         else:
             ck, cv = None, None
 
@@ -1194,7 +1344,8 @@ def _compute_application_finance(
     agent_cfg = _agent_commission_for_user_university(
         application.user_id,
         program.university_id if program else None,
-        program_degree
+        program_degree,
+        annual
     )
 
     if force_refresh_from_sources:
@@ -1211,8 +1362,8 @@ def _compute_application_finance(
             if agent_cfg['kind'] == 'rate':
                 application.agency_commission_rate = float(agent_cfg['value'])
                 application.agency_commission = (
-                    net * float(agent_cfg['value']) / 100.0
-                    if net is not None
+                    round(annual * float(agent_cfg['value']) / 100.0, 2)
+                    if annual is not None
                     else None
                 )
             else:
@@ -1227,8 +1378,8 @@ def _compute_application_finance(
     agency_rate = getattr(application, 'agency_commission_rate', None)
     if agency_kind == 'rate':
         application.agency_commission = (
-            net * float(agency_rate) / 100.0
-            if agency_rate is not None and net is not None
+            round(annual * float(agency_rate) / 100.0, 2)
+            if agency_rate is not None and annual is not None
             else None
         )
 
@@ -1290,9 +1441,10 @@ def add_user():
     if (user.role or '').strip().lower() == 'agent':
         if caller_role in FINANCE_ROLES and 'agentCommissions' in data:
             raw_commissions = data.get('agentCommissions')
-            if _agent_commissions_have_duplicate(raw_commissions):
+            range_error = _agent_commission_range_error(raw_commissions)
+            if range_error:
                 db.session.rollback()
-                return jsonify({'message': 'Aynı acente, üniversite ve derece için iki satır eklenemez'}), 400
+                return jsonify({'message': range_error}), 400
             _replace_user_agent_commissions(user.id, _normalize_agent_commissions(raw_commissions))
         _apply_university_default_commissions_to_agent(user.id)
     db.session.commit()
@@ -1359,7 +1511,9 @@ def get_users():
             'commissionKind': r.commission_kind,
             'commissionValue': r.commission_value,
             'agencyBonus': r.agency_bonus,
-            'depositSupport': r.deposit_support
+            'depositSupport': r.deposit_support,
+            'amountFrom': r.amount_from,
+            'amountTo': r.amount_to
         })
     return jsonify([{
         'id': u.id,
@@ -1388,7 +1542,9 @@ def _agent_commission_to_dict(row, user=None, university=None):
         'commissionKind': row.commission_kind,
         'commissionValue': row.commission_value,
         'agencyBonus': row.agency_bonus,
-        'depositSupport': row.deposit_support
+        'depositSupport': row.deposit_support,
+        'amountFrom': row.amount_from,
+        'amountTo': row.amount_to
     }
 
 
@@ -1418,24 +1574,34 @@ def add_agent_commission():
     user = User.query.get(user_id)
     if not user or (user.role or '').strip().lower() != 'agent':
         return jsonify({'message': 'Geçerli bir temsilci seçin'}), 400
-    normalized = _normalize_agent_commissions([{
+    payload_row = {
         'universityId': data.get('universityId'),
         'degree': data.get('degree'),
         'commissionKind': data.get('commissionKind'),
         'commissionValue': data.get('commissionValue'),
         'agencyBonus': data.get('agencyBonus'),
-        'depositSupport': data.get('depositSupport')
-    }])
+        'depositSupport': data.get('depositSupport'),
+        'amountFrom': data.get('amountFrom'),
+        'amountTo': data.get('amountTo')
+    }
+    range_error = _agent_commission_range_error([payload_row])
+    if range_error:
+        return jsonify({'message': range_error}), 400
+    normalized = _normalize_agent_commissions([payload_row])
     if not normalized:
         return jsonify({'message': 'Üniversite, komisyon tipi ve tutar/oran zorunludur'}), 400
     row_data = normalized[0]
     degree_key = row_data.get('degree') or ''
+    new_bounds = _json_amount_bounds(row_data)
     existing = UserUniversityCommission.query.filter_by(
         user_id=user_id,
         university_id=row_data['universityId']
     ).all()
-    if any((getattr(r, 'degree', None) or '') == degree_key for r in existing):
-        return jsonify({'message': 'Aynı acente, üniversite ve derece için iki satır eklenemez'}), 400
+    if any(
+        (getattr(r, 'degree', None) or '') == degree_key and _bounds_overlap(_orm_amount_bounds(r), new_bounds)
+        for r in existing
+    ):
+        return jsonify({'message': 'Aynı acente, üniversite ve derece için tutar aralıkları çakışamaz.'}), 400
     row = UserUniversityCommission(
         id=str(uuid.uuid4()),
         user_id=user_id,
@@ -1444,7 +1610,9 @@ def add_agent_commission():
         commission_kind=row_data['commissionKind'],
         commission_value=row_data['commissionValue'],
         agency_bonus=row_data.get('agencyBonus'),
-        deposit_support=row_data.get('depositSupport')
+        deposit_support=row_data.get('depositSupport'),
+        amount_from=row_data.get('amountFrom'),
+        amount_to=row_data.get('amountTo')
     )
     db.session.add(row)
     db.session.commit()
@@ -1466,31 +1634,43 @@ def update_agent_commission(commission_id):
         if not user or (user.role or '').strip().lower() != 'agent':
             return jsonify({'message': 'Geçerli bir temsilci seçin'}), 400
         row.user_id = user_id
-    normalized = _normalize_agent_commissions([{
+    payload_row = {
         'universityId': data.get('universityId', row.university_id),
         'degree': data.get('degree') if 'degree' in data else getattr(row, 'degree', None),
         'commissionKind': data.get('commissionKind', row.commission_kind),
         'commissionValue': data.get('commissionValue', row.commission_value),
         'agencyBonus': data.get('agencyBonus') if 'agencyBonus' in data else row.agency_bonus,
-        'depositSupport': data.get('depositSupport') if 'depositSupport' in data else row.deposit_support
-    }])
+        'depositSupport': data.get('depositSupport') if 'depositSupport' in data else row.deposit_support,
+        'amountFrom': data.get('amountFrom') if 'amountFrom' in data else row.amount_from,
+        'amountTo': data.get('amountTo') if 'amountTo' in data else row.amount_to
+    }
+    range_error = _agent_commission_range_error([payload_row])
+    if range_error:
+        return jsonify({'message': range_error}), 400
+    normalized = _normalize_agent_commissions([payload_row])
     if not normalized:
         return jsonify({'message': 'Üniversite, komisyon tipi ve tutar/oran zorunludur'}), 400
     row_data = normalized[0]
     degree_key = row_data.get('degree') or ''
+    new_bounds = _json_amount_bounds(row_data)
     existing = UserUniversityCommission.query.filter(
         UserUniversityCommission.user_id == row.user_id,
         UserUniversityCommission.university_id == row_data['universityId'],
         UserUniversityCommission.id != commission_id
     ).all()
-    if any((getattr(r, 'degree', None) or '') == degree_key for r in existing):
-        return jsonify({'message': 'Aynı acente, üniversite ve derece için iki satır eklenemez'}), 400
+    if any(
+        (getattr(r, 'degree', None) or '') == degree_key and _bounds_overlap(_orm_amount_bounds(r), new_bounds)
+        for r in existing
+    ):
+        return jsonify({'message': 'Aynı acente, üniversite ve derece için tutar aralıkları çakışamaz.'}), 400
     row.university_id = row_data['universityId']
     row.degree = row_data.get('degree')
     row.commission_kind = row_data['commissionKind']
     row.commission_value = row_data['commissionValue']
     row.agency_bonus = row_data.get('agencyBonus')
     row.deposit_support = row_data.get('depositSupport')
+    row.amount_from = row_data.get('amountFrom')
+    row.amount_to = row_data.get('amountTo')
     db.session.commit()
     return jsonify({'message': 'Komisyon güncellendi', **_agent_commission_to_dict(row)}), 200
 
@@ -1602,8 +1782,10 @@ def update_user(user_id):
         user.importance_level = importance
     if _can_see_finance() and 'agentCommissions' in data:
         raw_commissions = data.get('agentCommissions')
-        if (user.role or '').lower() == 'agent' and _agent_commissions_have_duplicate(raw_commissions):
-            return jsonify({'message': 'Aynı acente, üniversite ve derece için iki satır eklenemez'}), 400
+        if (user.role or '').lower() == 'agent':
+            range_error = _agent_commission_range_error(raw_commissions)
+            if range_error:
+                return jsonify({'message': range_error}), 400
         rows = _normalize_agent_commissions(raw_commissions)
         _replace_user_agent_commissions(user.id, rows if (user.role or '').lower() == 'agent' else [])
     became_agent = previous_role != 'agent' and (user.role or '').strip().lower() == 'agent'
@@ -2002,11 +2184,15 @@ def add_university():
 
     degree_commissions = None
     if 'degreeCommissions' in data:
+        degree_error = _degree_commission_range_error(data.get('degreeCommissions'))
+        if degree_error:
+            return jsonify({'message': degree_error}), 400
         degree_commissions = _normalize_degree_commissions(data.get('degreeCommissions'))
     default_agency_commissions = None
     if 'defaultAgencyCommissions' in data:
-        if _default_agency_commissions_have_duplicate(data.get('defaultAgencyCommissions')):
-            return jsonify({'message': 'Aynı üniversite için varsayılan acente komisyonlarında aynı derece iki kez eklenemez'}), 400
+        agency_error = _default_agency_range_error(data.get('defaultAgencyCommissions'))
+        if agency_error:
+            return jsonify({'message': agency_error}), 400
         default_agency_commissions = _normalize_default_agency_commissions(data.get('defaultAgencyCommissions'))
 
     university = University(
@@ -2241,11 +2427,16 @@ def update_university(uni_id):
             except (TypeError, ValueError):
                 return jsonify({'message': 'bonusMin must be a number'}), 400
     if 'degreeCommissions' in data:
+        degree_error = _degree_commission_range_error(data.get('degreeCommissions'))
+        if degree_error:
+            db.session.rollback()
+            return jsonify({'message': degree_error}), 400
         university.degree_commissions = _normalize_degree_commissions(data.get('degreeCommissions'))
     if 'defaultAgencyCommissions' in data:
-        if _default_agency_commissions_have_duplicate(data.get('defaultAgencyCommissions')):
+        agency_error = _default_agency_range_error(data.get('defaultAgencyCommissions'))
+        if agency_error:
             db.session.rollback()
-            return jsonify({'message': 'Aynı üniversite için varsayılan acente komisyonlarında aynı derece iki kez eklenemez'}), 400
+            return jsonify({'message': agency_error}), 400
         previous_defaults = list(getattr(university, 'default_agency_commissions', None) or [])
         normalized_defaults = _normalize_default_agency_commissions(data.get('defaultAgencyCommissions'))
         university.default_agency_commissions = normalized_defaults

@@ -475,15 +475,15 @@ export const ApplicationManager: React.FC<ApplicationManagerProps> = ({
   }, [computedGrossCommission, computedAbroadVatAmount]);
   const computedAgencyCommission = useMemo(() => {
     if (detailFinance.agencyCommissionKind === 'amount') return detailFinance.agencyCommission;
-    const net = parseFloat(computedNetCommission);
+    const annual = parseFloat(detailFinance.annualPayment);
     const rate = parseFloat(detailFinance.agencyCommissionRate);
-    if (Number.isNaN(net) || Number.isNaN(rate)) return '';
-    return String(net * (rate / 100));
+    if (Number.isNaN(annual) || Number.isNaN(rate)) return '';
+    return String(Math.round((annual * (rate / 100) + Number.EPSILON) * 100) / 100);
   }, [
     detailFinance.agencyCommissionKind,
     detailFinance.agencyCommission,
     detailFinance.agencyCommissionRate,
-    computedNetCommission
+    detailFinance.annualPayment
   ]);
   const computedAgencyContractAmount = useMemo(() => {
     const total = numOrZero(computedAgencyCommission) + numOrZero(detailFinance.agencyBonus);

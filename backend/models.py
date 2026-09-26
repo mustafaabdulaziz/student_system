@@ -107,6 +107,9 @@ class UserUniversityCommission(db.Model):
     commission_value = db.Column(db.Float, nullable=False)
     agency_bonus = db.Column(db.Float, nullable=True)
     deposit_support = db.Column(db.Float, nullable=True)
+    # Annual-payment window. NULL/NULL is the fallback when no range matches.
+    amount_from = db.Column(db.Float, nullable=True)
+    amount_to = db.Column(db.Float, nullable=True)
 
 
 class Application(db.Model):

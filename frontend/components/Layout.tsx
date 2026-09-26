@@ -18,7 +18,8 @@ import {
   Building2,
   Settings,
   Tags,
-  Percent
+  Percent,
+  GraduationCap
 } from 'lucide-react';
 import { User } from '../types';
 import { canManageCatalog, canAccessLimitedSettings, isAdminRole } from '../utils/roles';
@@ -75,7 +76,10 @@ export const Layout: React.FC<LayoutProps> = ({
       ? [
           { id: 'users', label: t.usersTitle, icon: UserCog },
           ...(isAdminRole(currentUser?.role)
-            ? [{ id: 'agent-commissions', label: 'Acente Komisyonları', icon: Percent }]
+            ? [
+                { id: 'agent-commissions', label: 'Acente Komisyonları', icon: Percent },
+                { id: 'university-commissions', label: 'Üniversite Komisyonları', icon: GraduationCap }
+              ]
             : []),
           { id: 'periods', label: t.period, icon: CalendarRange },
           { id: 'agency-companies', label: 'Aracı Firma Listesi', icon: Building2 },
@@ -98,6 +102,7 @@ export const Layout: React.FC<LayoutProps> = ({
   const isSettingsPage =
     activePage === 'users' ||
     activePage === 'agent-commissions' ||
+    activePage === 'university-commissions' ||
     activePage === 'periods' ||
     activePage === 'agency-companies' ||
     activePage === 'payment-sources';

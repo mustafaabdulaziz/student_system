@@ -1,18 +1,89 @@
-import React, { useMemo, useState } from 'react';
-import { AgentCommissionListRow, University, User } from '../types';
-import { ChevronDown, ChevronUp, Pencil, Plus, Trash2, X } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { AgentCommissionListRow, University, UniversityDegreeCommission, User } from '../types';
+import { ChevronDown, ChevronUp, Columns3, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { useTranslation } from '../hooks/useTranslation';
 import { SearchableSelect } from './SearchableSelect';
 import { SearchableMultiSelect } from './SearchableMultiSelect';
+import { amountRangeConflictMessage, formatAmountBound, parseAmountBounds } from '../utils/amountRange';
 
 type CommissionSortKey =
   | 'userName'
   | 'universityName'
   | 'degree'
+  | 'uniCommissionKind'
+  | 'uniCommissionValue'
+  | 'uniBonusMin'
+  | 'uniBonusMax'
+  | 'uniAmountFrom'
+  | 'uniAmountTo'
   | 'commissionKind'
   | 'commissionValue'
+  | 'amountFrom'
+  | 'amountTo'
   | 'agencyBonus'
   | 'depositSupport';
+
+const COMMISSION_COLUMNS: { key: CommissionSortKey; label: string }[] = [
+  { key: 'userName', label: 'Acente' },
+  { key: 'universityName', label: 'Üniversite' },
+  { key: 'degree', label: 'Derece' },
+  { key: 'uniCommissionKind', label: 'Üni. komisyon türü' },
+  { key: 'uniCommissionValue', label: 'Üni. tutar / oran' },
+  { key: 'uniBonusMin', label: 'Üni. bonus min' },
+  { key: 'uniBonusMax', label: 'Üni. bonus max' },
+  { key: 'uniAmountFrom', label: 'Üni. başlangıç' },
+  { key: 'uniAmountTo', label: 'Üni. bitiş' },
+  { key: 'commissionKind', label: 'Komisyon Tipi' },
+  { key: 'commissionValue', label: 'Tutar / Oran' },
+  { key: 'amountFrom', label: 'Başlangıç tutarı' },
+  { key: 'amountTo', label: 'Bitiş tutarı' },
+  { key: 'agencyBonus', label: 'Acente Bonus' },
+  { key: 'depositSupport', label: 'Depozito Desteği' }
+];
+
+const COMMISSION_COLUMN_KEYS = COMMISSION_COLUMNS.map((column) => column.key);
+const COMMISSION_COLUMNS_STORAGE_KEY = 'agentCommissions.visibleColumns';
+
+function sameAmountBounds(
+  leftFrom?: number | null,
+  leftTo?: number | null,
+  rightFrom?: number | null,
+  rightTo?: number | null
+) {
+  const leftOpen = leftFrom == null || leftTo == null;
+  const rightOpen = rightFrom == null || rightTo == null;
+  if (leftOpen && rightOpen) return true;
+  if (leftOpen || rightOpen) return false;
+  return leftFrom === rightFrom && leftTo === rightTo;
+}
+
+function relatedDegreeCommission(
+  universities: University[],
+  universityId: string,
+  degree?: string,
+  amountFrom?: number | null,
+  amountTo?: number | null
+): UniversityDegreeCommission | null {
+  const rows = (universities.find((uni) => uni.id === universityId)?.degreeCommissions || [])
+    .filter((row) => (row.degree || '') === (degree || ''));
+  if (rows.length === 0) return null;
+  const exact = rows.find((row) => sameAmountBounds(amountFrom, amountTo, row.amountFrom, row.amountTo));
+  if (exact) return exact;
+  if (rows.length === 1) return rows[0];
+  if (amountFrom == null || amountTo == null) return null;
+  const containing = rows.filter((row) => {
+    if (row.amountFrom == null || row.amountTo == null) return true;
+    return row.amountFrom <= amountFrom && amountTo <= row.amountTo;
+  });
+  const bounded = containing.filter((row) => row.amountFrom != null && row.amountTo != null);
+  const pool = bounded.length > 0 ? bounded : containing;
+  if (pool.length === 0) return null;
+  return [...pool].sort((a, b) => {
+    const aSpan = (a.amountTo ?? Number.POSITIVE_INFINITY) - (a.amountFrom ?? 0);
+    const bSpan = (b.amountTo ?? Number.POSITIVE_INFINITY) - (b.amountFrom ?? 0);
+    return aSpan - bSpan;
+  })[0];
+}
 
 type FormState = {
   userId: string;
@@ -22,6 +93,8 @@ type FormState = {
   commissionValue: string;
   agencyBonus: string;
   depositSupport: string;
+  amountFrom: string;
+  amountTo: string;
 };
 
 const EMPTY_FORM: FormState = {
@@ -31,7 +104,9 @@ const EMPTY_FORM: FormState = {
   commissionKind: '',
   commissionValue: '',
   agencyBonus: '',
-  depositSupport: ''
+  depositSupport: '',
+  amountFrom: '',
+  amountTo: ''
 };
 
 interface AgentCommissionsPageProps {
@@ -46,6 +121,8 @@ interface AgentCommissionsPageProps {
     commissionValue: number;
     agencyBonus?: number | null;
     depositSupport?: number | null;
+    amountFrom?: number | null;
+    amountTo?: number | null;
   }) => Promise<boolean>;
   onEdit: (id: string, payload: {
     userId: string;
@@ -55,6 +132,8 @@ interface AgentCommissionsPageProps {
     commissionValue: number;
     agencyBonus?: number | null;
     depositSupport?: number | null;
+    amountFrom?: number | null;
+    amountTo?: number | null;
   }) => Promise<boolean>;
   onDelete: (id: string) => Promise<boolean>;
   onAddDefault: (payload: {
@@ -64,6 +143,8 @@ interface AgentCommissionsPageProps {
     commissionValue: number;
     agencyBonus?: number | null;
     depositSupport?: number | null;
+    amountFrom?: number | null;
+    amountTo?: number | null;
   }) => Promise<boolean>;
 }
 
@@ -93,19 +174,28 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
     commissionKind: '' as '' | 'rate' | 'amount',
     commissionValue: '',
     agencyBonus: '',
-    depositSupport: ''
+    depositSupport: '',
+    amountFrom: '',
+    amountTo: ''
   });
   const [defaultOpen, setDefaultOpen] = useState(false);
   const [defaultSaving, setDefaultSaving] = useState(false);
   const [sortBy, setSortBy] = useState<CommissionSortKey | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [columnsOpen, setColumnsOpen] = useState(false);
+  const [visibleColumns, setVisibleColumns] = useState<CommissionSortKey[]>(COMMISSION_COLUMN_KEYS);
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const columnsRef = useRef<HTMLDivElement>(null);
   const [defaultForm, setDefaultForm] = useState({
     universityId: '',
     degree: '' as '' | 'Diploma' | 'Bachelor' | 'Master' | 'PhD',
     commissionKind: '' as '' | 'rate' | 'amount',
     commissionValue: '',
     agencyBonus: '',
-    depositSupport: ''
+    depositSupport: '',
+    amountFrom: '',
+    amountTo: ''
   });
 
   const agentUsers = useMemo(
@@ -154,7 +244,9 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
       commissionKind: row.commissionKind,
       commissionValue: String(row.commissionValue ?? ''),
       agencyBonus: row.agencyBonus != null ? String(row.agencyBonus) : '',
-      depositSupport: row.depositSupport != null ? String(row.depositSupport) : ''
+      depositSupport: row.depositSupport != null ? String(row.depositSupport) : '',
+      amountFrom: row.amountFrom != null ? String(row.amountFrom) : '',
+      amountTo: row.amountTo != null ? String(row.amountTo) : ''
     });
     setFormMode('edit');
   };
@@ -191,16 +283,23 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
         return null;
       }
     }
+    const bounds = parseAmountBounds(form.amountFrom, form.amountTo);
+    if (bounds.error) {
+      alert(bounds.error);
+      return null;
+    }
     const degreeKey = form.degree || '';
-    const duplicate = rows.some(
-      row =>
-        row.id !== editingId &&
-        row.userId === form.userId &&
-        row.universityId === form.universityId &&
-        (row.degree || '') === degreeKey
+    const overlap = amountRangeConflictMessage(
+      [
+        ...rows
+          .filter(row => row.id !== editingId && row.userId === form.userId && row.universityId === form.universityId && (row.degree || '') === degreeKey)
+          .map(row => ({ key: degreeKey, from: row.amountFrom, to: row.amountTo })),
+        { key: degreeKey, from: bounds.from, to: bounds.to }
+      ],
+      'Aynı acente, üniversite ve derece için tutar aralıkları çakışamaz.'
     );
-    if (duplicate) {
-      alert('Aynı acente, üniversite ve derece için iki satır eklenemez.');
+    if (overlap) {
+      alert(overlap);
       return null;
     }
     return {
@@ -210,7 +309,9 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
       commissionKind: form.commissionKind as 'rate' | 'amount',
       commissionValue,
       agencyBonus,
-      depositSupport
+      depositSupport,
+      amountFrom: bounds.from,
+      amountTo: bounds.to
     };
   };
 
@@ -229,6 +330,42 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
     }
   };
 
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(COMMISSION_COLUMNS_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return;
+      const valid = parsed.filter((key: string): key is CommissionSortKey =>
+        COMMISSION_COLUMN_KEYS.includes(key as CommissionSortKey)
+      );
+      if (valid.length > 0) setVisibleColumns(valid);
+    } catch {
+      // ignore invalid storage
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(COMMISSION_COLUMNS_STORAGE_KEY, JSON.stringify(visibleColumns));
+  }, [visibleColumns]);
+
+  useEffect(() => {
+    if (!columnsOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (columnsRef.current && !columnsRef.current.contains(event.target as Node)) {
+        setColumnsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [columnsOpen]);
+
+  const toggleColumn = (key: CommissionSortKey) => {
+    setVisibleColumns((prev) => (prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key]));
+  };
+
+  const shownColumns = COMMISSION_COLUMNS.filter((column) => visibleColumns.includes(column.key));
+
   const kindLabel = (kind: string) => (kind === 'rate' ? 'Oran (%)' : 'Sabit Tutar');
 
   const degreeLabel = (degree?: string) => (degree ? translateDegree(degree) : 'Tümü / Seçilmedi');
@@ -240,16 +377,30 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
       if (sortBy === 'userName') return row.userName || '';
       if (sortBy === 'universityName') return row.universityName || '';
       if (sortBy === 'degree') return degreeLabel(row.degree);
-      if (sortBy === 'commissionKind') return kindLabel(row.commissionKind);
+      if (sortBy === 'commissionKind' || sortBy === 'uniCommissionKind') {
+        const source = sortBy === 'uniCommissionKind'
+          ? relatedDegreeCommission(universities, row.universityId, row.degree, row.amountFrom, row.amountTo)?.commissionKind
+          : row.commissionKind;
+        return source ? kindLabel(source) : '';
+      }
       return '';
     };
     const numberValue = (row: AgentCommissionListRow) => {
+      const related = relatedDegreeCommission(universities, row.universityId, row.degree, row.amountFrom, row.amountTo);
       if (sortBy === 'commissionValue') return Number(row.commissionValue);
+      if (sortBy === 'amountFrom') return row.amountFrom == null ? null : Number(row.amountFrom);
+      if (sortBy === 'amountTo') return row.amountTo == null ? null : Number(row.amountTo);
       if (sortBy === 'agencyBonus') return row.agencyBonus == null ? null : Number(row.agencyBonus);
       if (sortBy === 'depositSupport') return row.depositSupport == null ? null : Number(row.depositSupport);
+      if (sortBy === 'uniCommissionValue') return related?.commissionValue == null ? null : Number(related.commissionValue);
+      if (sortBy === 'uniBonusMin') return related?.bonusMin == null ? null : Number(related.bonusMin);
+      if (sortBy === 'uniBonusMax') return related?.bonusMax == null ? null : Number(related.bonusMax);
+      if (sortBy === 'uniAmountFrom') return related?.amountFrom == null ? null : Number(related.amountFrom);
+      if (sortBy === 'uniAmountTo') return related?.amountTo == null ? null : Number(related.amountTo);
       return null;
     };
-    const numeric = sortBy === 'commissionValue' || sortBy === 'agencyBonus' || sortBy === 'depositSupport';
+    const numeric = sortBy === 'commissionValue' || sortBy === 'amountFrom' || sortBy === 'amountTo' || sortBy === 'agencyBonus' || sortBy === 'depositSupport'
+      || sortBy === 'uniCommissionValue' || sortBy === 'uniBonusMin' || sortBy === 'uniBonusMax' || sortBy === 'uniAmountFrom' || sortBy === 'uniAmountTo';
     return [...filteredRows].sort((a, b) => {
       if (numeric) {
         const va = numberValue(a);
@@ -261,7 +412,7 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
       }
       return textValue(a).localeCompare(textValue(b), 'tr', { numeric: true, sensitivity: 'base' }) * dir;
     });
-  }, [filteredRows, sortBy, sortDir, translateDegree]);
+  }, [filteredRows, sortBy, sortDir, translateDegree, universities]);
 
   const toggleSort = (key: CommissionSortKey) => {
     if (sortBy === key) {
@@ -269,7 +420,11 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
       return;
     }
     setSortBy(key);
-    setSortDir(key === 'commissionValue' || key === 'agencyBonus' || key === 'depositSupport' ? 'desc' : 'asc');
+    const numericKeys: CommissionSortKey[] = [
+      'commissionValue', 'amountFrom', 'amountTo', 'agencyBonus', 'depositSupport',
+      'uniCommissionValue', 'uniBonusMin', 'uniBonusMax', 'uniAmountFrom', 'uniAmountTo'
+    ];
+    setSortDir(numericKeys.includes(key) ? 'desc' : 'asc');
   };
 
   const SortTh = ({ colKey, label }: { colKey: CommissionSortKey; label: string }) => (
@@ -308,19 +463,13 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
     });
   };
 
-  const defaultDegreeOptions = useMemo(() => {
-    const taken = new Set(
-      (universities.find(u => u.id === defaultForm.universityId)?.defaultAgencyCommissions || [])
-        .map(row => row.degree || '')
-    );
-    return ([
-      { value: '' as const, label: 'Tümü / Seçilmedi' },
-      { value: 'Diploma' as const, label: translateDegree('Diploma') },
-      { value: 'Bachelor' as const, label: translateDegree('Bachelor') },
-      { value: 'Master' as const, label: translateDegree('Master') },
-      { value: 'PhD' as const, label: translateDegree('PhD') }
-    ]).filter(option => !taken.has(option.value));
-  }, [universities, defaultForm.universityId, translateDegree]);
+  const defaultDegreeOptions = useMemo(() => ([
+    { value: '' as const, label: 'Tümü / Seçilmedi' },
+    { value: 'Diploma' as const, label: translateDegree('Diploma') },
+    { value: 'Bachelor' as const, label: translateDegree('Bachelor') },
+    { value: 'Master' as const, label: translateDegree('Master') },
+    { value: 'PhD' as const, label: translateDegree('PhD') }
+  ]), [translateDegree]);
 
   const openDefault = () => {
     setDefaultForm({
@@ -329,7 +478,9 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
       commissionKind: '',
       commissionValue: '',
       agencyBonus: '',
-      depositSupport: ''
+      depositSupport: '',
+      amountFrom: '',
+      amountTo: ''
     });
     setDefaultOpen(true);
   };
@@ -338,10 +489,6 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
     e.preventDefault();
     if (!defaultForm.universityId || !defaultForm.commissionKind || defaultForm.commissionValue.trim() === '') {
       alert('Üniversite, komisyon tipi ve tutar/oran zorunludur.');
-      return;
-    }
-    if (!defaultDegreeOptions.some(option => option.value === defaultForm.degree)) {
-      alert('Bu üniversite için aynı derece varsayılan acente komisyonlarında zaten var.');
       return;
     }
     const commissionValue = Number(defaultForm.commissionValue);
@@ -365,6 +512,25 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
         return;
       }
     }
+    const bounds = parseAmountBounds(defaultForm.amountFrom, defaultForm.amountTo);
+    if (bounds.error) {
+      alert(bounds.error);
+      return;
+    }
+    const existing = universities.find(u => u.id === defaultForm.universityId)?.defaultAgencyCommissions || [];
+    const overlap = amountRangeConflictMessage(
+      [
+        ...existing
+          .filter(row => (row.degree || '') === defaultForm.degree)
+          .map(row => ({ key: defaultForm.degree, from: row.amountFrom, to: row.amountTo })),
+        { key: defaultForm.degree, from: bounds.from, to: bounds.to }
+      ],
+      'Aynı derece için varsayılan acente komisyon tutar aralıkları çakışamaz.'
+    );
+    if (overlap) {
+      alert(overlap);
+      return;
+    }
     setDefaultSaving(true);
     try {
       const ok = await onAddDefault({
@@ -373,7 +539,9 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
         commissionKind: defaultForm.commissionKind,
         commissionValue,
         agencyBonus,
-        depositSupport
+        depositSupport,
+        amountFrom: bounds.from,
+        amountTo: bounds.to
       });
       if (ok) setDefaultOpen(false);
     } finally {
@@ -386,7 +554,7 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
       alert('Toplu düzenlemek için listeden satır seçin.');
       return;
     }
-    setBulkForm({ commissionKind: '', commissionValue: '', agencyBonus: '', depositSupport: '' });
+    setBulkForm({ commissionKind: '', commissionValue: '', agencyBonus: '', depositSupport: '', amountFrom: '', amountTo: '' });
     setBulkOpen(true);
   };
 
@@ -396,8 +564,14 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
     const valueFilled = bulkForm.commissionValue.trim() !== '';
     const bonusFilled = bulkForm.agencyBonus.trim() !== '';
     const depositFilled = bulkForm.depositSupport.trim() !== '';
-    if (!kindFilled && !valueFilled && !bonusFilled && !depositFilled) {
-      alert('Komisyon tipi, tutar/oran, acente bonus veya depozito desteğinden en az birini doldurun.');
+    const fromFilled = bulkForm.amountFrom.trim() !== '';
+    const toFilled = bulkForm.amountTo.trim() !== '';
+    if (!kindFilled && !valueFilled && !bonusFilled && !depositFilled && !fromFilled && !toFilled) {
+      alert('Komisyon tipi, tutar/oran, tutar aralığı, acente bonus veya depozito desteğinden en az birini doldurun.');
+      return;
+    }
+    if (fromFilled !== toFilled) {
+      alert('Başlangıç ve bitiş tutarı birlikte girilmelidir.');
       return;
     }
     let commissionValue: number | null = null;
@@ -424,6 +598,31 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
         return;
       }
     }
+    const bulkBounds = fromFilled ? parseAmountBounds(bulkForm.amountFrom, bulkForm.amountTo) : null;
+    if (bulkBounds?.error) {
+      alert(bulkBounds.error);
+      return;
+    }
+    if (bulkBounds) {
+      const selectedIdSet = new Set(selectedRows.map(row => row.id));
+      const projected = rows.map(row => (
+        selectedIdSet.has(row.id)
+          ? { ...row, amountFrom: bulkBounds.from, amountTo: bulkBounds.to }
+          : row
+      ));
+      const overlap = amountRangeConflictMessage(
+        projected.map(row => ({
+          key: `${row.userId}::${row.universityId}::${row.degree || ''}`,
+          from: row.amountFrom,
+          to: row.amountTo
+        })),
+        'Aynı acente, üniversite ve derece için tutar aralıkları çakışamaz.'
+      );
+      if (overlap) {
+        alert(overlap);
+        return;
+      }
+    }
     setBulkSaving(true);
     try {
       for (const row of selectedRows) {
@@ -434,7 +633,9 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
           commissionKind: kindFilled ? bulkForm.commissionKind as 'rate' | 'amount' : row.commissionKind,
           commissionValue: valueFilled ? commissionValue as number : row.commissionValue,
           agencyBonus: bonusFilled ? agencyBonus : (row.agencyBonus ?? null),
-          depositSupport: depositFilled ? depositSupport : (row.depositSupport ?? null)
+          depositSupport: depositFilled ? depositSupport : (row.depositSupport ?? null),
+          amountFrom: bulkBounds ? bulkBounds.from : (row.amountFrom ?? null),
+          amountTo: bulkBounds ? bulkBounds.to : (row.amountTo ?? null)
         });
         if (!ok) return;
       }
@@ -461,6 +662,43 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
             <Pencil size={18} />
             Toplu düzenle{selectedRows.length > 0 ? ` (${selectedRows.length})` : ''}
           </button>
+          <button
+            type="button"
+            onClick={() => setConfirmBulkDelete(true)}
+            disabled={selectedRows.length === 0 || bulkDeleting}
+            className="inline-flex items-center gap-2 bg-white text-red-700 border border-red-200 px-4 py-2 rounded-lg hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Trash2 size={18} />
+            Toplu sil{selectedRows.length > 0 ? ` (${selectedRows.length})` : ''}
+          </button>
+          <div className="relative" ref={columnsRef}>
+            <button
+              type="button"
+              onClick={() => setColumnsOpen((open) => !open)}
+              className="inline-flex items-center gap-2 bg-white text-gray-800 border border-gray-300 px-4 py-2 rounded-lg hover:bg-gray-50"
+            >
+              <Columns3 size={18} />
+              {t.columns}
+            </button>
+            {columnsOpen && (
+              <div className="absolute right-0 z-30 mt-2 w-64 max-h-80 overflow-y-auto rounded-xl border border-gray-200 bg-white p-2 shadow-lg">
+                {COMMISSION_COLUMNS.map((column) => (
+                  <label
+                    key={column.key}
+                    className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={visibleColumns.includes(column.key)}
+                      onChange={() => toggleColumn(column.key)}
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span>{column.label}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
           <button
             type="button"
             onClick={openDefault}
@@ -598,6 +836,28 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
               />
             </div>
             <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Başlangıç tutarı</label>
+              <input
+                type="number"
+                step="any"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5"
+                value={form.amountFrom}
+                onChange={(e) => setForm(prev => ({ ...prev, amountFrom: e.target.value }))}
+                placeholder="Boş = tüm tutarlar"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Bitiş tutarı</label>
+              <input
+                type="number"
+                step="any"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5"
+                value={form.amountTo}
+                onChange={(e) => setForm(prev => ({ ...prev, amountTo: e.target.value }))}
+                placeholder="Boş = tüm tutarlar"
+              />
+            </div>
+            <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Acente Bonus</label>
               <input
                 type="number"
@@ -648,13 +908,9 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
                     className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                   />
                 </th>
-                <SortTh colKey="userName" label="Acente" />
-                <SortTh colKey="universityName" label="Üniversite" />
-                <SortTh colKey="degree" label="Derece" />
-                <SortTh colKey="commissionKind" label="Komisyon Tipi" />
-                <SortTh colKey="commissionValue" label="Tutar / Oran" />
-                <SortTh colKey="agencyBonus" label="Acente Bonus" />
-                <SortTh colKey="depositSupport" label="Depozito Desteği" />
+                {shownColumns.map((column) => (
+                  <SortTh key={column.key} colKey={column.key} label={column.label} />
+                ))}
                 <th className="px-4 py-3 text-center w-28">İşlem</th>
               </tr>
             </thead>
@@ -670,21 +926,45 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
                       className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                     />
                   </td>
-                  <td className="px-4 py-3 font-medium text-gray-900">{row.userName || '—'}</td>
-                  <td className="px-4 py-3 text-gray-900">{row.universityName || '—'}</td>
-                  <td className="px-4 py-3 text-gray-900">
-                    {degreeLabel(row.degree)}
-                  </td>
-                  <td className="px-4 py-3 text-gray-900">{kindLabel(row.commissionKind)}</td>
-                  <td className="px-4 py-3 text-gray-900">
-                    {row.commissionKind === 'rate' ? `${row.commissionValue}%` : row.commissionValue}
-                  </td>
-                  <td className="px-4 py-3 text-gray-900">
-                    {row.agencyBonus != null ? row.agencyBonus : '—'}
-                  </td>
-                  <td className="px-4 py-3 text-gray-900">
-                    {row.depositSupport != null ? row.depositSupport : '—'}
-                  </td>
+                  {shownColumns.map((column) => {
+                    const related = relatedDegreeCommission(
+                      universities,
+                      row.universityId,
+                      row.degree,
+                      row.amountFrom,
+                      row.amountTo
+                    );
+                    let text = '—';
+                    if (column.key === 'userName') text = row.userName || '—';
+                    else if (column.key === 'universityName') text = row.universityName || '—';
+                    else if (column.key === 'degree') text = degreeLabel(row.degree);
+                    else if (column.key === 'commissionKind') text = kindLabel(row.commissionKind);
+                    else if (column.key === 'commissionValue') {
+                      text = row.commissionKind === 'rate' ? `${row.commissionValue}%` : String(row.commissionValue);
+                    } else if (column.key === 'amountFrom') text = formatAmountBound(row.amountFrom);
+                    else if (column.key === 'amountTo') text = formatAmountBound(row.amountTo);
+                    else if (column.key === 'agencyBonus') text = row.agencyBonus != null ? String(row.agencyBonus) : '—';
+                    else if (column.key === 'depositSupport') text = row.depositSupport != null ? String(row.depositSupport) : '—';
+                    else if (column.key === 'uniCommissionKind') text = related ? kindLabel(related.commissionKind) : '—';
+                    else if (column.key === 'uniCommissionValue') {
+                      text = !related
+                        ? '—'
+                        : related.commissionKind === 'rate'
+                          ? `${related.commissionValue}%`
+                          : String(related.commissionValue);
+                    } else if (column.key === 'uniBonusMin') text = related?.bonusMin != null ? String(related.bonusMin) : '—';
+                    else if (column.key === 'uniBonusMax') text = related?.bonusMax != null ? String(related.bonusMax) : '—';
+                    else if (column.key === 'uniAmountFrom') text = formatAmountBound(related?.amountFrom);
+                    else if (column.key === 'uniAmountTo') text = formatAmountBound(related?.amountTo);
+                    return (
+                      <td
+                        key={column.key}
+                        className={`px-4 py-3 text-gray-900 ${column.key === 'userName' ? 'font-medium' : ''}`}
+                      >
+                        {text}
+                      </td>
+                    );
+                  })}
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-center gap-1">
                       <button
@@ -709,7 +989,7 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
               ))}
               {filteredRows.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-gray-400">
+                  <td colSpan={shownColumns.length + 2} className="px-4 py-8 text-center text-gray-400">
                     Kayıt bulunamadı
                   </td>
                 </tr>
@@ -729,20 +1009,14 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
               </button>
             </div>
             <p className="text-sm text-gray-500 mb-4">
-              Satır seçilen üniversitenin varsayılan acente komisyonlarına eklenir ve o dereceyi henüz olmayan temsilcilere yazılır.
+              Satır seçilen üniversitenin varsayılan acente komisyonlarına eklenir. Aralık boşsa yıllık ödeme hiçbir aralığa girmiyorsa kullanılır ve çakışmayan temsilcilere yazılır.
             </p>
             <form onSubmit={handleDefaultSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Üniversite *</label>
                 <SearchableSelect
                   value={defaultForm.universityId}
-                  onChange={(value) => {
-                    const taken = new Set(
-                      (universities.find(u => u.id === value)?.defaultAgencyCommissions || []).map(row => row.degree || '')
-                    );
-                    const nextDegree = (['', 'Diploma', 'Bachelor', 'Master', 'PhD'] as const).find(degree => !taken.has(degree)) || '';
-                    setDefaultForm(prev => ({ ...prev, universityId: value, degree: nextDegree }));
-                  }}
+                  onChange={(value) => setDefaultForm(prev => ({ ...prev, universityId: value }))}
                   options={universityOptions}
                   placeholder="Üniversite seçin"
                   searchPlaceholder={t.search}
@@ -755,11 +1029,9 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
                   className="w-full border border-gray-300 rounded-lg px-3 py-2.5"
                   value={defaultForm.degree}
                   onChange={(e) => setDefaultForm(prev => ({ ...prev, degree: e.target.value as typeof prev.degree }))}
-                  disabled={!defaultForm.universityId || defaultDegreeOptions.length === 0}
+                  disabled={!defaultForm.universityId}
                 >
-                  {defaultDegreeOptions.length === 0 ? (
-                    <option value="">Bu üniversitede eklenecek derece kalmadı</option>
-                  ) : defaultDegreeOptions.map(option => (
+                  {defaultDegreeOptions.map(option => (
                     <option key={option.value || 'all'} value={option.value}>{option.label}</option>
                   ))}
                 </select>
@@ -791,6 +1063,28 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
                 />
               </div>
               <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Başlangıç tutarı</label>
+                <input
+                  type="number"
+                  step="any"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5"
+                  value={defaultForm.amountFrom}
+                  onChange={(e) => setDefaultForm(prev => ({ ...prev, amountFrom: e.target.value }))}
+                  placeholder="Boş = tüm tutarlar"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Bitiş tutarı</label>
+                <input
+                  type="number"
+                  step="any"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5"
+                  value={defaultForm.amountTo}
+                  onChange={(e) => setDefaultForm(prev => ({ ...prev, amountTo: e.target.value }))}
+                  placeholder="Boş = tüm tutarlar"
+                />
+              </div>
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Acente Bonus</label>
                 <input
                   type="number"
@@ -818,7 +1112,7 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
                 </button>
                 <button
                   type="submit"
-                  disabled={defaultSaving || !defaultForm.universityId || defaultDegreeOptions.length === 0}
+                  disabled={defaultSaving || !defaultForm.universityId}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
                 >
                   {defaultSaving ? t.loading : t.save}
@@ -866,6 +1160,28 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
                 />
               </div>
               <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Başlangıç tutarı</label>
+                <input
+                  type="number"
+                  step="any"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5"
+                  value={bulkForm.amountFrom}
+                  onChange={(e) => setBulkForm(prev => ({ ...prev, amountFrom: e.target.value }))}
+                  placeholder="Boş bırakılırsa değişmez"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Bitiş tutarı</label>
+                <input
+                  type="number"
+                  step="any"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5"
+                  value={bulkForm.amountTo}
+                  onChange={(e) => setBulkForm(prev => ({ ...prev, amountTo: e.target.value }))}
+                  placeholder="Boş bırakılırsa değişmez"
+                />
+              </div>
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Acente Bonus</label>
                 <input
                   type="number"
@@ -900,6 +1216,46 @@ export const AgentCommissionsPage: React.FC<AgentCommissionsPageProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {confirmBulkDelete && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl max-w-sm w-full p-6 shadow-2xl">
+            <h3 className="text-lg font-bold text-gray-800 mb-2">Toplu sil</h3>
+            <p className="text-gray-600 text-sm mb-4">
+              Seçili {selectedRows.length} satır silinsin mi?
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmBulkDelete(false)}
+                className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg"
+              >
+                {t.cancel}
+              </button>
+              <button
+                type="button"
+                disabled={bulkDeleting}
+                onClick={async () => {
+                  setBulkDeleting(true);
+                  try {
+                    for (const row of selectedRows) {
+                      const ok = await onDelete(row.id);
+                      if (!ok) return;
+                    }
+                    setSelectedIds([]);
+                    setConfirmBulkDelete(false);
+                  } finally {
+                    setBulkDeleting(false);
+                  }
+                }}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+              >
+                {bulkDeleting ? t.loading : t.delete}
+              </button>
+            </div>
           </div>
         </div>
       )}

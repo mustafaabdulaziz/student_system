@@ -34,6 +34,8 @@ export interface AgentCommission {
   commissionValue: number;
   agencyBonus?: number | null;
   depositSupport?: number | null;
+  amountFrom?: number | null;
+  amountTo?: number | null;
 }
 
 export interface AgentCommissionListRow extends AgentCommission {
@@ -44,11 +46,13 @@ export interface AgentCommissionListRow extends AgentCommission {
 }
 
 export type UniversityDegreeCommission = {
-  degree: 'Diploma' | 'Bachelor' | 'Master' | 'PhD';
+  degree: '' | 'Diploma' | 'Bachelor' | 'Master' | 'PhD';
   commissionKind: 'rate' | 'amount';
   commissionValue: number;
   bonusMin?: number | null;
   bonusMax?: number | null;
+  amountFrom?: number | null;
+  amountTo?: number | null;
 };
 
 export type UniversityDefaultAgencyCommission = {
@@ -57,6 +61,8 @@ export type UniversityDefaultAgencyCommission = {
   commissionValue: number;
   agencyBonus?: number | null;
   depositSupport?: number | null;
+  amountFrom?: number | null;
+  amountTo?: number | null;
 };
 
 export interface University {

@@ -167,7 +167,9 @@ if __name__ == '__main__':
                         'commission_kind VARCHAR NOT NULL, '
                         'commission_value FLOAT NOT NULL, '
                         'agency_bonus FLOAT, '
-                        'deposit_support FLOAT)'
+                        'deposit_support FLOAT, '
+                        'amount_from FLOAT, '
+                        'amount_to FLOAT)'
                     ))
                     conn.commit()
                 else:
@@ -180,6 +182,12 @@ if __name__ == '__main__':
                         conn.commit()
                     if 'degree' not in commission_cols:
                         conn.execute(text('ALTER TABLE user_university_commissions ADD COLUMN degree VARCHAR'))
+                        conn.commit()
+                    if 'amount_from' not in commission_cols:
+                        conn.execute(text('ALTER TABLE user_university_commissions ADD COLUMN amount_from FLOAT'))
+                        conn.commit()
+                    if 'amount_to' not in commission_cols:
+                        conn.execute(text('ALTER TABLE user_university_commissions ADD COLUMN amount_to FLOAT'))
                         conn.commit()
             except Exception as e:
                 print('User university commissions table check:', e)

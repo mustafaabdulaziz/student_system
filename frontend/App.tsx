@@ -34,6 +34,7 @@ import { PaymentDashboard } from './components/PaymentDashboard';
 import { ActivityDashboard } from './components/ActivityDashboard';
 import { AgencyCompanyManager } from './components/AgencyCompanyManager';
 import { AgentCommissionsPage } from './components/AgentCommissionsPage';
+import { UniversityCommissionsPage } from './components/UniversityCommissionsPage';
 import { PaymentSourceManager } from './components/PaymentSourceManager';
 import { PaymentCategoryManager } from './components/PaymentCategoryManager';
 import { NotificationsPage } from './components/NotificationsPage';
@@ -65,6 +66,7 @@ const PATH_TO_PAGE: Record<string, string> = {
   '/periods': 'periods',
   '/users': 'users',
   '/agent-commissions': 'agent-commissions',
+  '/university-commissions': 'university-commissions',
   '/incoming-payments': 'incoming-payments',
   '/outgoing-payments': 'outgoing-payments',
   '/payment-dashboard': 'payment-dashboard',
@@ -86,6 +88,7 @@ const PAGE_TO_PATH: Record<string, string> = {
   periods: '/periods',
   users: '/users',
   'agent-commissions': '/agent-commissions',
+  'university-commissions': '/university-commissions',
   'incoming-payments': '/incoming-payments',
   'outgoing-payments': '/outgoing-payments',
   'payment-dashboard': '/payment-dashboard',
@@ -194,7 +197,8 @@ export default function App() {
         activePage === 'payment-dashboard' ||
         activePage === 'payment-sources' ||
         activePage === 'payment-categories' ||
-        activePage === 'agent-commissions'
+        activePage === 'agent-commissions' ||
+        activePage === 'university-commissions'
       ));
     if (state.currentUser && shouldBlockPage) {
       setActivePage('dashboard');
@@ -329,6 +333,8 @@ export default function App() {
     commissionValue: number;
     agencyBonus?: number | null;
     depositSupport?: number | null;
+    amountFrom?: number | null;
+    amountTo?: number | null;
   }) => {
     const uni = state.universities.find(u => u.id === payload.universityId);
     if (!uni) {
@@ -337,10 +343,6 @@ export default function App() {
     }
     const existing = uni.defaultAgencyCommissions || [];
     const degreeKey = payload.degree || '';
-    if (existing.some(row => (row.degree || '') === degreeKey)) {
-      alert('Bu üniversite için aynı derece varsayılan acente komisyonlarında zaten var.');
-      return false;
-    }
     return editUniversity({
       ...uni,
       defaultAgencyCommissions: [
@@ -350,7 +352,9 @@ export default function App() {
           commissionKind: payload.commissionKind,
           commissionValue: payload.commissionValue,
           agencyBonus: payload.agencyBonus ?? null,
-          depositSupport: payload.depositSupport ?? null
+          depositSupport: payload.depositSupport ?? null,
+          amountFrom: payload.amountFrom ?? null,
+          amountTo: payload.amountTo ?? null
         }
       ]
     });
@@ -879,6 +883,9 @@ export default function App() {
             agencyCommissionKind: updated.agencyCommissionKind || 'amount',
             agencyCommissionRate: updated.agencyCommissionRate ?? undefined,
             agencyCommission: updated.agencyCommission ?? undefined,
+            agencyBonus: updated.agencyBonus ?? undefined,
+            bonusMin: updated.bonusMin ?? undefined,
+            bonusMax: updated.bonusMax ?? undefined,
             agencyContractAmount: updated.agencyContractAmount ?? undefined,
             remainingMin: updated.remainingMin ?? undefined,
             remainingMax: updated.remainingMax ?? undefined,
@@ -1308,6 +1315,8 @@ export default function App() {
     commissionValue: number;
     agencyBonus?: number | null;
     depositSupport?: number | null;
+    amountFrom?: number | null;
+    amountTo?: number | null;
   }) => {
     try {
       const role = state.currentUser?.role || 'ADMIN';
@@ -1328,7 +1337,9 @@ export default function App() {
         commissionKind: data.commissionKind,
         commissionValue: data.commissionValue,
         agencyBonus: data.agencyBonus ?? null,
-        depositSupport: data.depositSupport ?? null
+        depositSupport: data.depositSupport ?? null,
+        amountFrom: data.amountFrom ?? null,
+        amountTo: data.amountTo ?? null
       };
       syncUserCommissionState(payload.userId, prev => [...prev, next]);
       return true;
@@ -1348,6 +1359,8 @@ export default function App() {
       commissionValue: number;
       agencyBonus?: number | null;
       depositSupport?: number | null;
+      amountFrom?: number | null;
+      amountTo?: number | null;
     }
   ) => {
     try {
@@ -1373,7 +1386,9 @@ export default function App() {
         commissionKind: data.commissionKind,
         commissionValue: data.commissionValue,
         agencyBonus: data.agencyBonus ?? null,
-        depositSupport: data.depositSupport ?? null
+        depositSupport: data.depositSupport ?? null,
+        amountFrom: data.amountFrom ?? null,
+        amountTo: data.amountTo ?? null
       };
       if (previousUserId && previousUserId !== payload.userId) {
         syncUserCommissionState(previousUserId, prev => prev.filter(c => c.id !== id));
@@ -1636,6 +1651,23 @@ export default function App() {
             onSetUserActive={setUserActive}
           />
         );
+      case 'university-commissions': {
+        if (!isAdminRole(state.currentUser?.role)) {
+          return (
+            <Dashboard
+              students={state.students}
+              applications={state.applications}
+              programs={state.programs}
+              universities={state.universities}
+              users={state.users}
+              agencyCompanies={state.agencyCompanies}
+              currentUser={state.currentUser}
+              onDrilldownToApplications={openApplicationsWithFilters}
+            />
+          );
+        }
+        return <UniversityCommissionsPage universities={state.universities} />;
+      }
       case 'agent-commissions': {
         if (!isAdminRole(state.currentUser?.role)) {
           return (
@@ -1665,7 +1697,9 @@ export default function App() {
               commissionKind: c.commissionKind,
               commissionValue: c.commissionValue,
               agencyBonus: c.agencyBonus ?? null,
-              depositSupport: c.depositSupport ?? null
+              depositSupport: c.depositSupport ?? null,
+              amountFrom: c.amountFrom ?? null,
+              amountTo: c.amountTo ?? null
             }))
         );
         return (

@@ -889,7 +889,7 @@ export const translations: Record<Language, Translations> = {
         invalidImageFile: 'يرجى اختيار ملف صورة صالح',
         invalidEmail: 'البريد الإلكتروني غير صالح',
         passwordMismatch: 'كلمات المرور غير متطابقة',
-        agentCommissionDuplicate: 'لا يمكن إضافة صفين لنفس الوكيل والجامعة والدرجة',
+        agentCommissionDuplicate: 'لا يمكن أن تتداخل نطاقات المبلغ لنفس الوكيل والجامعة والدرجة',
 
         // Language
         language: 'اللغة',
@@ -1335,7 +1335,7 @@ export const translations: Record<Language, Translations> = {
         invalidImageFile: 'Please select a valid image file',
         invalidEmail: 'Invalid email address',
         passwordMismatch: 'Passwords do not match',
-        agentCommissionDuplicate: 'Cannot add two rows for the same agent, university and degree',
+        agentCommissionDuplicate: 'Amount ranges cannot overlap for the same agent, university and degree',
 
         // Language
         language: 'Language',
@@ -1781,7 +1781,7 @@ export const translations: Record<Language, Translations> = {
         invalidImageFile: 'Lütfen geçerli bir resim dosyası seçin',
         invalidEmail: 'Geçersiz e-posta adresi',
         passwordMismatch: 'Şifreler eşleşmiyor',
-        agentCommissionDuplicate: 'Aynı acente, üniversite ve derece için iki satır eklenemez',
+        agentCommissionDuplicate: 'Aynı acente, üniversite ve derece için tutar aralıkları çakışamaz.',
 
         // Language
         language: 'Dil',

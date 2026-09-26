@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { User, UserRole, University, AgentCommission, UserImportanceLevel, USER_IMPORTANCE_LEVELS } from '../types';
 import { Plus, Trash2, Pencil, UserX, UserCheck, ChevronLeft, FileEdit, ReceiptText, Printer, Search } from 'lucide-react';
 import { useTranslation } from '../hooks/useTranslation';
+import { amountRangeConflictMessage } from '../utils/amountRange';
 import { formatExpenseTypeDisplay, formatOutgoingPaymentDisplay } from '../constants/outgoingPayment';
 import { canAccessLimitedSettings, isAdminRole } from '../utils/roles';
 
@@ -35,7 +36,9 @@ const EMPTY_COMMISSION_ROW: AgentCommission = {
   commissionKind: 'rate',
   commissionValue: 0,
   agencyBonus: null,
-  depositSupport: null
+  depositSupport: null,
+  amountFrom: null,
+  amountTo: null
 };
 
 type StatementDebt = {
@@ -93,34 +96,19 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
   const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const [importanceFilter, setImportanceFilter] = useState('');
 
-  const commissionRowKey = (row: Pick<AgentCommission, 'universityId' | 'degree'>) =>
-    `${row.universityId}::${row.degree || ''}`;
-
-  const hasDuplicateCommission = (rows: AgentCommission[]) => {
-    const seen = new Set<string>();
-    for (const row of rows) {
-      if (!row.universityId) continue;
-      const key = commissionRowKey(row);
-      if (seen.has(key)) return true;
-      seen.add(key);
-    }
-    return false;
-  };
+  const commissionRangeError = (rows: AgentCommission[]) => amountRangeConflictMessage(
+    rows
+      .filter(row => row.universityId)
+      .map(row => ({
+        key: `${row.universityId}::${row.degree || ''}`,
+        from: row.amountFrom,
+        to: row.amountTo
+      })),
+    t.agentCommissionDuplicate
+  );
 
   const updateCommissionRow = (idx: number, patch: Partial<AgentCommission>) => {
-    setAgentCommissions(prev => {
-      const next = prev.map((r, i) => (i === idx ? { ...r, ...patch } : r));
-      const updated = next[idx];
-      if (updated?.universityId) {
-        const key = commissionRowKey(updated);
-        const duplicate = next.some((r, i) => i !== idx && r.universityId && commissionRowKey(r) === key);
-        if (duplicate) {
-          alert(t.agentCommissionDuplicate);
-          return prev;
-        }
-      }
-      return next;
-    });
+    setAgentCommissions(prev => prev.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
   };
 
   if (!currentUser || !canManageUsers) {
@@ -137,8 +125,9 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
           alert('Üniversite komisyon satırlarında üniversite ve tutar/oran zorunludur.');
           return;
         }
-        if (hasDuplicateCommission(agentCommissions)) {
-          alert(t.agentCommissionDuplicate);
+        const rangeError = commissionRangeError(agentCommissions);
+        if (rangeError) {
+          alert(rangeError);
           return;
         }
       }
@@ -184,7 +173,9 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
         commissionKind: r.commissionKind,
         commissionValue: r.commissionValue,
         agencyBonus: r.agencyBonus ?? null,
-        depositSupport: r.depositSupport ?? null
+        depositSupport: r.depositSupport ?? null,
+        amountFrom: r.amountFrom ?? null,
+        amountTo: r.amountTo ?? null
       }))
     );
     setFormMode('edit');
@@ -206,8 +197,9 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
           alert('Üniversite komisyon satırlarında üniversite ve tutar/oran zorunludur.');
           return;
         }
-        if (hasDuplicateCommission(agentCommissions)) {
-          alert(t.agentCommissionDuplicate);
+        const rangeError = commissionRangeError(agentCommissions);
+        if (rangeError) {
+          alert(rangeError);
           return;
         }
       }
@@ -482,6 +474,8 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
                         <th className="px-3 py-2 text-left font-semibold text-gray-700">Derece</th>
                         <th className="px-3 py-2 text-left font-semibold text-gray-700">Komisyon Tipi</th>
                         <th className="px-3 py-2 text-left font-semibold text-gray-700">Tutar / Oran</th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-700">Başlangıç tutarı</th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-700">Bitiş tutarı</th>
                         <th className="px-3 py-2 text-left font-semibold text-gray-700">Acente Bonus</th>
                         <th className="px-3 py-2 text-left font-semibold text-gray-700">Depozito Desteği</th>
                         <th className="px-3 py-2 w-12"></th>
@@ -544,6 +538,30 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
                             <input
                               type="number"
                               step="any"
+                              value={row.amountFrom ?? ''}
+                              onChange={(e) => updateCommissionRow(idx, {
+                                amountFrom: e.target.value === '' ? null : Number(e.target.value)
+                              })}
+                              disabled={!formEditable}
+                              className="w-full border border-gray-300 rounded-lg p-2 disabled:bg-gray-50 disabled:text-gray-600"
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <input
+                              type="number"
+                              step="any"
+                              value={row.amountTo ?? ''}
+                              onChange={(e) => updateCommissionRow(idx, {
+                                amountTo: e.target.value === '' ? null : Number(e.target.value)
+                              })}
+                              disabled={!formEditable}
+                              className="w-full border border-gray-300 rounded-lg p-2 disabled:bg-gray-50 disabled:text-gray-600"
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <input
+                              type="number"
+                              step="any"
                               value={row.agencyBonus ?? ''}
                               onChange={(e) => updateCommissionRow(idx, {
                                 agencyBonus: e.target.value === '' ? null : Number(e.target.value)
@@ -581,7 +599,7 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({
                       ))}
                       {agentCommissions.length === 0 && (
                         <tr>
-                          <td colSpan={7} className="px-3 py-4 text-center text-gray-500">Komisyon satırı ekleyin.</td>
+                          <td colSpan={9} className="px-3 py-4 text-center text-gray-500">Komisyon satırı ekleyin.</td>
                         </tr>
                       )}
                     </tbody>
